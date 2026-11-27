@@ -50,7 +50,18 @@ function finished(layout: GraphLayout) {
   });
 }
 
+/** Long enough for messages already on their way. Never what an event is waited for with. */
 const wait = () => new Promise((resolve) => setTimeout(resolve, 20));
+
+function nextChange(layout: GraphLayout) {
+  return new Promise<void>((resolve) => {
+    const listener = () => {
+      layout.off('layoutChange', listener);
+      resolve();
+    };
+    layout.on('layoutChange', listener);
+  });
+}
 
 describe('GraphLayout', () => {
   test('publishes positions until the layout settles, through two buffers', async () => {
@@ -77,7 +88,7 @@ describe('GraphLayout', () => {
   });
 
   test('transfers, and never touches, the arrays of the caller', async () => {
-    const { layout } = connect();
+    const { layout } = connect({ maxIterations: 20 });
     const input = { ...graph(), weights: Float32Array.of(1, 2, 3), positions: new Float32Array(8).fill(NaN) };
     const end = finished(layout);
     layout.setGraph(input);
@@ -94,11 +105,12 @@ describe('GraphLayout', () => {
   });
 
   test('drops what is left of a replaced graph', async () => {
-    const { layout } = connect();
+    // Each iteration is a round trip here: keep the runs short.
+    const { layout } = connect({ maxIterations: 60 });
     const lengths: number[] = [];
     layout.on('layoutChange', (positions) => lengths.push(positions.length));
     layout.setGraph(graph());
-    await wait();
+    await nextChange(layout);
     layout.setGraph({ nodeCount: 6, edges: Uint32Array.of(0, 5) });
     lengths.length = 0;
     await finished(layout);
@@ -110,14 +122,15 @@ describe('GraphLayout', () => {
     const listener = vi.fn();
     layout.on('layoutChange', listener);
     layout.setGraph(graph());
-    await wait();
+    await nextChange(layout);
     layout.stop();
     await wait();
     const count = [listener.mock.calls.length, sent.length];
     await wait();
     expect([listener.mock.calls.length, sent.length]).toEqual(count);
+    const resumed = nextChange(layout);
     layout.setGraph(graph());
-    await wait();
+    await resumed;
     expect(listener.mock.calls.length).toBeGreaterThan(count[0]!);
     expect(workers()).toBe(1);
   });
