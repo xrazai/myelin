@@ -1,10 +1,13 @@
 // Messages between main and vault-worker (worker thread, not Electron IPC).
 // A new request is a line here and a handler in `vault-worker.ts`.
-import type { TreeEntry } from '../shared/ipc';
+import type { TreeEntry, VaultInfo } from '../shared/ipc';
 
 export interface VaultRequests {
-  /** Makes the folder at this absolute path the current vault. */
-  open(root: string): void;
+  /**
+   * Makes the folder at this absolute path the current vault, creating `.myelin/vault.json`
+   * if it is missing. Rejects, keeping the current vault, if that file cannot be used.
+   */
+  open(root: string): VaultInfo;
   getTree(): TreeEntry[];
 }
 

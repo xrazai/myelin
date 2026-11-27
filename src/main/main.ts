@@ -1,10 +1,26 @@
 // Manages windows and routes IPC. No file I/O here (AGENTS.md, rule 1).
 import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, dialog, type OpenDialogOptions } from 'electron';
+import type { VaultInfo } from '../shared/ipc';
 import { pendingHandlers, registerIpc } from './ipc';
-import { createVaultClient } from './vault-client';
+import { createVaultClient, type VaultClient } from './vault-client';
 import vaultWorkerPath from './vault-worker?modulePath';
+
+// The renderer never sends paths: the folder comes from this dialog.
+async function pickAndOpenVault(
+  vault: VaultClient,
+  title: string,
+  buttonLabel: string,
+): Promise<VaultInfo | null> {
+  const options: OpenDialogOptions = { title, buttonLabel, properties: ['openDirectory', 'createDirectory'] };
+  const parent = BrowserWindow.getFocusedWindow() ?? BrowserWindow.getAllWindows()[0];
+  const { canceled, filePaths } = await (parent
+    ? dialog.showOpenDialog(parent, options)
+    : dialog.showOpenDialog(options));
+  const [root] = filePaths;
+  return canceled || !root ? null : vault.call('open', root);
+}
 
 function createWindow(): void {
   const window = new BrowserWindow({
@@ -38,7 +54,13 @@ function createWindow(): void {
 
 void app.whenReady().then(() => {
   const vault = createVaultClient(new Worker(vaultWorkerPath));
-  registerIpc({ ...pendingHandlers, getTree: () => vault.call('getTree') });
+  registerIpc({
+    ...pendingHandlers,
+    // The same operation: a folder without vault.json gets one, an existing vault is left as is.
+    createVault: () => pickAndOpenVault(vault, 'Create a new vault', 'Create vault here'),
+    openVault: () => pickAndOpenVault(vault, 'Open a vault', 'Open vault'),
+    getTree: () => vault.call('getTree'),
+  });
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();

@@ -2,7 +2,7 @@
 
 A desktop app for a vault of Markdown notes that learns from how you write and navigate: fluid editor, GPU graph of your notes, and a Brain panel that answers from your own vault. Local-first and offline.
 
-> Status: early development. The app is an empty window for now. Follow progress on the [project board](https://github.com/users/xrazai/projects/7).
+> Status: early development. For now the app only creates and opens vaults. Follow progress on the [project board](https://github.com/users/xrazai/projects/7).
 
 ## Development
 Needs Node.js 22.12 or newer.

@@ -24,7 +24,7 @@ Status: stage 1 in progress (app scaffold in place). Repo: https://github.com/xr
 - UI shell: Svelte 5 (runes).
 - Internal communication: IPC only (`contextBridge`, `contextIsolation: true`). Every channel is declared in `src/shared/ipc.ts`; only `preload.ts` and `main/ipc.ts` touch Electron IPC (enforced by `main/ipc.test.ts`).
 - Storage:
-  - Inside the vault, `.myelin/` holds only text files: `vault.json` (vault id, format version) and `usage.jsonl` (learning events). Safe to sync with Git, Syncthing or cloud folders.
+  - Inside the vault, `.myelin/` holds only text files: `vault.json` (`{ "id": <UUID>, "formatVersion": 1 }`; created when missing, never overwritten; the vault does not open if it is invalid or has another version) and `usage.jsonl` (learning events). Safe to sync with Git, Syncthing or cloud folders.
   - Index: `better-sqlite3` (WAL, FTS5) at `<userData>/vaults/<vault-id>/index.db`, outside the vault. 100% rebuildable; never synced (SQLite + WAL in a synced folder risks corruption and binary conflicts). Native module: `better-sqlite3` >= 13 ships Node-API prebuilds, so one binary serves Node (tests) and Electron: no `@electron/rebuild`, and its install script stays denied (`allowScripts`).
 - Search: FTS5, tokenizer `unicode61 remove_diacritics 2` (Portuguese-friendly; `porter` is English-only).
 - Editor: CodeMirror 6.
@@ -102,6 +102,7 @@ myelin/
 │   │   ├── main.ts            # windows, menus, IPC routing
 │   │   ├── ipc.ts             # registers the contract's handlers, sends its events
 │   │   ├── vault-worker.ts    # file I/O (atomic), watcher, parsing, index.db, FTS5, usage events, heavy path
+│   │   ├── vault-config.ts    # .myelin/vault.json (used by vault-worker)
 │   │   └── brain-adapter.ts   # AI slot: search(query), process(changedNote); FTS5 now
 │   ├── preload/preload.ts     # contextBridge, exposes window.myelin
 │   ├── shared/ipc.ts          # window.myelin contract: types and channel names
@@ -112,7 +113,7 @@ myelin/
 │       ├── styles.css         # palette and font variables (docs/identity.md)
 │       ├── fonts/             # Literata, Inter, JetBrains Mono (variable, OFL) + fonts.css
 │       ├── public/licenses/   # font licenses, copied into the build
-│       ├── components/        # FileTree, Tabs, CommandPalette, StatusBar, BrainPanel (.svelte)
+│       ├── components/        # Launcher, Workspace, FileTree, Tabs, CommandPalette, StatusBar, BrainPanel (.svelte)
 │       ├── editor/
 │       │   └── cm-editor.ts   # CodeMirror 6, live preview, [[link]] autocomplete, hover preview
 │       ├── note-cache.ts      # LRU of short previews, viewport prefetch
@@ -125,7 +126,7 @@ myelin/
 ```
 Index outside the vault: `<userData>/vaults/<vault-id>/index.db`.
 
-Screens: launcher (create or open a vault) -> workspace.
+Screens: launcher (create or open a vault) -> workspace. Create and Open run the same operation on the picked folder (the dialog lives in main); only the dialog labels differ.
 Workspace layout: tabs (top) | tree (left) | editor | graph or Brain panel (right) | status bar (bottom) with the learning indicator.
 
 ## Workflow (GitHub)
