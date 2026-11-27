@@ -33,6 +33,7 @@ import { indexPath, openIndex, SCHEMA_VERSION, syncIndex, type SyncReport } from
 import { readNotePreview } from '../src/main/note-preview.ts';
 import { scanVault } from '../src/main/vault-scan.ts';
 import { createNoteCache } from '../src/renderer/note-cache.ts';
+import { createNoteSearch } from '../src/renderer/note-search.ts';
 import { generateVault } from './gen-vault.ts';
 
 /** Bump when the JSON changes in a way that breaks comparing two files. */
@@ -41,7 +42,7 @@ export const FORMAT = 1;
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
 const PHASES = ['cold', 'warm', 'reopen'] as const;
-export const METRICS = ['scanMs', 'coldMs', 'warmMs', 'reopenMs', 'hoverColdMs', 'hoverWarmMs'] as const;
+export const METRICS = ['scanMs', 'coldMs', 'warmMs', 'reopenMs', 'hoverColdMs', 'hoverWarmMs', 'paletteMs'] as const;
 
 /** What each metric measured, saved with the numbers. */
 const CONDITIONS: Record<Metric, string> = {
@@ -53,6 +54,7 @@ const CONDITIONS: Record<Metric, string> = {
   reopenMs: 'The warm index again with nothing changed (scan and mtime + size check).',
   hoverColdMs: 'Cold hover preview fetch from disk into NoteCache.',
   hoverWarmMs: 'Warm hover preview lookup from NoteCache.',
+  paletteMs: 'One keystroke of the `Ctrl+P` search over every note path: the slowest of a few queries (median of 7 each).',
 };
 
 type Phase = (typeof PHASES)[number];
@@ -66,6 +68,7 @@ interface Measurement {
   reopenMs: number;
   hoverColdMs: number;
   hoverWarmMs: number;
+  paletteMs: number;
   /** What `syncIndex` reported in each phase. */
   sync: Record<Phase, SyncReport>;
   /** Size of the closed index. */
@@ -139,6 +142,26 @@ function check(phase: Phase, report: SyncReport, notes: number): void {
   }
 }
 
+/** The slowest of a broad, an exact, a full path, a short folder and an unmatched query. */
+function paletteKeystroke(paths: string[]): number {
+  const search = createNoteSearch(paths);
+  const last = paths.at(-1) ?? 'none.md';
+  const exact = last.slice(last.lastIndexOf('/') + 1, -'.md'.length);
+  // A `/` searches whole paths: from a note in a folder, if any.
+  const nested = paths.findLast((path) => path.includes('/')) ?? last;
+  const folder = nested.slice(0, nested.indexOf('/'));
+  const queries = [exact.slice(0, 1), exact, nested.slice(0, -'.md'.length), `${folder.slice(0, 2)}/`, 'a/', 'qqzzxx'];
+  const costs = queries.map((query) => {
+    const times = Array.from({ length: 7 }, () => {
+      const start = performance.now();
+      search(query, 50);
+      return performance.now() - start;
+    });
+    return stats(times).median;
+  });
+  return Math.max(0.0001, round(Math.max(...costs)));
+}
+
 /** Runs in its own process. `vault` must be freshly generated; `userData` must be empty. */
 async function measure(vault: string, userData: string, notes: number): Promise<Measurement> {
   const [scanMs, tree] = await timed(() => scanVault(vault));
@@ -168,6 +191,15 @@ async function measure(vault: string, userData: string, notes: number): Promise<
   const warm = await index('warm', warmFile);
   const reopen = await index('reopen', warmFile);
 
+  const paths: string[] = [];
+  (function collect(entries: typeof tree): void {
+    for (const entry of entries) {
+      if (entry.kind === 'note') paths.push(entry.path);
+      else collect(entry.children);
+    }
+  })(tree);
+  const paletteMs = paletteKeystroke(paths);
+
   const cache = createNoteCache({
     getPreviews: async (paths) =>
       Promise.all(paths.map((p) => readNotePreview(join(vault, p), p))),
@@ -193,6 +225,7 @@ async function measure(vault: string, userData: string, notes: number): Promise<
     reopenMs: reopen.ms,
     hoverColdMs,
     hoverWarmMs,
+    paletteMs,
     sync: { cold: cold.report, warm: warm.report, reopen: reopen.report },
     dbBytes: (await stat(warmFile)).size,
     versions: { node: process.versions.node, electron: process.versions.electron ?? null, sqlite, betterSqlite3 },

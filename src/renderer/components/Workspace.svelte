@@ -20,10 +20,12 @@
     type Side,
     type SideWidths,
   } from '../panel-layout';
-  import { shortcutFor } from '../shortcuts';
+  import { commandFor, type CommandId } from '../commands';
+  import { watchNoteList } from '../note-list';
   import { renameNote as coordinateRename } from '../rename-note';
   import { applyTabEvents, closeTab, cycleTab, moveTab, NO_TABS, openTab, renameTab, replaceTab, tabName, type Tabs as TabsState } from '../tabs-model';
   import { errorMessage } from '../error-message';
+  import CommandPalette from './CommandPalette.svelte';
   import Editor from './Editor.svelte';
   import FileTree from './FileTree.svelte';
   import Splitter from './Splitter.svelte';
@@ -50,23 +52,24 @@
           )
         : events;
       tabs = applyTabEvents(tabs, visible);
+      noteListRev++;
     }),
   );
 
   let saver: NoteSaver | null = null;
   let problems = $state.raw<NoteProblems>(new Map());
   let metrics = $state.raw<NoteMetrics | null>(null);
-  let renameError = $state('');
+  let noteError = $state('');
 
   /** Renames a note; its tab and editor state move with it, without reopening. */
   async function requestRename(from: string, to: string) {
     const notes = saver;
     if (!notes) return;
     if (pendingRename) {
-      renameError = 'Another rename is still running. Try again in a moment.';
+      noteError = 'Another rename is still running. Try again in a moment.';
       return;
     }
-    renameError = '';
+    noteError = '';
     const isOpen = (path: string) => tabs.list.some((tab) => tab.path === path);
     pendingRename = { from, to };
     try {
@@ -88,10 +91,10 @@
       if (!result) {
         if (isOpen(from)) tabs = openTab(tabs, from);
       } else if (result.notUpdated.length > 0) {
-        renameError = `Renamed, but the links in these notes were not updated: ${result.notUpdated.join(', ')}`;
+        noteError = `Renamed, but the links in these notes were not updated: ${result.notUpdated.join(', ')}`;
       }
     } catch (error) {
-      renameError = `Could not rename the note. ${errorMessage(error)}`;
+      noteError = `Could not rename the note. ${errorMessage(error)}`;
     } finally {
       pendingRename = null;
     }
@@ -202,19 +205,78 @@
     rightPanel = rightPanel === 'graph' ? 'brain' : 'graph';
   };
 
+  let noteListRev = $state(0);
+  const noteList = watchNoteList(window.myelin);
+  void noteList.ready.then(() => noteListRev++);
+  $effect(() => () => noteList.stop());
+
+  let paletteOpen = $state(false);
+  let recentNotes = $state.raw<string[]>([]);
+
+  $effect(() => {
+    const active = tabs.active;
+    if (!active) return;
+    if (recentNotes[0] === active) return;
+    recentNotes = [active, ...recentNotes.filter((p) => p !== active)].slice(0, 50);
+  });
+
+  /** A note picked in the palette takes the tab it was picked from, like a followed link. */
+  async function openFromPalette(path: string, newTab: boolean, source = tabs.active) {
+    if (source === null) tabs = openTab(tabs, path);
+    else await follow(path, source, newTab);
+  }
+
+  async function createFromPalette(path: string, newTab: boolean) {
+    // The tab of a deleted note may hold its text: it is shown, not written over.
+    if (tabs.list.some((tab) => tab.path === path)) return void (tabs = openTab(tabs, path));
+    noteError = '';
+    // Read before writing: the user may change tabs meanwhile.
+    const source = tabs.active;
+    try {
+      const result = await window.myelin.writeNote(path, '', null);
+      if (result.status === 'saved' || (result.status === 'conflict' && result.disk !== null)) {
+        await openFromPalette(path, newTab, source);
+      }
+    } catch (error) {
+      noteError = `Could not create the note. ${errorMessage(error)}`;
+    }
+  }
+
+  function runCommand(id: CommandId) {
+    switch (id) {
+      case 'open-palette':
+        paletteOpen = !paletteOpen;
+        return;
+      case 'next-tab':
+        tabs = cycleTab(tabs, 1);
+        return;
+      case 'previous-tab':
+        tabs = cycleTab(tabs, -1);
+        return;
+      case 'toggle-right-panel':
+        return toggleRightPanel();
+      case 'toggle-focus-mode':
+        return toggleFocus();
+      case 'toggle-left-panel':
+        return toggleSide('left');
+      case 'save':
+        if (tabs.active !== null) void saver?.save(tabs.active);
+        return;
+      case 'close-tab':
+        if (tabs.active !== null) void requestClose(tabs.active);
+        return;
+      default:
+        id satisfies never;
+    }
+  }
+
   function onkeydown(event: KeyboardEvent) {
-    const shortcut = shortcutFor(event);
-    if (!shortcut) return;
+    const command = commandFor(event);
+    if (!command) return;
     // Also keeps `Ctrl+W` from reaching the window menu, which would close the window.
     event.preventDefault();
-    if (shortcut === 'next-tab') tabs = cycleTab(tabs, 1);
-    else if (shortcut === 'previous-tab') tabs = cycleTab(tabs, -1);
-    else if (shortcut === 'toggle-right-panel') toggleRightPanel();
-    else if (shortcut === 'toggle-focus-mode') toggleFocus();
-    else if (shortcut === 'toggle-left-panel') toggleSide('left');
-    else if (tabs.active === null) return;
-    else if (shortcut === 'save') void saver?.save(tabs.active);
-    else void requestClose(tabs.active);
+    if (paletteOpen && command !== 'open-palette') return;
+    runCommand(command);
   }
 </script>
 
@@ -296,7 +358,8 @@
       type="button"
       class="quick-open"
       title="Jump to note (Ctrl+P)"
-      onclick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', ctrlKey: true, bubbles: true }))}
+      onmousedown={(event) => event.preventDefault()}
+      onclick={() => (paletteOpen = true)}
     >
       <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
         <circle cx="7.2" cy="7.2" r="4.5" />
@@ -383,10 +446,21 @@
   </div>
 </div>
 
-{#if renameError}
-  <div class="rename-error" role="alert">
-    <span>{renameError}</span>
-    <button type="button" onclick={() => (renameError = '')}>Dismiss</button>
+<CommandPalette
+  open={paletteOpen}
+  notes={noteList}
+  revision={noteListRev}
+  recent={recentNotes}
+  onopen={openFromPalette}
+  oncreate={createFromPalette}
+  oncommand={runCommand}
+  onclose={() => (paletteOpen = false)}
+/>
+
+{#if noteError}
+  <div class="note-error" role="alert">
+    <span>{noteError}</span>
+    <button type="button" onclick={() => (noteError = '')}>Dismiss</button>
   </div>
 {/if}
 
@@ -403,7 +477,7 @@
 {/if}
 
 <style>
-  .rename-error {
+  .note-error {
     position: fixed;
     right: 12px;
     bottom: 32px;
@@ -420,7 +494,7 @@
     box-shadow: 0 8px 24px rgb(0 0 0 / 30%);
   }
 
-  .rename-error button {
+  .note-error button {
     flex: none;
     padding: 2px 8px;
     color: var(--text-muted);

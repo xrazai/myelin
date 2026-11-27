@@ -12,6 +12,8 @@ on:
     paths:
       - src/main/**
       - src/shared/**
+      - src/renderer/note-cache.ts
+      - src/renderer/note-search.ts
       - scripts/bench.ts
       - scripts/bench-compare.ts
       - scripts/bench-graph*.ts

@@ -58,6 +58,12 @@ test('writes a note of the open vault, recreating folders only for a note to cre
   expect(existsSync(join(root, 'new'))).toBe(false);
   await expect(vault.call('writeNote', '../x.md', 'x', null)).rejects.toThrow('not a note path');
   await expect(vault.call('writeNote', 'A.md', 42 as unknown as string, null)).rejects.toThrow('must be a string');
+  // A folder with no note in it: another spelling of it creates nothing.
+  await mkdir(join(root, 'new'));
+  await expect(vault.call('writeNote', 'NEW/B.md', 'b', null)).rejects.toThrow('the folder is named new');
+  await expect(vault.call('writeNote', 'New/deeper/B.md', 'b', null)).rejects.toThrow('the folder is named new');
+  expect(readdirSync(join(root, 'new'))).toEqual([]);
+  await rm(join(root, 'new'), { recursive: true });
 });
 
 test('a failed open rejects and keeps the current vault', async () => {

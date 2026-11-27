@@ -73,3 +73,39 @@ test('ranks whole name, start, word start, inside, then scattered letters', asyn
   ]);
   expect(list.search('casa', 2)).toHaveLength(2);
 });
+
+test('NoteList.has checks exact and case-insensitive paths and updates on events', async () => {
+  let emit: (events: import('../shared/ipc').VaultEvent[]) => void = () => {};
+  const list = watchNoteList({
+    listNotes: async () => ['Home.md', 'notes/Ideas.md'],
+    onVaultEvents: (cb) => {
+      emit = cb;
+      return () => {};
+    },
+  });
+  await list.ready;
+
+  expect(list.has('Home.md')).toBe(true);
+  expect(list.has('home.md')).toBe(true);
+  expect(list.has('NOTES/ideas.MD')).toBe(true);
+  expect(list.has('Missing.md')).toBe(false);
+
+  emit([{ type: 'created', kind: 'note', path: 'New.md' }]);
+  expect(list.has('new.md')).toBe(true);
+
+  emit([{ type: 'deleted', kind: 'note', path: 'New.md' }]);
+  expect(list.has('New.md')).toBe(false);
+  list.stop();
+});
+
+test('NoteList.folderInOtherCase names the folder a new note would land in', async () => {
+  const { list, answer } = setup();
+  answer(['Notes/deep/Idea.md', 'Home.md']);
+  await list.ready;
+
+  expect(list.folderInOtherCase('Notes/New.md')).toBeNull();
+  expect(list.folderInOtherCase('Notes/deep/New.md')).toBeNull();
+  expect(list.folderInOtherCase('other/New.md')).toBeNull();
+  expect(list.folderInOtherCase('notes/New.md')).toBe('Notes');
+  expect(list.folderInOtherCase('Notes/Deep/x/New.md')).toBe('Notes/deep');
+});
