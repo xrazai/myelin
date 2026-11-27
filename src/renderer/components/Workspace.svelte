@@ -2,7 +2,18 @@
   import { untrack } from 'svelte';
   import type { VaultInfo } from '../../shared/ipc';
   import type { NoteProblems, NoteSaver } from '../editor/note-saver';
-  import { DEFAULT_WIDTHS, fitWidths, loadWidths, maxWidth, MIN_WIDTHS, resizeSide, saveWidths, type Side } from '../panel-layout';
+  import {
+    chooseWidth,
+    DEFAULT_WIDTHS,
+    fitWidths,
+    loadWidths,
+    maxWidth,
+    MIN_WIDTHS,
+    resizeStored,
+    saveWidths,
+    type Side,
+    type SideWidths,
+  } from '../panel-layout';
   import { shortcutFor } from '../shortcuts';
   import { applyTabEvents, closeTab, cycleTab, moveTab, NO_TABS, openTab, replaceTab, tabName, type Tabs as TabsState } from '../tabs-model';
   import Editor from './Editor.svelte';
@@ -73,16 +84,26 @@
   // The vault is fixed while the workspace is mounted.
   let widths = $state.raw(untrack(() => loadWidths(localStorage, vault.id)));
   let windowWidth = $state(window.innerWidth);
-  const shown = $derived(fitWidths(widths, windowWidth));
+  /** The screen as the last resize left it, until the window width changes. */
+  let resized = $state.raw<{ shown: SideWidths; total: number } | null>(null);
+  const shown = $derived(resized?.shown ?? fitWidths(widths, windowWidth));
+
+  function onwindowresize() {
+    if (resized?.total !== window.innerWidth) resized = null;
+  }
 
   const remember = () => saveWidths(localStorage, vault.id, widths);
 
   function resize(side: Side, width: number) {
-    widths = resizeSide(shown, side, width, windowWidth);
+    const next = resizeStored(widths, shown, side, width, windowWidth);
+    widths = next.stored;
+    resized = { shown: next.shown, total: windowWidth };
   }
 
   function reset(side: Side) {
+    // The default is what is remembered, even where it does not fit now.
     resize(side, DEFAULT_WIDTHS[side]);
+    widths = chooseWidth(widths, side, DEFAULT_WIDTHS[side], windowWidth);
     remember();
   }
 
@@ -104,7 +125,7 @@
   }
 </script>
 
-<svelte:window {onkeydown} {onbeforeunload} onblur={() => void saver?.saveAll()} bind:innerWidth={windowWidth} />
+<svelte:window {onkeydown} {onbeforeunload} onblur={() => void saver?.saveAll()} onresize={onwindowresize} bind:innerWidth={windowWidth} />
 
 <div class="workspace" style:grid-template-columns="{shown.left}px 1px minmax(0, 1fr) 1px {shown.right}px">
   <div class="tabs">
