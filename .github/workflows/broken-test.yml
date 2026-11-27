@@ -1,8 +1,0 @@
-# Temporary: proves that a broken workflow fails `all-checks`. Reverted before merge.
-name: Broken test
-on: workflow_dispatch
-jobs:
-  broken:
-    runs-on: ubuntu-latest
-    steps:
-      - run: echo "${{ matrix.missing }}"
