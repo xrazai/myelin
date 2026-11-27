@@ -16,6 +16,8 @@ test('workspace shortcuts, with Caps Lock or without', () => {
   expect(press('w')).toBe('close-tab');
   expect(press('W')).toBe('close-tab');
   expect(press('L', { shift: true })).toBe('toggle-right-panel');
+  expect(press('\\')).toBe('toggle-focus-mode');
+  expect(press('b', { shift: true })).toBe('toggle-left-panel');
   expect(press('s')).toBe('save');
 });
 
@@ -25,6 +27,8 @@ test('other combinations are left alone', () => {
   expect(press('w', { alt: true })).toBeNull();
   expect(press('Tab', { meta: true })).toBeNull();
   expect(press('l')).toBeNull();
+  expect(press('b')).toBeNull();
+  expect(press('\\', { shift: true })).toBeNull();
   expect(press('s', { shift: true })).toBeNull();
   expect(press('p')).toBeNull();
 });

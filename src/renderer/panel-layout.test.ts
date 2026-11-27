@@ -1,15 +1,21 @@
 import { expect, test } from 'vitest';
 import {
   chooseWidth,
+  DEFAULT_COLLAPSED,
   DEFAULT_WIDTHS,
+  fitVisibleWidths,
   fitWidths,
+  loadCollapsed,
   loadWidths,
   maxWidth,
   MIN_EDITOR_WIDTH,
   MIN_WIDTHS,
   resizeSide,
   resizeStored,
+  saveCollapsed,
   saveWidths,
+  toggleCollapsed,
+  toggleFocusMode,
 } from './panel-layout';
 
 function memory() {
@@ -102,4 +108,41 @@ test('unreadable or blocked storage falls back to the defaults', () => {
   };
   expect(loadWidths({ getItem: blocked }, 'id')).toEqual(DEFAULT_WIDTHS);
   expect(() => saveWidths({ setItem: blocked }, 'id', DEFAULT_WIDTHS)).not.toThrow();
+});
+
+test('collapsed panels persist per vault and restore widths when reopened', () => {
+  const storage = memory();
+  expect(loadCollapsed(storage, 'v1')).toEqual(DEFAULT_COLLAPSED);
+  const next = toggleCollapsed(DEFAULT_COLLAPSED, 'left');
+  expect(next).toEqual({ left: true, right: false });
+  saveCollapsed(storage, 'v1', next);
+  expect(loadCollapsed(storage, 'v1')).toEqual({ left: true, right: false });
+  expect(loadCollapsed(storage, 'v2')).toEqual(DEFAULT_COLLAPSED);
+  expect(loadCollapsed({ getItem: () => '{bad' }, 'v1')).toEqual(DEFAULT_COLLAPSED);
+});
+
+test('focus mode collapses both panels and restores the prior open panels on exit', () => {
+  const initial = { left: false, right: true };
+  const entered = toggleFocusMode(initial, null);
+  expect(entered.collapsed).toEqual({ left: true, right: true });
+  expect(entered.beforeFocus).toEqual(initial);
+
+  const exited = toggleFocusMode(entered.collapsed, entered.beforeFocus);
+  expect(exited.collapsed).toEqual(initial);
+  expect(exited.beforeFocus).toBeNull();
+
+  // Exiting focus mode without saved prior state opens both panels.
+  expect(toggleFocusMode({ left: true, right: true }, null).collapsed).toEqual({ left: false, right: false });
+});
+
+test('fitVisibleWidths gives collapsed panels zero width and allocates room to the open one', () => {
+  expect(fitVisibleWidths({ left: 300, right: 400 }, { left: true, right: true }, 1000)).toEqual({ left: 0, right: 0 });
+  expect(fitVisibleWidths({ left: 300, right: 400 }, { left: true, right: false }, 1000)).toEqual({
+    left: 0,
+    right: 400,
+  });
+  expect(fitVisibleWidths({ left: 300, right: 900 }, { left: true, right: false }, 1000)).toEqual({
+    left: 0,
+    right: 1000 - MIN_EDITOR_WIDTH - 1,
+  });
 });
