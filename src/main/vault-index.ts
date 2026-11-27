@@ -140,6 +140,8 @@ function applyPaths(db: Database.Database, paths: string[], resolve: LinkResolve
   db.transaction(() => {
     for (const path of removed) remove.run(path);
     for (const path of added) insert.run(path, title(path));
+    // A new index has no links yet: skip the lookups, hundreds of thousands in a large vault.
+    if (db.prepare('SELECT 1 FROM links LIMIT 1').get() === undefined) return;
     for (const key of new Set([...added, ...removed].flatMap(affectedKeys))) {
       for (const link of affected.all(key) as { source: string; fromPos: number; target: string }[]) {
         const to = resolve(link.target, link.source);
