@@ -82,6 +82,28 @@ export async function newFolderPath(root: string, path: unknown): Promise<string
 }
 
 /**
+ * The OS path of the note or folder at `path` that exists under exactly that name, or a
+ * throw. What deleting needs: nothing outside the vault, no link, never the vault itself.
+ */
+export async function existingItemPath(root: string, path: unknown, kind: 'note' | 'folder'): Promise<string> {
+  let file: string;
+  if (kind === 'note') {
+    file = await existingNotePath(root, path);
+  } else {
+    // The form of a folder path, with real folders above it.
+    file = await newFolderPath(root, path);
+    if (!(await lstat(file)).isDirectory()) throw new Error(`not a folder: ${String(path)}`);
+  }
+  // Windows ignores case: another spelling must not delete what the app calls otherwise.
+  let current = root;
+  for (const segment of (path as string).split('/')) {
+    if (!(await readdir(current)).includes(segment)) throw new Error(`no such ${kind}: ${String(path)}`);
+    current = join(current, segment);
+  }
+  return file;
+}
+
+/**
  * The folder on disk that a new note or folder at `path` (already valid) writes in another case, or
  * `null`. Windows would put the note in it, under a path the app does not know.
  */

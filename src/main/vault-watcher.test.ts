@@ -2,7 +2,7 @@
 // logic, so each test also checks that the reported tree matches a fresh scan.
 import { appendFile, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import type Database from 'better-sqlite3';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import type { TreeEntry, VaultEvent } from '../shared/ipc';
@@ -391,7 +391,120 @@ describe('createFolder', () => {
   });
 });
 
+describe('deleting', () => {
+  /** Where the fake Recycle Bin puts things. */
+  let bin: string;
+  const trash = async (file: string) => void (await rename(file, join(bin, basename(file))));
+
+  beforeEach(async () => {
+    bin = join(base, 'bin');
+    await mkdir(bin);
+    await mkdir(at('Plans/deep'), { recursive: true });
+    await mkdir(at('Plans/.hidden'));
+    await mkdir(at('Other'));
+    await write('Plans/A.md', '[[B]] [[Plans/A]]');
+    await write('Plans/deep/B.md', 'b');
+    await write('Plans/image.png', 'x');
+    await write('Plans/.hidden/note.md', 'x');
+    await write('Home.md', '[[Plans/A]] [[A]] and [[B|bee]]');
+    await write('Links.md', '[[Plans/deep/B]]');
+    // Same prefix as the folder, and not inside it.
+    await write('Plans_2.md', '[[Links]]');
+    watching = start();
+    await watching.indexed;
+    tree = await watching.getTree();
+    seen = [];
+  });
+
+  test('tells what would go and how many other notes link to it', async () => {
+    expect(await watching.deleteInfo('Plans/deep/B.md', 'note')).toEqual({ notes: 1, otherFiles: 0, linkedFrom: 3 });
+    // A, in the folder, links into it too and is not counted.
+    expect(await watching.deleteInfo('Plans', 'folder')).toEqual({ notes: 2, otherFiles: 2, linkedFrom: 2 });
+    expect(await watching.deleteInfo('Plans_2.md', 'note')).toEqual({ notes: 1, otherFiles: 0, linkedFrom: 0 });
+    expect(await watching.deleteInfo('Other', 'folder')).toEqual({ notes: 0, otherFiles: 0, linkedFrom: 0 });
+  });
+
+  test('moves a note, reports it before settling and leaves its links unresolved, text untouched', async () => {
+    await watching.remove('Plans/deep/B.md', 'note', trash);
+    expect(seen).toEqual([event('deleted', 'Plans/deep/B.md')]);
+    expect(await readdir(bin)).toEqual(['B.md']);
+    await until(() => expect(notes()).not.toContain('Plans/deep/B.md'));
+    expect(linkTargets()).toContainEqual({ source: 'Links.md', path: null, name: 'Plans/deep/B' });
+    expect(await readFile(at('Links.md'), 'utf8')).toBe('[[Plans/deep/B]]');
+  });
+
+  test('a link moves to another note of the same name', async () => {
+    await write('Other/B.md', 'other b');
+    await until(() => expect(notes()).toContain('Other/B.md'));
+    await watching.remove('Plans/deep/B.md', 'note', trash);
+    await until(() => expect(linkTargets()).toContainEqual({ source: 'Home.md', path: 'Other/B.md', name: null }));
+  });
+
+  test('moves a folder with everything in it', async () => {
+    await watching.remove('Plans', 'folder', trash);
+    expect(seen).toContainEqual(event('deleted', 'Plans', 'folder'));
+    expect(seen).toContainEqual(event('deleted', 'Plans/deep/B.md'));
+    expect((await readdir(join(bin, 'Plans'))).sort()).toEqual(['.hidden', 'A.md', 'deep', 'image.png']);
+    await until(() => expect(notes()).toEqual(['Home.md', 'Links.md', 'Plans_2.md']));
+  });
+
+  test('if the bin refuses, nothing is deleted and the reason is given', async () => {
+    const refuse = () => Promise.reject(new Error('no Recycle Bin on this drive'));
+    await expect(watching.remove('Home.md', 'note', refuse)).rejects.toThrow('no Recycle Bin on this drive');
+    expect(await readFile(at('Home.md'), 'utf8')).toContain('bee');
+    expect(seen).toEqual([]);
+  });
+
+  test('a folder that moved only in part is reported as it is left', async () => {
+    const partly = async (file: string) => {
+      await rename(join(file, 'A.md'), join(bin, 'A.md'));
+      throw new Error('a file is held');
+    };
+    await expect(watching.remove('Plans', 'folder', partly)).rejects.toThrow('Part of it may be there already');
+    expect(seen).toEqual([event('deleted', 'Plans/A.md')]);
+    await until(() => expect(notes()).not.toContain('Plans/A.md'));
+    expect(notes()).toContain('Plans/deep/B.md');
+  });
+
+  test('deletes nothing outside the vault, through a link, under another spelling or of another kind', async () => {
+    await writeFile(join(outside, 'Secret.md'), 'secret', 'utf8');
+    await symlink(outside, at('Link'), 'junction');
+    const asked: string[] = [];
+    const record = async (file: string) => void asked.push(file);
+    const refused: [string, 'note' | 'folder'][] = [
+      ['', 'folder'], ['.', 'folder'], ['..', 'folder'], ['.myelin', 'folder'], ['../outside', 'folder'],
+      ['Link', 'folder'], ['Link/Secret.md', 'note'], ['home.md', 'note'], ['plans', 'folder'],
+      ['Plans/Deep', 'folder'], ['Home.md', 'folder'], ['Plans', 'note'], ['Missing.md', 'note'], ['Plans/image.png', 'note'],
+    ];
+    for (const [path, kind] of refused) {
+      await expect(watching.remove(path, kind, record), `${kind} ${path}`).rejects.toThrow();
+      await expect(watching.deleteInfo(path, kind), `${kind} ${path}`).rejects.toThrow();
+    }
+    expect(asked).toEqual([]);
+  });
+
+  test('a save waiting behind a deletion does not recreate the note', async () => {
+    const removed = watching.remove('Plans/A.md', 'note', trash);
+    const saved = watching.write('Plans/A.md', 'newer', '[[B]] [[Plans/A]]');
+    await removed;
+    expect(await saved).toEqual({ status: 'conflict', disk: null });
+    expect(await readdir(at('Plans'))).not.toContain('A.md');
+  });
+});
+
 describe('during the first sync', () => {
+  test('the count of linking notes is unknown, never 0', async () => {
+    await write('A.md', 'a');
+    await write('B.md', '[[A]]');
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    watching = start({ sync: async (...args) => (await held, syncIndex(...args)) });
+    expect(await watching.deleteInfo('A.md', 'note')).toEqual({ notes: 1, otherFiles: 0, linkedFrom: null });
+    release();
+    await watching.indexed;
+    expect(await watching.deleteInfo('A.md', 'note')).toEqual({ notes: 1, otherFiles: 0, linkedFrom: 1 });
+  });
+
   /** Holds the end of the sync: everything it was going to read is already read. */
   function gate() {
     let release!: () => void;

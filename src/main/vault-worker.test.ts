@@ -147,6 +147,32 @@ test('external changes arrive as events from the current vault only', async () =
   }
 });
 
+test('a deletion asks main for the move and answers with its outcome', async () => {
+  const folder = await mkdtemp(join(tmpdir(), 'myelin-delete-'));
+  await writeFile(join(folder, 'Gone.md'), 'x', 'utf8');
+  const own = new Worker(new URL('./vault-worker.ts', import.meta.url), { workerData: { userData } });
+  const asked: string[] = [];
+  let refuse = true;
+  const client = createVaultClient(own, undefined, async (path) => {
+    asked.push(path);
+    if (refuse) throw new Error('no bin');
+    await rm(path);
+  });
+  try {
+    await client.call('open', folder);
+    await expect(client.call('deleteItem', 'Gone.md', 'note')).rejects.toThrow('no bin');
+    expect(existsSync(join(folder, 'Gone.md'))).toBe(true);
+    await expect(client.call('deleteItem', 'Gone.md', 'file' as 'note')).rejects.toThrow('not a kind');
+    refuse = false;
+    await client.call('deleteItem', 'Gone.md', 'note');
+    expect(asked).toEqual([join(folder, 'Gone.md'), join(folder, 'Gone.md')]);
+    expect(await client.call('listNotes')).toEqual([]);
+  } finally {
+    await own.terminate();
+    await rm(folder, { recursive: true, force: true });
+  }
+});
+
 // Rule 3: main only routes. Scanning and indexing code reaches it through no import.
 test('main and its vault client do no file I/O', () => {
   for (const name of ['main.ts', 'vault-client.ts']) {
@@ -154,6 +180,16 @@ test('main and its vault client do no file I/O', () => {
     expect(source).not.toMatch(/['"](node:)?fs(\/promises)?['"]|['"]chokidar['"]|\.\/vault-(scan|config|watcher)|\.\/vault-worker['"]/);
     // Types are fine; anything else would load SQLite and the index in the main thread.
     expect(source).not.toMatch(/^import (?!type ).*(vault-index|better-sqlite3)/m);
+  }
+});
+
+// The one exception to rule 1: the move to the Recycle Bin, and nothing that deletes for good.
+test('only main moves files to the Recycle Bin, and no app code deletes a note for good', () => {
+  const sources = readdirSync(import.meta.dirname).filter((name) => name.endsWith('.ts') && !name.endsWith('.test.ts'));
+  const using = sources.filter((name) => readFileSync(join(import.meta.dirname, name), 'utf8').includes('trashItem('));
+  expect(using).toEqual(['main.ts']);
+  for (const name of ['main.ts', 'vault-worker.ts']) {
+    expect(readFileSync(join(import.meta.dirname, name), 'utf8')).not.toMatch(/\b(rm|rmdir|unlink)(Sync)?\(/);
   }
 });
 

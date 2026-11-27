@@ -48,6 +48,7 @@ Do not create tables, dependencies, queues or files for AI before the decision. 
    - External edits are picked up by the watcher and reindexed.
    - Renaming a note updates every `[[link]]` pointing to it.
    - Owner: `vault-worker.ts` owns all file I/O, the `chokidar` watcher, parsing and SQLite. `main.ts` only manages windows and routes IPC.
+     - One exception: deleting. Only main can call `shell.trashItem`, so the worker validates the path (existing, inside the vault, no symlink or junction, never the vault itself), asks main to move it to the Recycle Bin and keeps its queue meanwhile (no save or rename runs), then compares the tree. Nothing in the app deletes a note or folder for good: where Windows has no bin for an item, `trashItem` fails and nothing is deleted (checked on a `subst` drive).
 2. Save pipeline: two paths.
    - Light path, auto-save 500 ms after typing stops: atomic write, FTS5 update, link/edge update, synaptic pulse for new `[[link]]`s.
    - No text is lost or silently overwritten (`renderer/editor/note-saver.ts`):

@@ -5,7 +5,7 @@ import { mkdir, readFile, stat } from 'node:fs/promises';
 import { basename, dirname, resolve } from 'node:path';
 import { parentPort, workerData } from 'node:worker_threads';
 import Database from 'better-sqlite3';
-import type { VaultRequest, VaultRequests, VaultWorkerData, WorkerMessage } from './vault-protocol';
+import type { TrashReply, VaultRequest, VaultRequests, VaultWorkerData, WorkerMessage } from './vault-protocol';
 import { loadVaultConfig } from './vault-config.ts';
 import { deleteIndex, indexPath, notePaths, openIndex } from './vault-index.ts';
 import { readNotePreview } from './note-preview.ts';
@@ -118,6 +118,12 @@ const handlers: Handlers = {
   async createFolder(path) {
     return openSession().watch.createFolder(path);
   },
+  async deleteInfo(path, kind) {
+    return openSession().watch.deleteInfo(path, itemKind(kind));
+  },
+  async deleteItem(path, kind) {
+    return openSession().watch.remove(path, itemKind(kind), askToTrash);
+  },
   async whenIndexed() {
     return openSession().watch.indexed;
   },
@@ -125,7 +131,32 @@ const handlers: Handlers = {
 
 const post = (message: WorkerMessage) => parentPort?.postMessage(message);
 
-parentPort?.on('message', async ({ id, method, args }: VaultRequest) => {
+/** Moves waiting for main's answer, by id. */
+const trashing = new Map<number, (error: string | null) => void>();
+let lastTrash = 0;
+
+/** Asks main to move `path` to the Recycle Bin: only main can. */
+function askToTrash(path: string): Promise<void> {
+  return new Promise((done, failed) => {
+    const id = ++lastTrash;
+    trashing.set(id, (error) => (error === null ? done() : failed(new Error(error))));
+    post({ type: 'trash', id, path });
+  });
+}
+
+/** The kind comes from the renderer: a folder may be named like a note. */
+function itemKind(kind: unknown): 'note' | 'folder' {
+  if (kind !== 'note' && kind !== 'folder') throw new Error(`not a kind of item: ${String(kind)}`);
+  return kind;
+}
+
+parentPort?.on('message', async (message: VaultRequest | TrashReply) => {
+  if ('type' in message) {
+    trashing.get(message.id)?.(message.error);
+    trashing.delete(message.id);
+    return;
+  }
+  const { id, method, args } = message;
   try {
     const handler = handlers[method] as (...args: unknown[]) => Promise<unknown>;
     post({ type: 'result', id, result: await handler(...args) });

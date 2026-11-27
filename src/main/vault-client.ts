@@ -1,7 +1,7 @@
 // Main side of vault-worker: sends requests and settles them with its replies. No file I/O.
 import type { Worker } from 'node:worker_threads';
 import type { VaultEvent } from '../shared/ipc';
-import type { VaultRequests, WorkerMessage } from './vault-protocol';
+import type { TrashReply, VaultRequests, WorkerMessage } from './vault-protocol';
 
 export interface VaultClient {
   call<M extends keyof VaultRequests>(
@@ -15,7 +15,12 @@ interface Pending {
   reject(error: Error): void;
 }
 
-export function createVaultClient(worker: Worker, onEvents?: (events: VaultEvent[]) => void): VaultClient {
+export function createVaultClient(
+  worker: Worker,
+  onEvents?: (events: VaultEvent[]) => void,
+  /** Moves a path to the Recycle Bin; without it, the worker is told it cannot. */
+  trash: (path: string) => Promise<void> = () => Promise.reject(new Error('no Recycle Bin here')),
+): VaultClient {
   const pending = new Map<number, Pending>();
   let lastId = 0;
   let dead: Error | null = null;
@@ -33,6 +38,15 @@ export function createVaultClient(worker: Worker, onEvents?: (events: VaultEvent
     }
     if (message.type === 'events') {
       onEvents?.(message.events);
+      return;
+    }
+    if (message.type === 'trash') {
+      const { id, path } = message;
+      const reply = (error: string | null) => worker.postMessage({ type: 'trashed', id, error } satisfies TrashReply);
+      void trash(path).then(
+        () => reply(null),
+        (error: unknown) => reply(error instanceof Error ? error.message : String(error)),
+      );
       return;
     }
     const request = pending.get(message.id);

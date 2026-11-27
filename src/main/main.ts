@@ -1,7 +1,9 @@
-// Manages windows and routes IPC. No file I/O here (AGENTS.md, rule 1).
+// Manages windows and routes IPC. No file I/O here (AGENTS.md, rule 1), with one
+// exception: the move to the Recycle Bin, which Electron offers only outside workers. The
+// worker asks for it, with a path it has validated.
 import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
-import { app, BrowserWindow, dialog, Menu, type OpenDialogOptions } from 'electron';
+import { app, BrowserWindow, dialog, Menu, shell, type OpenDialogOptions } from 'electron';
 import { EVENT_CHANNELS, type VaultInfo } from '../shared/ipc';
 import { pendingHandlers, registerIpc, sendEvent } from './ipc';
 import { createVaultClient, type VaultClient } from './vault-client';
@@ -111,11 +113,16 @@ function focusWindow(): void {
 
 function start(): void {
   const workerData: VaultWorkerData = { userData: app.getPath('userData') };
-  const vault = createVaultClient(new Worker(vaultWorkerPath, { workerData }), (events) => {
-    for (const window of BrowserWindow.getAllWindows()) {
-      sendEvent(window.webContents, EVENT_CHANNELS.vaultEvents, events);
-    }
-  });
+  const vault = createVaultClient(
+    new Worker(vaultWorkerPath, { workerData }),
+    (events) => {
+      for (const window of BrowserWindow.getAllWindows()) {
+        sendEvent(window.webContents, EVENT_CHANNELS.vaultEvents, events);
+      }
+    },
+    // Rejects, deleting nothing, where Windows has no Recycle Bin for the item.
+    (path) => shell.trashItem(path),
+  );
   registerIpc({
     ...pendingHandlers,
     // The same operation: a folder without vault.json gets one, an existing vault is left as is.
@@ -128,6 +135,8 @@ function start(): void {
     writeNote: (path, content, base) => vault.call('writeNote', path, content, base),
     renameNote: (from, to) => vault.call('renameNote', from, to),
     createFolder: (path) => vault.call('createFolder', path),
+    deleteInfo: (path, kind) => vault.call('deleteInfo', path, kind),
+    deleteItem: (path, kind) => vault.call('deleteItem', path, kind),
     resumeUnload: () => {
       heldUnload?.();
       heldUnload = null;
