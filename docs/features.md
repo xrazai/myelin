@@ -27,6 +27,7 @@ Opened by the synapse/chat icon (top right) or `Ctrl+Shift+L`. The graph slides 
 ## Pillar A: fluid writing (CodeMirror 6)
 - Virtualized rendering: only visible lines are in the DOM. Huge notes edit with no lag.
 - Live preview: Markdown syntax (`#`, `**`, `[[ ]]`) is hidden on lines away from the cursor.
+- Optional paragraph focus dimming: toggleable from the quiet editor header (or via the command palette) to softly dim surrounding paragraphs while keeping the active paragraph and hovered lines crisp.
 - `[[link]]` autocomplete: note names (fuzzy, accents and case ignored; the folder shows when names repeat), writing the shortest target that leads there. After `[[Note#`, its headings.
 - Following links: `Ctrl+Click` or `Ctrl+Enter` opens the note in the current tab (saved first; if it cannot be, the tab stays), with `Shift` in a new tab; a note that has a tab is just activated. A link to a missing note creates it empty, at the path as written from the vault root; an existing file is never replaced.
 - Quick open through the `Ctrl+P` palette.
