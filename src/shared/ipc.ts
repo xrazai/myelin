@@ -52,7 +52,8 @@ export type WriteResult = { status: 'saved' } | { status: 'conflict'; disk: stri
 
 /**
  * A change on disk made outside the app (the watcher drops the app's own writes). One
- * exception: a note, or folder, that an app write creates is reported as `created`.
+ * exceptions: what an app write creates is reported as `created`, and a rename or a
+ * deletion asked of the app is reported like an outside one.
  */
 export type VaultEvent =
   | { type: 'created' | 'deleted'; kind: TreeEntry['kind']; path: string }
@@ -63,6 +64,15 @@ export type VaultEvent =
  * `window.myelin`. Calls reject on failure. All calls except `createVault` and
  * `openVault` need an open vault.
  */
+export interface DeleteInfo {
+  /** Notes that would go. */
+  notes: number;
+  /** Files of a folder that the tree does not show: they go with it. */
+  otherFiles: number;
+  /** Other notes with a link to something that would go; `null`: not indexed yet. */
+  linkedFrom: number | null;
+}
+
 export interface RenameResult {
   /** Notes whose links could not be rewritten: held by another program or changed meanwhile. */
   notUpdated: string[];
@@ -99,6 +109,15 @@ export interface MyelinApi {
    * the name cannot be used.
    */
   createFolder(path: string): Promise<void>;
+  /** What deleting the note or folder at `path` would take, for the confirmation. */
+  deleteInfo(path: string, kind: TreeEntry['kind']): Promise<DeleteInfo>;
+  /**
+   * Moves the note or folder at `path` to the Recycle Bin, never deleting for good. Its
+   * events are sent before the call settles. Resolves with the notes that are in the bin.
+   * Rejects if it cannot be moved; of a folder, part may be there by then, and the events
+   * say what is left.
+   */
+  deleteItem(path: string, kind: TreeEntry['kind']): Promise<string[]>;
   /**
    * Does the close or reload that the page held back (`beforeunload`) to save first. The
    * page cannot tell which one it was.
@@ -137,6 +156,8 @@ export const CALL_CHANNELS = {
   writeNote: 'note:write',
   renameNote: 'note:rename',
   createFolder: 'folder:create',
+  deleteInfo: 'item:delete-info',
+  deleteItem: 'item:delete',
   search: 'brain:search',
   resumeUnload: 'window:resume-unload',
 } as const satisfies Record<CallName, string>;

@@ -4,6 +4,7 @@ import { fold, score } from './note-search';
 export type CommandId =
   | 'open-palette'
   | 'new-note'
+  | 'delete'
   | 'next-tab'
   | 'previous-tab'
   | 'close-tab'
@@ -18,6 +19,11 @@ export interface Command {
   id: CommandId;
   label: string;
   shortcut: string;
+  /**
+   * `tree`: the key only works with the focus in the file tree, which matches it itself.
+   * Elsewhere it edits text, so the window never takes it.
+   */
+  scope?: 'tree';
   match: (event: KeyEventLike) => boolean;
 }
 
@@ -42,6 +48,13 @@ export const COMMANDS: readonly Command[] = [
     label: 'New note',
     shortcut: 'Ctrl+N',
     match: ctrl('n'),
+  },
+  {
+    id: 'delete',
+    label: 'Delete the open note…',
+    shortcut: 'Delete (file tree)',
+    scope: 'tree',
+    match: (event) => !event.ctrlKey && !event.altKey && !event.metaKey && event.key === 'Delete',
   },
   {
     id: 'save',
@@ -89,7 +102,7 @@ export const COMMANDS: readonly Command[] = [
 
 export function commandFor(event: KeyEventLike): CommandId | null {
   for (const command of COMMANDS) {
-    if (command.match(event)) return command.id;
+    if (command.scope === undefined && command.match(event)) return command.id;
   }
   return null;
 }

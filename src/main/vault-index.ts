@@ -119,6 +119,29 @@ function removeSidecars(file: string): void {
 }
 
 /** The path of every note in the tree, in tree order. */
+/**
+ * How many notes outside the target have a link that resolves into it: the note at `path`,
+ * or every note under the folder at `path`.
+ */
+export function countLinkingNotes(db: Database.Database, path: string, kind: 'note' | 'folder'): number {
+  if (kind === 'note') {
+    return db
+      .prepare('SELECT COUNT(DISTINCT source) FROM links WHERE target_path = ? AND source <> ?')
+      .pluck()
+      .get(path, path) as number;
+  }
+  // A range, not `LIKE`: names may hold `%` and `_`. `0` is the character after `/`.
+  const from = `${path}/`;
+  const to = `${path}0`;
+  return db
+    .prepare(
+      `SELECT COUNT(DISTINCT source) FROM links
+       WHERE target_path > ? AND target_path < ? AND NOT (source > ? AND source < ?)`,
+    )
+    .pluck()
+    .get(from, to, from, to) as number;
+}
+
 export function notePaths(entries: TreeEntry[], into: string[] = []): string[] {
   for (const entry of entries) {
     if (entry.kind === 'note') into.push(entry.path);

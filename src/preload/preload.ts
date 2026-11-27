@@ -28,6 +28,8 @@ const api: MyelinApi = {
   writeNote: call('writeNote'),
   renameNote: call('renameNote'),
   createFolder: call('createFolder'),
+  deleteInfo: call('deleteInfo'),
+  deleteItem: call('deleteItem'),
   search: call('search'),
   resumeUnload: call('resumeUnload'),
   onVaultEvents: subscribe(EVENT_CHANNELS.vaultEvents),

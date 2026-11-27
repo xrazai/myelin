@@ -33,7 +33,7 @@ Status: stage 1 done; stage 2 in progress, with the manual base first (Roadmap).
 - Editor: CodeMirror 6.
 - Graph: `@myelin/graph`, WebGL2 only (GLSL ES 3.0), graphics backend behind an internal interface. Layout: own ForceAtlas2 (LinLog) + Barnes-Hut solver inside the library, no dependency (`docs/graph-lib.md`).
 - Fonts: Literata (body serif), Inter (UI), JetBrains Mono (code, raw syntax, metadata). Bundled (offline), variable, OFL.
-- Shortcuts: `Ctrl+P` is a single palette (notes by default, `>` prefix for commands). `Ctrl+Shift+L` toggles graph / Brain panel. `Ctrl+\` toggles Focus Mode (collapses both side panels). `Ctrl+Shift+B` toggles the file tree. `Ctrl+N` creates a note at the vault root (showing the file tree if hidden). `Ctrl+S` saves now.
+- Shortcuts: `Ctrl+P` is a single palette (notes by default, `>` prefix for commands). `Ctrl+Shift+L` toggles graph / Brain panel. `Ctrl+\` toggles Focus Mode (collapses both side panels). `Ctrl+Shift+B` toggles the file tree. `Ctrl+N` creates a note at the vault root (showing the file tree if hidden). `Ctrl+S` saves now. `Delete`, in the file tree only, moves the item under the cursor to the Recycle Bin after a confirmation.
 
 ## AI: prepared, not decided
 No AI model is chosen or built now. The app ships ready to receive it, through three slots:
@@ -48,6 +48,7 @@ Do not create tables, dependencies, queues or files for AI before the decision. 
    - External edits are picked up by the watcher and reindexed.
    - Renaming a note updates every `[[link]]` pointing to it.
    - Owner: `vault-worker.ts` owns all file I/O, the `chokidar` watcher, parsing and SQLite. `main.ts` only manages windows and routes IPC.
+     - One exception: deleting. Only main can call `shell.trashItem`, so the worker validates the path (existing, inside the vault, no symlink or junction, never the vault itself), asks main to move it to the Recycle Bin and keeps its queue meanwhile (no save or rename runs), then compares the tree. Nothing in the app deletes a note or folder for good: where Windows has no bin for an item, `trashItem` fails and nothing is deleted (checked on a `subst` drive).
 2. Save pipeline: two paths.
    - Light path, auto-save 500 ms after typing stops: atomic write, FTS5 update, link/edge update, synaptic pulse for new `[[link]]`s.
    - No text is lost or silently overwritten (`renderer/editor/note-saver.ts`):
@@ -138,7 +139,7 @@ myelin/
 │       ├── styles.css         # palette and font variables (docs/identity.md)
 │       ├── fonts/             # Literata, Inter, JetBrains Mono (variable, OFL) + fonts.css
 │       ├── public/licenses/   # font licenses, copied into the build
-│       ├── components/        # Launcher, Workspace, FileTree, Tabs, Editor, TreeMenu, CommandPalette, StatusBar, BrainPanel (.svelte)
+│       ├── components/        # Launcher, Workspace, FileTree, Tabs, Editor, TreeMenu, DeleteDialog, CommandPalette, StatusBar, BrainPanel (.svelte)
 │       ├── editor/
 │       │   ├── cm-editor.ts   # CodeMirror 6 (one view, a state per tab); [[link]] autocomplete and hover plug in here
 │       │   ├── editor-tabs.ts # tabs -> editor: opens a note when its tab is first shown, saves the one left
@@ -158,6 +159,7 @@ myelin/
 │       │   ├── note-path.ts   # which note an editor state holds
 │       │   └── theme.ts       # editor look, from the identity tokens
 │       ├── tree-model.ts      # file tree logic: visible rows, watcher events, keyboard
+│       ├── delete-item.ts     # deleting: save the open notes, move to the Recycle Bin, close their tabs
 │       ├── new-item.ts        # creating from the tree: target folder, name rules, context menu items
 │       ├── note-list.ts       # every note path (no content), kept current by watcher events
 │       ├── note-search.ts     # fuzzy search over note names, ignoring case and accents

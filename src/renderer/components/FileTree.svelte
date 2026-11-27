@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { tick } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import type { TreeEntry } from '../../shared/ipc';
   import { errorMessage } from '../error-message';
   import { foldersAbove, menuItems, newItem, targetFolder, type ItemKind, type MenuItem } from '../new-item';
   import { renamedPath } from '../rename-note';
-  import { flatten, keyAction, pruneExpanded, scrollToShow, visibleRange, watchTree } from '../tree-model';
+  import { cursorAfter, flatten, keyAction, pruneExpanded, scrollToShow, visibleRange, watchTree } from '../tree-model';
   import TreeMenu from './TreeMenu.svelte';
 
   /** `selected`: path of the open note. `onopen`: a note was clicked, chosen or created. */
@@ -13,13 +13,20 @@
     onopen,
     onrename,
     hasTab,
+    ondelete,
   }: {
     selected: string | null;
     onopen: (path: string) => void;
     onrename: (from: string, to: string) => void;
     /** A note with no file but a tab was deleted: its tab may hold its text. */
     hasTab: (path: string) => boolean;
+    ondelete: (target: { path: string; kind: TreeEntry['kind'] }) => void;
   } = $props();
+
+  export function focus() {
+    list?.focus();
+    void scrollToCursor();
+  }
 
   /** Fixed, so only the rows in view need to be in the DOM. */
   const ROW_HEIGHT = 28;
@@ -63,8 +70,16 @@
   $effect(() =>
     watchTree(window.myelin, {
       tree(next, events) {
+        // Not tracked: this effect subscribes once.
+        const before = untrack(() => rows);
         tree = next;
         expanded = pruneExpanded(expanded, events);
+        untrack(() => {
+          const moved = cursorAfter(before, cursor, rows);
+          if (moved === cursor) return;
+          cursor = moved;
+          void scrollToCursor();
+        });
       },
       error(reason) {
         error = `Could not list the notes. ${errorMessage(reason)}`;
@@ -188,7 +203,11 @@
   function pick(id: MenuItem['id']) {
     const entry = menu?.entry ?? null;
     menu = null;
-    if (id === 'rename') {
+    if (id === 'delete') {
+      // The dialog gives the focus back to what has it when it opens.
+      list?.focus();
+      if (entry) ondelete({ path: entry.path, kind: entry.kind });
+    } else if (id === 'rename') {
       if (entry) startRename(entry.path);
     } else {
       void startCreate(id === 'new-note' ? 'note' : 'folder', targetFolder(entry));
@@ -214,6 +233,13 @@
     event.preventDefault();
     if (action.type === 'move') {
       cursor = rows[action.index]!.entry.path;
+    } else if (action.type === 'delete') {
+      // Only from the tree itself: in a field, `Delete` edits text.
+      const entry = rows[cursorIndex]?.entry;
+      if (event.target === list && entry) {
+        cursor = entry.path;
+        ondelete({ path: entry.path, kind: entry.kind });
+      }
     } else if (action.type === 'rename') {
       cursor = action.path;
       startRename(action.path);

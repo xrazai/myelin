@@ -2,6 +2,7 @@
 // vault-worker only. Loaded by Node as-is in tests (type stripping): erasable TypeScript.
 import { lstat, readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
+import { isReservedName } from '../shared/links.ts';
 
 /**
  * The OS path of the note at `path`, or a throw. Only the contract form passes: relative,
@@ -79,6 +80,36 @@ export async function newFolderPath(root: string, path: unknown): Promise<string
     if (!(await lstat(current)).isDirectory()) throw new Error(`not a folder: ${path}`);
   }
   return join(root, ...segments);
+}
+
+/**
+ * The OS path of the note or folder at `path` that exists under exactly that name, or a
+ * throw. What deleting needs: nothing outside the vault, no link, never the vault itself.
+ */
+export async function existingItemPath(root: string, path: unknown, kind: 'note' | 'folder'): Promise<string> {
+  // The Windows shell, which moves to the Recycle Bin, drops a dot or space that ends a
+  // name: `Plans.` would take the folder `Plans` instead. Device names are as unsafe.
+  if (typeof path === 'string' && path.split('/').some((segment) => /[. ]$/.test(segment) || isReservedName(segment))) {
+    throw new Error(
+      `Windows cannot move "${path}" to the Recycle Bin safely: first rename, outside Myelin, ` +
+        'any name that ends in a dot or space or that Windows reserves',
+    );
+  }
+  let file: string;
+  if (kind === 'note') {
+    file = await existingNotePath(root, path);
+  } else {
+    // The form of a folder path, with real folders above it.
+    file = await newFolderPath(root, path);
+    if (!(await lstat(file)).isDirectory()) throw new Error(`not a folder: ${String(path)}`);
+  }
+  // Windows ignores case: another spelling must not delete what the app calls otherwise.
+  let current = root;
+  for (const segment of (path as string).split('/')) {
+    if (!(await readdir(current)).includes(segment)) throw new Error(`no such ${kind}: ${String(path)}`);
+    current = join(current, segment);
+  }
+  return file;
 }
 
 /**

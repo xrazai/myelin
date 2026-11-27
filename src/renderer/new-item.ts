@@ -61,7 +61,7 @@ export function foldersAbove(path: string): string[] {
 }
 
 export interface MenuItem {
-  id: 'new-note' | 'new-folder' | 'rename';
+  id: 'new-note' | 'new-folder' | 'rename' | 'delete';
   label: string;
 }
 
@@ -73,5 +73,6 @@ export function menuItems(entry: TreeEntry | null): MenuItem[] {
   ];
   // Folders cannot be renamed yet.
   if (entry?.kind === 'note') items.push({ id: 'rename', label: 'Rename' });
+  if (entry) items.push({ id: 'delete', label: 'Delete…' });
   return items;
 }

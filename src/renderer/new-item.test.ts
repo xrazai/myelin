@@ -54,7 +54,7 @@ test('lists the folders to expand', () => {
 
 test('only a note can be renamed from the menu', () => {
   const ids = (entry: TreeEntry | null) => menuItems(entry).map((item) => item.id);
-  expect(ids(idea)).toEqual(['new-note', 'new-folder', 'rename']);
-  expect(ids(notes)).toEqual(['new-note', 'new-folder']);
+  expect(ids(idea)).toEqual(['new-note', 'new-folder', 'rename', 'delete']);
+  expect(ids(notes)).toEqual(['new-note', 'new-folder', 'delete']);
   expect(ids(null)).toEqual(['new-note', 'new-folder']);
 });

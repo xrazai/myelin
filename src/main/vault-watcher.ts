@@ -6,16 +6,17 @@
 // comparing disk with what is known: folder listings for the tree, content hashes for the
 // notes. So repeated, merged or missing reports cannot corrupt either one.
 import { isUtf8 } from 'node:buffer';
-import { mkdir, readFile, rename, rm, stat } from 'node:fs/promises';
+import { lstat, mkdir, readFile, readdir, rename, rm, stat } from 'node:fs/promises';
 import { dirname, join, relative, sep } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { watch } from 'chokidar';
 import type Database from 'better-sqlite3';
-import type { RenameResult, TreeEntry, VaultEvent, WriteResult } from '../shared/ipc';
+import type { DeleteInfo, RenameResult, TreeEntry, VaultEvent, WriteResult } from '../shared/ipc';
 import { createLinkResolver, folderNameProblem, noteNameProblem, rewriteLinksForRename } from '../shared/links.ts';
 import { renameWithRetry, writeFileAtomic, type AtomicWriteDeps } from './atomic-write.ts';
 import {
   contentHash,
+  countLinkingNotes,
   isDamaged,
   notePaths,
   renameCandidates,
@@ -24,7 +25,13 @@ import {
   type NoteUpdate,
   type SyncReport,
 } from './vault-index.ts';
-import { existingNotePath, folderOnDiskInOtherCase, newFolderPath, writableNotePath } from './vault-path.ts';
+import {
+  existingItemPath,
+  existingNotePath,
+  folderOnDiskInOtherCase,
+  newFolderPath,
+  writableNotePath,
+} from './vault-path.ts';
 import { listFolder, scanFolder, scanVault } from './vault-scan.ts';
 
 /** Hints are handled in one batch: after a quiet moment, or this long after the first. */
@@ -67,10 +74,40 @@ export interface VaultWatch {
   rename(from: string, to: string): Promise<RenameResult>;
   /** `createFolder` of the contract: its `created` event is sent before it resolves. */
   createFolder(path: string): Promise<void>;
+  /** `deleteInfo` of the contract. */
+  deleteInfo(path: string, kind: Kind): Promise<DeleteInfo>;
+  /**
+   * `deleteItem` of the contract: `trash` moves the validated OS path to the Recycle Bin.
+   * No write or rename runs meanwhile.
+   */
+  remove(path: string, kind: Kind, trash: (path: string) => Promise<void>): Promise<string[]>;
   close(): Promise<void>;
 }
 
 type Kind = TreeEntry['kind'];
+
+/**
+ * What is under the folder `path` (`dir` on disk): the notes the tree shows, and how many
+ * files it does not. Links are counted, never followed.
+ */
+async function contentsOf(dir: string, path: string, hidden = false): Promise<{ notes: string[]; otherFiles: number }> {
+  const total = { notes: [] as string[], otherFiles: 0 };
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const concealed = hidden || entry.name.startsWith('.');
+    // As the scan does: Windows `readdir` calls cloud placeholders links; `lstat` does not.
+    const stats = entry.isSymbolicLink() ? await lstat(join(dir, entry.name)) : entry;
+    if (stats.isDirectory()) {
+      const inside = await contentsOf(join(dir, entry.name), `${path}/${entry.name}`, concealed);
+      total.notes.push(...inside.notes);
+      total.otherFiles += inside.otherFiles;
+    } else if (!concealed && stats.isFile() && /\.md$/i.test(entry.name)) {
+      total.notes.push(`${path}/${entry.name}`);
+    } else {
+      total.otherFiles++;
+    }
+  }
+  return total;
+}
 
 /** The disk did not hold what a write expected. */
 class Conflict extends Error {
@@ -378,6 +415,12 @@ export function watchVault(root: string, { openDb, emit, sync = syncIndex }: Vau
     return sync(db, root, signal, { tree, onIndexed }).catch((error: unknown) => rebuild(error, onIndexed));
   })();
   indexed.catch(report('indexing'));
+  /** The first sync finished: only then does the index know every link. */
+  let synced = false;
+  void indexed.then(
+    () => (synced = true),
+    () => {},
+  );
 
   /** True if `hash` is one the app wrote; forgets it and the older ones. */
   function isOwnWrite(path: string, hash: string): boolean {
@@ -602,6 +645,44 @@ export function watchVault(root: string, { openDb, emit, sync = syncIndex }: Vau
         stale.add(path);
         scheduleUpdate();
         return { status: 'saved' };
+      }),
+    async deleteInfo(path, kind) {
+      const file = await serial(() => existingItemPath(root, path, kind));
+      let counted = { notes: 1, otherFiles: 0 };
+      if (kind === 'folder') {
+        const inside = await contentsOf(file, path);
+        counted = { notes: inside.notes.length, otherFiles: inside.otherFiles };
+      }
+      // Before the whole vault is indexed a count would be too low: unknown, never 0.
+      let linkedFrom: number | null = null;
+      if (synced) {
+        await updates;
+        try {
+          if (db) linkedFrom = countLinkingNotes(db, path, kind);
+        } catch (error) {
+          console.error('[vault-watcher] counting the linking notes failed:', error);
+        }
+      }
+      return { ...counted, linkedFrom };
+    },
+    remove: (path, kind, trash) =>
+      serial(async () => {
+        const file = await existingItemPath(root, path, kind);
+        // Listed right before the move: only these notes are in the bin afterwards.
+        const notes = kind === 'note' ? [path] : (await contentsOf(file, path)).notes;
+        try {
+          await trash(file);
+        } catch (error) {
+          const part = kind === 'folder' ? ' Part of it may be there already.' : '';
+          const reason = error instanceof Error ? error.message : String(error);
+          throw new Error(`could not move ${path} to the Recycle Bin: ${reason}.${part}`);
+        } finally {
+          // Whatever happened, the tree and the index show what is left. A full scan: part
+          // of a folder may have gone.
+          if (known) await rescan();
+          scheduleUpdate();
+        }
+        return notes;
       }),
     createFolder: (path) =>
       serial(async () => {

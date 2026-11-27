@@ -34,6 +34,8 @@ export const pendingHandlers: CallHandlers = {
   writeNote: notImplemented('writeNote'),
   renameNote: notImplemented('renameNote'),
   createFolder: notImplemented('createFolder'),
+  deleteInfo: notImplemented('deleteInfo'),
+  deleteItem: notImplemented('deleteItem'),
   search: notImplemented('search'),
   resumeUnload: notImplemented('resumeUnload'),
 };
