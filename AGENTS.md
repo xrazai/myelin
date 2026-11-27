@@ -90,6 +90,8 @@ On `gen-vault` output (10k / 100k notes): graph FPS with glow, hover latency (wa
 `--editor` (`scripts/bench-editor.ts`): typing latency of the editor, with real key events in the repo's Electron (needs a desktop session). Budget on a 10k-line note: p95 <= 16 ms from keydown to the DOM updated and laid out.
 
 ## Learning (what "Myelin" means in code)
+**Paused** (#34, label `paused`; see Workflow): do not build any of this until the maintainer resumes it. What already exists stays (a rename still appends its `renamed` event).
+
 Now, no AI: myelination. Edges you use get stronger.
 - Usage events (link followed, notes co-opened, notes co-retrieved in a search, note renamed) are appended to `.myelin/usage.jsonl`: plain text, append-only, keyed by note path. A rename is an event, so old lines never need rewriting.
 - Edge weights are computed from these events into `index.db`. The graph draws strong edges thicker and brighter.
@@ -173,6 +175,8 @@ Workspace layout: tabs (top) | tree (left) | editor | graph or Brain panel (righ
 ## Workflow (GitHub)
 - Board: GitHub Project "Myelin", https://github.com/users/xrazai/projects/7. Status: Backlog -> Todo -> In progress -> Done.
 - Every piece of work is an issue, in English. ID = issue number (`#12`). Labels: type (`task`, `bug`, `enhancement`, `documentation`) + `area: vault|editor|graph|ui|tooling`. Milestone = roadmap stage.
+- `paused`: on hold, to be resumed later (work given up is closed as "not planned" instead). The issue stays open, in Backlog, even with no open blocker. Agents do not pick it, move it or work on it, even when asked by number: they say it is paused and ask. Only the maintainer pauses and resumes. An issue blocked by a paused one stays blocked: tell the maintainer.
+- `needs decision`: waits for the maintainer; stays in Backlog.
 - License: MIT for everything (app and `@myelin/graph`). Every `package.json` says `"license": "MIT"`; `packages/graph` ships its own `LICENSE`.
 - Community files: `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `.github/CODEOWNERS`, templates in `.github/` (bug, feature, task, PR; blank issues off).
 - Solo flow (Rafa): commit straight to `main` (ruleset bypass); the commit that finishes an issue ends its message with `Closes #N` (partial work: `Refs #N`). Closing moves the card to Done. Rafa's agents follow `CLAUDE.local.md` (local, git-ignored) for when to commit, push and open PRs; if it is missing, ask before any push.
@@ -195,7 +199,7 @@ Workspace layout: tabs (top) | tree (left) | editor | graph or Brain panel (righ
 ## Roadmap
 1. Skeleton, I/O and proof tools: themed window, launcher, file tree, `vault-worker` (atomic writes, watcher loop guard, `index.db` + FTS5), `gen-vault` and `bench`.
 2. Fluid editor: CodeMirror 6, live preview, `Ctrl+P` palette, `[[link]]` autocomplete, rename updates links, hover preview with viewport prefetch. Daily use starts here: first release `v0.1.0` with auto-update (#12).
-3. Search and Brain panel: `brain-adapter` with FTS5, excerpt cards with sources, usage events in `usage.jsonl` and edge weights.
+3. Search and Brain panel: `brain-adapter` with FTS5, excerpt cards with sources, usage events in `usage.jsonl` and edge weights (the last two are paused, #34).
 4. Graph: `@myelin/graph` on WebGL2, layout worker, incremental API, semantic zoom, micro-animations, edge weights as thickness/glow.
 
 ## Decide later
