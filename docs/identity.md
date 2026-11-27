@@ -22,6 +22,11 @@ The vault is a living, growing organism, not cold tech software.
 
 Inputs (Brain panel search, `Ctrl+P`): filled with `bg-editor` on top of `bg-panel`, so the shape reads without relying on the `1px` divider. Focus: `1px` `accent` border/ring. No new colors.
 
+### Derived surfaces & tactile motion
+Subtle UI surfaces (`--surface-hover`, `--surface-active`, `--surface-code`, `--surface-elevated`, `--hairline`, `--accent-soft`, `--accent-ring`, `--learning-soft`) are derived from the 7 base tokens via `color-mix()` in `src/renderer/styles.css` — never by introducing new literal hex colors.
+- **Selection:** translucent sage (`color-mix(in srgb, var(--accent) 28%, transparent)`) over `--text` so long-form reading stays calm.
+- **Motion primitives:** `--ease-out` (`cubic-bezier(0.16, 1, 0.3, 1)`), `--t-fast` (`110ms`), `--t-base` (`170ms`), `--t-panel` (`260ms`). Animate only `transform`, `opacity`, and color/border; keyboard focus is always immediate, animations follow the rule of rest (one-shot confirmations settle idle), and `@media (prefers-reduced-motion: reduce)` collapses all durations to `0ms`.
+
 ## Typography
 | Role | Family | Notes |
 |---|---|---|

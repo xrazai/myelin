@@ -10,6 +10,22 @@
   --text: #e2e8e5;
   --text-muted: #8a9992;
 
+  /* Derived tactile surfaces computed from the 7 palette tokens (zero new base colors). */
+  --surface-hover: color-mix(in srgb, var(--text) 5%, transparent);
+  --surface-active: color-mix(in srgb, var(--accent) 13%, transparent);
+  --surface-code: color-mix(in srgb, var(--bg-panel) 65%, var(--divider));
+  --surface-elevated: color-mix(in srgb, var(--bg-editor) 84%, var(--text) 4%);
+  --hairline: color-mix(in srgb, var(--text) 7%, transparent);
+  --accent-soft: color-mix(in srgb, var(--accent) 24%, transparent);
+  --accent-ring: color-mix(in srgb, var(--accent) 45%, transparent);
+  --learning-soft: color-mix(in srgb, var(--learning) 14%, transparent);
+
+  /* Calibrated tactile motion primitives (transform/opacity/color only). */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --t-fast: 110ms;
+  --t-base: 170ms;
+  --t-panel: 260ms;
+
   --font-body: 'Literata', Georgia, serif;
   --font-ui: 'Inter', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
@@ -17,7 +33,16 @@
   --font-size-ui: 13px;
 
   color-scheme: dark;
+  scrollbar-width: thin;
   scrollbar-color: var(--divider) transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --t-fast: 0ms;
+    --t-base: 0ms;
+    --t-panel: 0ms;
+  }
 }
 
 *,
@@ -34,6 +59,7 @@ body {
   font-size: var(--font-size-ui);
   font-feature-settings: 'tnum';
   font-optical-sizing: auto;
+  -webkit-font-smoothing: antialiased;
 }
 
 /* Writing and reading text: editor, previews, Brain panel excerpts. */
@@ -63,6 +89,19 @@ textarea {
   color: inherit;
 }
 
+button {
+  transition:
+    background-color var(--t-fast) ease,
+    border-color var(--t-fast) ease,
+    color var(--t-fast) ease,
+    opacity var(--t-fast) ease,
+    transform var(--t-fast) var(--ease-out);
+}
+
+button:active:not(:disabled) {
+  transform: scale(0.975);
+}
+
 input,
 select,
 textarea {
@@ -77,12 +116,16 @@ textarea {
   background: var(--bg-editor);
   border: 1px solid var(--divider);
   border-radius: 6px;
+  transition:
+    border-color var(--t-fast) ease,
+    background-color var(--t-fast) ease;
 }
 
 ::placeholder {
   color: var(--text-muted);
 }
 
+/* Keyboard focus is always immediate (never transitions). */
 :focus-visible {
   outline: 1px solid var(--accent);
 }
@@ -95,7 +138,14 @@ textarea:focus {
   outline: 1px solid transparent;
 }
 
+/* Calm dark-mode selection: translucent sage keeps underlying prose and syntax legible. */
 ::selection {
-  background: var(--accent);
-  color: var(--bg-panel);
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  color: var(--text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button:active:not(:disabled) {
+    transform: none;
+  }
 }
