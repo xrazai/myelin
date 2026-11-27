@@ -41,6 +41,7 @@ test('each call invokes its own channel with its arguments', () => {
   void api.getPreviews(['a.md']);
   void api.writeNote('a.md', 'text', 'before');
   void api.renameNote('a.md', 'b.md');
+  void api.renameFolder('a', 'b');
   void api.createFolder('folder');
   void api.deleteInfo('a.md', 'note');
   void api.deleteItem('folder', 'folder');
@@ -55,6 +56,7 @@ test('each call invokes its own channel with its arguments', () => {
     [CALL_CHANNELS.getPreviews, ['a.md']],
     [CALL_CHANNELS.writeNote, 'a.md', 'text', 'before'],
     [CALL_CHANNELS.renameNote, 'a.md', 'b.md'],
+    [CALL_CHANNELS.renameFolder, 'a', 'b'],
     [CALL_CHANNELS.createFolder, 'folder'],
     [CALL_CHANNELS.deleteInfo, 'a.md', 'note'],
     [CALL_CHANNELS.deleteItem, 'folder', 'folder'],

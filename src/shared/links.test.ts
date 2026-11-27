@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createLinkResolver, linkKey, noteLinks, folderNameProblem, isReservedName, noteNameProblem, parseLinks, rewriteLinksForRename } from './links';
+import { createLinkResolver, linkKey, noteLinks, folderNameProblem, isReservedName, noteNameProblem, parseLinks, rewriteLinksForMoves, rewriteLinksForRename } from './links';
 
 const targets = (text: string) => parseLinks(text).map((l) => l.target);
 
@@ -181,6 +181,36 @@ describe('noteNameProblem', () => {
       expect(noteNameProblem(path)).not.toBeNull();
     },
   );
+});
+
+describe('rewriteLinksForMoves', () => {
+  const all = ['Plans/A.md', 'Plans/sub/B.md', 'Other/A.md', 'Home.md'];
+  const move = (text: string, source: string, from: string, to: string) => {
+    const moves = new Map(all.filter((path) => path.startsWith(`${from}/`)).map((path) => [path, to + path.slice(from.length)]));
+    const after = all.map((path) => moves.get(path) ?? path);
+    return rewriteLinksForMoves(text, source, moves, createLinkResolver(all), createLinkResolver(after)).text;
+  };
+
+  it('rewrites links by path into a renamed folder, keeping alias, heading and block', () => {
+    expect(move('[[Plans/A|a]] [[sub/B#H]] [[Plans/sub/B#^x]] [[B]] [[#Top]]', 'Home.md', 'Plans', 'Ideas')).toBe(
+      '[[Ideas/A|a]] [[sub/B#H]] [[Ideas/sub/B#^x]] [[B]] [[#Top]]',
+    );
+  });
+
+  it('follows a change of case only where the link writes the folder', () => {
+    expect(move('[[Plans/A]] [[plans/sub/B]] [[sub/B]] [[B]] [[Other/A]]', 'Home.md', 'Plans', 'plans')).toBe(
+      '[[plans/A]] [[plans/sub/B]] [[sub/B]] [[B]] [[Other/A]]',
+    );
+  });
+
+  it('keeps a bare link leading to the same namesake when the new path changes which one is shortest', () => {
+    // `[[A]]` led to Other/A (same depth, fewer characters than Plans/A).
+    expect(move('[[A]]', 'Home.md', 'Plans', 'Z')).toBe('[[Other/A]]');
+  });
+
+  it('rewrites links between the notes that move together', () => {
+    expect(move('[[Plans/sub/B]] [[Other/A]]', 'Plans/A.md', 'Plans', 'Ideas')).toBe('[[Ideas/sub/B]] [[Other/A]]');
+  });
 });
 
 describe('rewriteLinksForRename', () => {

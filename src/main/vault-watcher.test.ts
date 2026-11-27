@@ -510,6 +510,87 @@ describe('deleting', () => {
   });
 });
 
+describe('renaming a folder', () => {
+  beforeEach(async () => {
+    await mkdir(at('Plans/deep/.hidden'), { recursive: true });
+    await mkdir(at('Other'));
+    await write('Plans/A.md', '[[Plans/deep/B]] [[#Here]] [[Home]]');
+    await write('Plans/deep/B.md', 'b links [[A]]');
+    await write('Plans/deep/image.png', 'png');
+    await write('Plans/deep/.hidden/secret.md', 'hidden');
+    await write('Other/A.md', 'other a');
+    await write('Home.md', '[[Plans/A|alias]] [[Plans/deep/B#H]] [[deep/B]] [[B]]');
+    watching = start();
+    await watching.indexed;
+    tree = await watching.getTree();
+    seen = [];
+  });
+
+  test('moves everything in one batch and every link leads where it did', async () => {
+    const result = await watching.renameFolder('Plans', 'Ideas');
+    expect(result.notUpdated).toEqual([]);
+    expect(result.moved.sort()).toEqual([
+      ['Plans/A.md', 'Ideas/A.md'],
+      ['Plans/deep/B.md', 'Ideas/deep/B.md'],
+    ]);
+    expect((await readdir(at('Ideas/deep'))).sort()).toEqual(['.hidden', 'B.md', 'image.png']);
+    expect(await readdir(at('Ideas/deep/.hidden'))).toEqual(['secret.md']);
+    expect(await readFile(at('Home.md'), 'utf8')).toBe('[[Ideas/A|alias]] [[Ideas/deep/B#H]] [[deep/B]] [[B]]');
+    expect(await readFile(at('Ideas/A.md'), 'utf8')).toBe('[[Ideas/deep/B]] [[#Here]] [[Home]]');
+    // `[[A]]` meant Other/A, first of two paths as short. `Ideas/A` would now come before
+    // it and capture the link, so the link is spelled out.
+    expect(await readFile(at('Ideas/deep/B.md'), 'utf8')).toBe('b links [[Other/A]]');
+    expect(seen).toContainEqual(event('deleted', 'Plans', 'folder'));
+    expect(seen).toContainEqual(event('created', 'Ideas', 'folder'));
+    expect(seen).toContainEqual(event('changed', 'Home.md'));
+    expect(seen.some((e) => e.type === 'changed' && e.path.startsWith('Ideas/'))).toBe(false);
+    expect(notes()).toEqual(['Home.md', 'Ideas/A.md', 'Ideas/deep/B.md', 'Other/A.md']);
+    expect(linkTargets().filter((link) => (link as { path: string | null }).path === null)).toEqual([]);
+  });
+
+  test('a change of case only, then changes outside are still seen inside', async () => {
+    await watching.renameFolder('Plans', 'plans');
+    expect((await readdir(root)).filter((name) => name !== '.myelin').sort()).toEqual(['Home.md', 'Other', 'plans']);
+    expect(await readFile(at('Home.md'), 'utf8')).toContain('[[plans/A|alias]]');
+    await watching.renameFolder('plans', 'Later');
+    seen = [];
+    await write('Later/deep/New.md', 'from outside');
+    await until(() => expect(seen).toContainEqual(event('created', 'Later/deep/New.md')));
+  });
+
+  test('refuses a taken, unusable or inner destination with the vault untouched', async () => {
+    await write('file', 'x');
+    const before = await readFile(at('Home.md'), 'utf8');
+    const refused: [string, string][] = [
+      ['Plans', 'Other'], ['Plans', 'other'], ['Plans', 'file'], ['Plans', 'Plans/inner'], ['Plans', 'plans/inner'],
+      ['Plans', 'C#'], ['Plans', 'x.md'], ['Plans', 'aux'], ['Plans', 'end.'], ['Plans', '../out'], ['Plans', '.hidden'],
+      ['Plans', 'Missing/Plans'], ['Plans', 'other/Sub'], ['plans', 'New'], ['', 'New'], ['Home.md', 'New'],
+    ];
+    for (const [from, to] of refused) await expect(watching.renameFolder(from, to), `${from} -> ${to}`).rejects.toThrow();
+    expect(await readFile(at('Home.md'), 'utf8')).toBe(before);
+    expect((await readdir(at('Plans'))).sort()).toEqual(['A.md', 'deep']);
+    expect(await readdir(at('Other'))).toEqual(['A.md']);
+    expect(seen).toEqual([]);
+  });
+
+  test('a note that is not UTF-8 is left as it is', async () => {
+    await writeFile(at('Latin.md'), Buffer.from([0x5b, 0x5b, 0x50, 0x6c, 0x61, 0x6e, 0x73, 0x2f, 0x41, 0x5d, 0x5d, 0xe9]));
+    await until(() => expect(notes()).toContain('Latin.md'));
+    await watching.renameFolder('Plans', 'Ideas');
+    expect((await readFile(at('Latin.md'))).at(-1)).toBe(0xe9);
+  });
+
+  test('a save waiting behind the rename does not recreate the old note', async () => {
+    const renamed = watching.renameFolder('Plans', 'Ideas');
+    // Until the rename has its turn in the queue.
+    await new Promise((resolve) => setImmediate(resolve));
+    const saved = watching.write('Plans/A.md', 'newer', '[[Plans/deep/B]] [[#Here]] [[Home]]');
+    await renamed;
+    expect(await saved).toEqual({ status: 'conflict', disk: null });
+    expect(await readdir(root)).not.toContain('Plans');
+  });
+});
+
 describe('during the first sync', () => {
   test('the count of linking notes is unknown, never 0', async () => {
     await write('A.md', 'a');

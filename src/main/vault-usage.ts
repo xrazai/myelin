@@ -11,8 +11,14 @@ export type UsageEvent =
 
 /** Appends one event to the vault's usage log, creating `.myelin/` if needed. */
 export async function appendUsageEvent(root: string, event: UsageEvent): Promise<void> {
+  await appendUsageEvents(root, [event]);
+}
+
+/** Appends the events in one write. */
+export async function appendUsageEvents(root: string, events: UsageEvent[]): Promise<void> {
+  if (events.length === 0) return;
   const folder = join(root, '.myelin');
   await mkdir(folder, { recursive: true });
-  const line = JSON.stringify('at' in event ? event : { ...event, at: new Date().toISOString() });
-  await appendFile(join(folder, 'usage.jsonl'), `${line}\n`, 'utf8');
+  const lines = events.map((event) => JSON.stringify('at' in event ? event : { ...event, at: new Date().toISOString() }));
+  await appendFile(join(folder, 'usage.jsonl'), `${lines.join('\n')}\n`, 'utf8');
 }

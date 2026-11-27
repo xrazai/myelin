@@ -2,6 +2,7 @@
 // A new request is a line here and a handler in `vault-worker.ts`.
 import type {
   DeleteInfo,
+  FolderRenameResult,
   NotePreview,
   RenameResult,
   TreeEntry,
@@ -37,6 +38,7 @@ export interface VaultRequests {
   renameNote(from: string, to: string): RenameResult;
   /** `createFolder` of the contract, on the current vault. */
   createFolder(path: string): void;
+  renameFolder(from: string, to: string): FolderRenameResult;
   deleteInfo(path: string, kind: TreeEntry['kind']): DeleteInfo;
   /** `deleteItem` of the contract; asks main for the move with a `trash` message. */
   deleteItem(path: string, kind: TreeEntry['kind']): string[];
