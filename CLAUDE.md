@@ -22,7 +22,7 @@ Status: stage 1 in progress (app scaffold in place). Repo: https://github.com/xr
 - Svelte components always use `<script lang="ts">` (without it `svelte-check` treats them as untyped JS).
 - Renderer runs sandboxed, so the preload is built as CommonJS (`preload.cjs`).
 - UI shell: Svelte 5 (runes).
-- Internal communication: IPC only (`contextBridge`, `contextIsolation: true`).
+- Internal communication: IPC only (`contextBridge`, `contextIsolation: true`). Every channel is declared in `src/shared/ipc.ts`; only `preload.ts` and `main/ipc.ts` touch Electron IPC (enforced by `main/ipc.test.ts`).
 - Storage:
   - Inside the vault, `.myelin/` holds only text files: `vault.json` (vault id, format version) and `usage.jsonl` (learning events). Safe to sync with Git, Syncthing or cloud folders.
   - Index: `better-sqlite3` (WAL, FTS5) at `<userData>/vaults/<vault-id>/index.db`, outside the vault. 100% rebuildable; never synced (SQLite + WAL in a synced folder risks corruption and binary conflicts). Native module: `better-sqlite3` >= 13 ships Node-API prebuilds, so one binary serves Node (tests) and Electron: no `@electron/rebuild`, and its install script stays denied (`allowScripts`).
@@ -100,10 +100,11 @@ myelin/
 ├── src/
 │   ├── main/
 │   │   ├── main.ts            # windows, menus, IPC routing
+│   │   ├── ipc.ts             # registers the contract's handlers, sends its events
 │   │   ├── vault-worker.ts    # file I/O (atomic), watcher, parsing, index.db, FTS5, usage events, heavy path
 │   │   └── brain-adapter.ts   # AI slot: search(query), process(changedNote); FTS5 now
 │   ├── preload/preload.ts     # contextBridge, exposes window.myelin
-│   ├── shared/ipc.ts          # types of the window.myelin contract
+│   ├── shared/ipc.ts          # window.myelin contract: types and channel names
 │   └── renderer/              # Nocturnal Botany UI (Svelte 5 shell)
 │       ├── index.html
 │       ├── index.ts           # mounts App.svelte
