@@ -11,6 +11,7 @@ export interface NoteList {
   /** The one resolution rule (`shared/links.ts`) over the notes now in the list. */
   resolve: LinkResolver;
   search: NoteSearch;
+  has(path: string): boolean;
   stop(): void;
 }
 
@@ -53,6 +54,12 @@ export function watchNoteList(api: Pick<MyelinApi, 'listNotes' | 'onVaultEvents'
     isLoaded: () => early === null,
     resolve: (target, source) => (resolver ??= createLinkResolver(paths))(target, source),
     search: (query, limit, recent) => (search ??= createNoteSearch(paths))(query, limit, recent),
+    has: (path) => {
+      if (paths.has(path)) return true;
+      const lower = path.toLowerCase();
+      for (const existing of paths) if (existing.toLowerCase() === lower) return true;
+      return false;
+    },
     stop: unsubscribe,
   };
 }

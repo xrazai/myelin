@@ -72,18 +72,32 @@ export function createNoteSearch(paths: Iterable<string>): NoteSearch {
     const byPath = wanted.includes('/');
     let found = notes;
     if (wanted !== '') {
-      const scored: { note: (typeof notes)[number]; score: number }[] = [];
+      if (limit <= 0) return [];
+      const top: { note: (typeof notes)[number]; score: number }[] = [];
       for (const note of notes) {
         let result = score(byPath ? note.pathKey : note.key, wanted);
         if (result === null && !byPath) {
+          if (top.length === limit && top[limit - 1]!.score < 10) continue;
           const pathScore = score(note.pathKey, wanted);
           if (pathScore !== null) result = pathScore + 10;
         }
-        if (result !== null) scored.push({ note, score: result });
+        if (result === null) continue;
+        if (top.length === limit) {
+          const worst = top[limit - 1]!;
+          if (result > worst.score || (result === worst.score && note.name.length >= worst.note.name.length)) {
+            continue;
+          }
+          top.pop();
+        }
+        let pos = top.length;
+        while (pos > 0) {
+          const prev = top[pos - 1]!;
+          if (prev.score < result || (prev.score === result && prev.note.name.length <= note.name.length)) break;
+          pos--;
+        }
+        top.splice(pos, 0, { note, score: result });
       }
-      // Stable: ties of score and length stay in name order.
-      scored.sort((a, b) => a.score - b.score || a.note.name.length - b.note.name.length);
-      found = scored.map((match) => match.note);
+      found = top.map((match) => match.note);
     } else if (recent && recent.length > 0) {
       const result: (typeof notes)[number][] = [];
       const seen = new Set<string>();
@@ -111,9 +125,13 @@ export function createNoteSearch(paths: Iterable<string>): NoteSearch {
   };
 }
 
-/** Normalizes a palette query into a `.md` note path, or `null` if empty. */
+/** Normalizes a palette query into a `.md` note path, or `null` if empty or invalid. */
 export function normalizeNewNotePath(query: string): string | null {
   const trimmed = query.trim().replace(/^\/+|\/+$/g, '');
-  if (trimmed === '') return null;
+  if (trimmed === '' || trimmed.includes('\\') || trimmed.includes(':') || trimmed.includes('\0')) {
+    return null;
+  }
+  const segments = trimmed.split('/');
+  if (segments.some((seg) => seg === '' || seg.startsWith('.'))) return null;
   return /\.md$/i.test(trimmed) ? trimmed : `${trimmed}.md`;
 }

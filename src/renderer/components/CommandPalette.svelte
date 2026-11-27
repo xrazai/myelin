@@ -1,8 +1,10 @@
 <script lang="ts">
   import { tick } from 'svelte';
-  import { searchCommands, type Command, type CommandId } from '../commands';
+  import { COMMANDS, searchCommands, type Command, type CommandId } from '../commands';
   import type { NoteList } from '../note-list';
   import { normalizeNewNotePath, type NoteMatch } from '../note-search';
+
+  const PALETTE_COMMANDS = COMMANDS.filter((c) => c.id !== 'open-palette');
 
   type PaletteItem =
     | { kind: 'note'; match: NoteMatch }
@@ -12,6 +14,7 @@
   let {
     open,
     notes,
+    revision,
     recent,
     onopen,
     oncreate,
@@ -20,6 +23,7 @@
   }: {
     open: boolean;
     notes: NoteList;
+    revision: number;
     recent: readonly string[];
     onopen: (path: string, newTab: boolean) => void;
     oncreate: (path: string, newTab: boolean) => void | Promise<void>;
@@ -30,23 +34,28 @@
   let query = $state('');
   let selected = $state(0);
   let inputEl = $state<HTMLInputElement>();
+  let listEl = $state<HTMLUListElement>();
   let previousFocus: HTMLElement | null = null;
 
   const isCommandMode = $derived(query.startsWith('>'));
 
   const items = $derived.by((): PaletteItem[] => {
+    void revision;
     if (isCommandMode) {
-      return searchCommands(query.slice(1)).map((command) => ({ kind: 'command', command }));
+      return searchCommands(query.slice(1), PALETTE_COMMANDS).map((command) => ({ kind: 'command', command }));
     }
     const matches = notes.search(query, 50, recent);
     const result: PaletteItem[] = matches.map((match) => ({ kind: 'note', match }));
     const newPath = normalizeNewNotePath(query);
-    if (newPath !== null) {
-      const lower = newPath.toLowerCase();
-      const exists = matches.some((m) => m.path.toLowerCase() === lower);
-      if (!exists) result.push({ kind: 'create', path: newPath });
+    if (newPath !== null && !notes.has(newPath)) {
+      result.push({ kind: 'create', path: newPath });
     }
     return result;
+  });
+
+  $effect(() => {
+    void query;
+    selected = 0;
   });
 
   $effect(() => {
@@ -62,32 +71,45 @@
     }
   });
 
-  function close() {
+  function close(restoreFocus: boolean) {
     onclose();
     const target = previousFocus;
     previousFocus = null;
-    void tick().then(() => target?.focus());
+    if (restoreFocus) void tick().then(() => target?.focus());
   }
 
   function activate(item: PaletteItem | undefined, newTab: boolean) {
     if (!item) return;
-    close();
+    close(false);
     if (item.kind === 'command') oncommand(item.command.id);
     else if (item.kind === 'note') onopen(item.match.path, newTab);
     else void oncreate(item.path, newTab);
+  }
+
+  function scrollSelectedIntoView() {
+    void tick().then(() => {
+      const el = listEl?.children[selected];
+      if (el instanceof HTMLElement) el.scrollIntoView({ block: 'nearest' });
+    });
   }
 
   function onkeydown(event: KeyboardEvent) {
     if (event.key === 'Escape') {
       event.preventDefault();
       event.stopPropagation();
-      close();
+      close(true);
     } else if (event.key === 'ArrowDown') {
       event.preventDefault();
-      if (items.length > 0) selected = (selected + 1) % items.length;
+      if (items.length > 0) {
+        selected = (selected + 1) % items.length;
+        scrollSelectedIntoView();
+      }
     } else if (event.key === 'ArrowUp') {
       event.preventDefault();
-      if (items.length > 0) selected = (selected - 1 + items.length) % items.length;
+      if (items.length > 0) {
+        selected = (selected - 1 + items.length) % items.length;
+        scrollSelectedIntoView();
+      }
     } else if (event.key === 'Enter') {
       event.preventDefault();
       activate(items[selected], event.ctrlKey);
@@ -96,7 +118,7 @@
 </script>
 
 {#if open}
-  <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && close()}>
+  <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && close(true)}>
     <div class="palette" role="dialog" aria-modal="true" aria-label="Command palette">
       <input
         bind:this={inputEl}
@@ -106,7 +128,7 @@
         aria-label="Search notes or commands"
         {onkeydown}
       />
-      <ul role="listbox">
+      <ul bind:this={listEl} role="listbox">
         {#each items as item, index}
           <li
             role="option"

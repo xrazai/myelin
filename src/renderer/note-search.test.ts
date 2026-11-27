@@ -47,21 +47,42 @@ describe('createNoteSearch', () => {
     }
     const search = createNoteSearch(large);
 
-    // Warm up JIT once, then measure a keystroke query.
+    // Warm up JIT once, then measure 3 realistic keystroke queries.
     search('note-9999', 20);
-    const start = performance.now();
-    const hits = search('note-99999', 20);
-    const elapsedMs = performance.now() - start;
 
-    expect(hits.length).toBeGreaterThan(0);
-    expect(hits[0]?.path).toBe('folder-99/Note-99999.md');
-    expect(elapsedMs).toBeLessThan(16);
+    const measure = (q: string) => {
+      const start = performance.now();
+      const hits = search(q, 20);
+      return { hits, elapsedMs: performance.now() - start };
+    };
+
+    const broad = measure('n');
+    const specific = measure('note-99999');
+    const miss = measure('zzzz');
+
+    console.info(
+      `[100k-search] broad('n')=${broad.elapsedMs.toFixed(2)}ms, specific('note-99999')=${specific.elapsedMs.toFixed(2)}ms, miss('zzzz')=${miss.elapsedMs.toFixed(2)}ms`,
+    );
+
+    expect(broad.hits.length).toBe(20);
+    expect(specific.hits[0]?.path).toBe('folder-99/Note-99999.md');
+    expect(miss.hits.length).toBe(0);
+
+    expect(broad.elapsedMs).toBeLessThan(16);
+    expect(specific.elapsedMs).toBeLessThan(16);
+    expect(miss.elapsedMs).toBeLessThan(16);
   });
 });
 
-test('normalizeNewNotePath normalizes .md extension and rejects empty input', () => {
+test('normalizeNewNotePath normalizes .md extension and rejects empty or invalid input', () => {
   expect(normalizeNewNotePath('')).toBeNull();
   expect(normalizeNewNotePath('   /  ')).toBeNull();
+  expect(normalizeNewNotePath('a\\b')).toBeNull();
+  expect(normalizeNewNotePath('C:foo')).toBeNull();
+  expect(normalizeNewNotePath('a\0b')).toBeNull();
+  expect(normalizeNewNotePath('a//b')).toBeNull();
+  expect(normalizeNewNotePath('../secret')).toBeNull();
+  expect(normalizeNewNotePath('.myelin/vault')).toBeNull();
   expect(normalizeNewNotePath('Ideas')).toBe('Ideas.md');
   expect(normalizeNewNotePath('notes/Ideas.MD')).toBe('notes/Ideas.MD');
   expect(normalizeNewNotePath('/notes/Ideas/')).toBe('notes/Ideas.md');

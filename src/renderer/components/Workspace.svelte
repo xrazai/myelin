@@ -29,7 +29,12 @@
   let tabs = $state.raw<TabsState>(NO_TABS);
 
   // Marks the tabs of notes deleted outside the app.
-  $effect(() => window.myelin.onVaultEvents((events) => (tabs = applyTabEvents(tabs, events))));
+  $effect(() =>
+    window.myelin.onVaultEvents((events) => {
+      tabs = applyTabEvents(tabs, events);
+      noteListRev++;
+    }),
+  );
 
   let saver: NoteSaver | null = null;
   let problems = $state.raw<NoteProblems>(new Map());
@@ -113,7 +118,9 @@
   let rightPanel = $state<'graph' | 'brain'>('graph');
   const toggleRightPanel = () => (rightPanel = rightPanel === 'graph' ? 'brain' : 'graph');
 
+  let noteListRev = $state(0);
   const noteList = watchNoteList(window.myelin);
+  void noteList.ready.then(() => noteListRev++);
   $effect(() => () => noteList.stop());
 
   let paletteOpen = $state(false);
@@ -136,17 +143,18 @@
   }
 
   async function createFromPalette(path: string, newTab: boolean) {
-    const existing = noteList.resolve(path.replace(/\.md$/i, ''), '');
-    if (existing?.path) {
-      await openFromPalette(existing.path, newTab);
-      return;
+    try {
+      const result = await window.myelin.writeNote(path, '', null);
+      if (result.status === 'saved' || (result.status === 'conflict' && result.disk !== null)) {
+        await openFromPalette(path, newTab);
+      }
+    } catch (error) {
+      console.error('[palette] creating note failed:', error);
     }
-    const result = await window.myelin.writeNote(path, '', null);
-    if (result.status === 'saved') await openFromPalette(path, newTab);
   }
 
   function runCommand(id: CommandId) {
-    if (id === 'open-palette') paletteOpen = true;
+    if (id === 'open-palette') paletteOpen = !paletteOpen;
     else if (id === 'next-tab') tabs = cycleTab(tabs, 1);
     else if (id === 'previous-tab') tabs = cycleTab(tabs, -1);
     else if (id === 'toggle-right-panel') toggleRightPanel();
@@ -160,6 +168,7 @@
     if (!command) return;
     // Also keeps `Ctrl+W` from reaching the window menu, which would close the window.
     event.preventDefault();
+    if (paletteOpen && command !== 'open-palette') return;
     runCommand(command);
   }
 </script>
@@ -237,6 +246,7 @@
 <CommandPalette
   open={paletteOpen}
   notes={noteList}
+  revision={noteListRev}
   recent={recentNotes}
   onopen={openFromPalette}
   oncreate={createFromPalette}
