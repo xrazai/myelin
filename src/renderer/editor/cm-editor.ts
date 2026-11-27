@@ -67,14 +67,18 @@ export function createNoteEditor(parent: HTMLElement, extra: Extension = []): No
     },
     show(path) {
       if (path === shown) return;
+      // Takes the focus only if no control has it: the tree and the tab strip keep theirs.
+      const focus = view.hasFocus || document.activeElement === document.body;
       stash();
       const note = path === null ? undefined : notes.get(path);
       shown = note ? path : null;
       view.dom.hidden = !note;
       if (!note) return;
       view.setState(note.state);
-      view.dispatch({ effects: note.scroll ?? EditorView.scrollIntoView(0, { y: 'start' }) });
-      view.focus();
+      if (note.scroll) view.dispatch({ effects: note.scroll });
+      // `setState` keeps the scroll of the note before. 0 also shows the top padding.
+      else view.scrollDOM.scrollTop = 0;
+      if (focus) view.focus();
     },
     keep(paths) {
       for (const path of notes.keys()) {
