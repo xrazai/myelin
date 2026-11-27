@@ -31,7 +31,7 @@ Status: stage 1 in progress (app scaffold in place). Repo: https://github.com/xr
 - Editor: CodeMirror 6.
 - Graph: `@myelin/graph`, WebGL2 only (GLSL ES 3.0), graphics backend behind an internal interface. Layout: own ForceAtlas2 (LinLog) + Barnes-Hut solver inside the library, no dependency (`docs/graph-lib.md`).
 - Fonts: Literata (body serif), Inter (UI), JetBrains Mono (code, raw syntax, metadata). Bundled (offline), variable, OFL.
-- Shortcuts: `Ctrl+P` is a single palette (notes by default, `>` prefix for commands). `Ctrl+Shift+L` toggles graph / Brain panel. `Ctrl+S` saves now.
+- Shortcuts: `Ctrl+P` is a single palette (notes by default, `>` prefix for commands). `Ctrl+Shift+L` toggles graph / Brain panel. `Ctrl+\` toggles Focus Mode (collapses both side panels). `Ctrl+Shift+B` toggles the file tree. `Ctrl+S` saves now.
 
 ## AI: prepared, not decided
 No AI model is chosen or built now. The app ships ready to receive it, through three slots:
@@ -144,7 +144,10 @@ myelin/
 │       │   ├── link-complete.ts # [[ completion: note names, then headings after Note#
 │       │   ├── headings.ts    # a note's headings, for that completion
 │       │   ├── link-follow.ts # Ctrl+Click / Ctrl+Enter (+Shift: new tab); creates a missing note
+│       │   ├── link-hover.ts  # viewport-prefetched hover preview card (< 1 ms warm)
 │       │   ├── link-pulse.ts  # a save that adds a link -> `myelin:link-pulse` window event
+│       │   ├── focus-dim.ts   # optional paragraph focus dimming mode (off by default)
+│       │   ├── note-metrics.ts # debounced word count, read time and link count for StatusBar
 │       │   ├── note-path.ts   # which note an editor state holds
 │       │   └── theme.ts       # editor look, from the identity tokens
 │       ├── tree-model.ts      # file tree logic: visible rows, watcher events, keyboard
