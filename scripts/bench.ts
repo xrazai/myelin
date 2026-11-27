@@ -1,4 +1,5 @@
 // Performance benchmark (AGENTS.md, rule 6). Stage 1: vault scan and index times.
+// First layout time of the graph: `bench-layout.ts`.
 //   node scripts/bench.ts [--sizes 10000,100000] [--runs 3] [--seed 1]
 //                         [--runtime node|electron] [--label <text>] [--out <file outside the repo>]
 // Prints a table and saves JSON (default: `<tmp>/myelin-bench/<timestamp>.json`).
@@ -194,7 +195,7 @@ function cpuTimes(): { idle: number; total: number } {
   return { idle, total };
 }
 
-async function cpuBusyPercent(): Promise<number> {
+export async function cpuBusyPercent(): Promise<number> {
   const before = cpuTimes();
   await sleep(1000);
   const after = cpuTimes();
@@ -310,7 +311,7 @@ export function formatReport(report: BenchReport): string {
   return lines.join('\n');
 }
 
-function isInside(parent: string, child: string): boolean {
+export function isInside(parent: string, child: string): boolean {
   const path = relative(parent, child);
   return path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path);
 }

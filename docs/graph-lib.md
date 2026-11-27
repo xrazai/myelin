@@ -34,6 +34,13 @@ Positioning: GPU graph with organic shaders and fluid animations out of the box.
    - Fast enough: Leiden on 100k nodes / ~300k edges is seconds in a worker; never blocks drawing.
 
 ## API
+Layout alone, no canvas (done; `MyelinGraph` composes it):
+- `new GraphLayout(options?)`: solver options (`LayoutOptions`, defaults in `layout/forceatlas2.ts`) and `createWorker?`.
+- `setGraph({ nodeCount, edges, weights?, positions? })` runs until it settles (caller's arrays are copied); `positions` getter, `stop()`, `destroy()`, `on` / `off`.
+- Events: `layoutChange`, and `layoutError (error)`.
+- A graph with every position saved settles almost at once; a node with a non-finite coordinate gets a seeded one.
+- First layout, solver only: `node scripts/bench-layout.ts`.
+
 Data:
 - `graph.setGraph({ nodeCount, edges, weights, states, positions?, communities? })`: full load (vault open). Resets ids.
 - `graph.addNodes(count, { positions?, states? }) => ids`: new nodes start at the centroid of their neighbors once their edges arrive.
@@ -45,7 +52,7 @@ Effects and events:
 - `graph.pulseEdge(sourceId, targetId)`: light beam between two nodes.
 - `graph.focusNode(nodeId, { duration: 600 })`: smooth camera glide to a node.
 - `graph.on('nodeHover', (id) => ...)`: hover hit-test in `< 0.1ms` (spatial hash).
-- `graph.on('layoutChange', (positions) => ...)`: lets the host persist positions (by its own keys).
+- `graph.on('layoutChange', (positions, { iteration, done, converged }) => ...)`: lets the host persist positions (by its own keys). `positions` is only valid until the next event (its buffer returns to the worker): copy what you keep. `done` marks the last one.
 - `graph.on('communityHover' | 'communityClick', (communityId, level) => ...)`, `graph.on('nodeClick', (id) => ...)`.
 - `graph.getCommunity(id) => { level, size, topNodes, parent, children, neighbors: [{ id, weight }] }`: what the host needs for names, cards and "related subjects".
 - `graph.focusCommunity(id, { duration })`: camera fits the community.
