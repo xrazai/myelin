@@ -29,7 +29,7 @@ Status: stage 1 done; stage 2 in progress, with the manual base first (Roadmap).
   - Inside the vault, `.myelin/` holds only text files: `vault.json` (`{ "id": <UUID>, "formatVersion": 1 }`; created when missing, never overwritten; the vault does not open if it is invalid or has another version) and `usage.jsonl` (learning events). Safe to sync with Git, Syncthing or cloud folders.
   - Index: `better-sqlite3` (WAL, FTS5) at `<userData>/vaults/<vault-id>/index.db`, outside the vault. 100% rebuildable; never synced (SQLite + WAL in a synced folder risks corruption and binary conflicts). Native module: `better-sqlite3` >= 13 ships Node-API prebuilds, so one binary serves Node (tests) and Electron: no `@electron/rebuild`, and its install script stays denied (`allowScripts`).
   - Index code: `main/vault-index.ts`. Tables `notes` (with the content hash), `links` (one row per link, `target_path` or unresolved `name`) and `notes_fts`. Schema change = bump `SCHEMA_VERSION` (rebuilds). `open` returns at once and the index syncs in the background (new, changed by mtime + size then hash, removed); a failing index never keeps a vault from opening. Anything that adds or removes notes must re-resolve the affected links in the same transaction.
-- Search: FTS5, tokenizer `unicode61 remove_diacritics 2` (Portuguese-friendly; `porter` is English-only).
+- Search: FTS5, tokenizer `unicode61 remove_diacritics 2` (Portuguese-friendly; `porter` is English-only). `brain-adapter.ts`: typed text is never FTS5 syntax (each term quoted, the last also a prefix), `bm25` with the title above the body, `snippet` with match ranges.
 - Editor: CodeMirror 6.
 - Graph: `@myelin/graph`, WebGL2 only (GLSL ES 3.0), graphics backend behind an internal interface. Layout: own ForceAtlas2 (LinLog) + Barnes-Hut solver inside the library, no dependency (`docs/graph-lib.md`).
 - Fonts: Literata (body serif), Inter (UI), JetBrains Mono (code, raw syntax, metadata). Bundled (offline), variable, OFL.
@@ -89,7 +89,7 @@ Do not create tables, dependencies, queues or files for AI before the decision. 
 - Link hover preview `< 1ms` for links visible in the editor: `note-cache.ts` is an LRU of short previews (title + first ~500 chars), prefetched for the `[[links]]` in the editor viewport. A cold hover (not prefetched) may take one IPC round-trip. Never hold full note texts for the whole vault in the renderer.
 
 ## Benchmark (`scripts/bench.ts`)
-On `gen-vault` output (10k / 100k notes): graph FPS with glow, hover latency (warm and cold), FTS5 indexing time, one `Ctrl+P` keystroke (`palette`; budget <= 16 ms at 100k notes). First layout time is measured by `node scripts/bench-layout.ts`.
+On `gen-vault` output (10k / 100k notes): graph FPS with glow, hover latency (warm and cold), FTS5 indexing time, one `Ctrl+P` keystroke (`palette`; budget <= 16 ms at 100k notes), one vault search (`search`). First layout time is measured by `node scripts/bench-layout.ts`.
 `--editor` (`scripts/bench-editor.ts`): typing latency of the editor, with real key events in the repo's Electron (needs a desktop session). Budget on a 10k-line note: p95 <= 16 ms from keydown to the DOM updated and laid out.
 
 ## Learning (what "Myelin" means in code)

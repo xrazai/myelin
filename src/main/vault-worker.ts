@@ -87,6 +87,10 @@ const handlers: Handlers = {
   async readNote(path) {
     return readFile(await existingNotePath(openSession().root, path), 'utf8');
   },
+  async search(query) {
+    if (typeof query !== 'string') throw new Error('the query must be a string');
+    return openSession().watch.search(query);
+  },
   async getBacklinks(path) {
     const { root, watch } = openSession();
     // The path of a note: it is only matched against the index.

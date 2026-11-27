@@ -155,6 +155,7 @@ function start(): void {
     createFolder: (path) => vault.call('createFolder', path),
     deleteInfo: (path, kind) => vault.call('deleteInfo', path, kind),
     deleteItem: (path, kind) => vault.call('deleteItem', path, kind),
+    search: (query) => vault.call('search', query),
     resumeUnload: () => {
       heldUnload?.();
       heldUnload = null;
