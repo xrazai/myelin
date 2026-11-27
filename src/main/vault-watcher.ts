@@ -11,8 +11,9 @@ import { dirname, join, relative, sep } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { watch } from 'chokidar';
 import type Database from 'better-sqlite3';
-import type { DeleteInfo, FolderRenameResult, RenameResult, TreeEntry, VaultEvent, WriteResult } from '../shared/ipc';
+import type { Backlink, DeleteInfo, FolderRenameResult, RenameResult, TreeEntry, VaultEvent, WriteResult } from '../shared/ipc';
 import { createLinkResolver, folderNameProblem, noteNameProblem, rewriteLinksForMoves } from '../shared/links.ts';
+import { backlinkRows, readBacklinks } from './vault-backlinks.ts';
 import { renameWithRetry, writeFileAtomic, type AtomicWriteDeps } from './atomic-write.ts';
 import {
   contentHash,
@@ -77,6 +78,8 @@ export interface VaultWatch {
   renameFolder(from: string, to: string): Promise<FolderRenameResult>;
   /** `createFolder` of the contract: its `created` event is sent before it resolves. */
   createFolder(path: string): Promise<void>;
+  /** `getBacklinks` of the contract; the caller validates `path`. */
+  backlinks(path: string): Promise<Backlink[] | null>;
   /** `deleteInfo` of the contract. */
   deleteInfo(path: string, kind: Kind): Promise<DeleteInfo>;
   /**
@@ -709,6 +712,14 @@ export function watchVault(root: string, { openDb, emit, sync = syncIndex }: Vau
         scheduleUpdate();
         return { status: 'saved' };
       }),
+    async backlinks(path) {
+      // Before the first sync ends the list would be too short: unknown, never empty.
+      if (!synced) return null;
+      // After every change seen so far.
+      await updates;
+      signal.throwIfAborted();
+      return db ? readBacklinks(root, backlinkRows(db, path)) : null;
+    },
     async deleteInfo(path, kind) {
       const file = await serial(() => existingItemPath(root, path, kind));
       let counted = { notes: 1, otherFiles: 0 };

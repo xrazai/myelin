@@ -128,6 +128,7 @@ myelin/
 │   │   ├── last-vault.ts      # <userData>/last-vault.json: the vault reopened on start (used by vault-worker)
 │   │   ├── vault-path.ts      # validates note paths from the renderer (used by vault-worker)
 │   │   ├── vault-index.ts     # index.db: schema, sync and updates (used by vault-worker)
+│   │   ├── vault-backlinks.ts # the notes linking to a note, with their lines (used by vault-worker)
 │   │   ├── vault-watcher.ts   # chokidar watcher, loop guard, tree events, rename batch (used by vault-worker)
 │   │   ├── vault-usage.ts     # appends learning events to usage.jsonl (used by vault-worker)
 │   │   └── brain-adapter.ts   # AI slot: search(query), process(changedNote); FTS5 now
@@ -140,7 +141,7 @@ myelin/
 │       ├── styles.css         # palette and font variables (docs/identity.md)
 │       ├── fonts/             # Literata, Inter, JetBrains Mono (variable, OFL) + fonts.css
 │       ├── public/licenses/   # font licenses, copied into the build
-│       ├── components/        # Launcher, Workspace, FileTree, Tabs, Editor, TreeMenu, DeleteDialog, MoveDialog, CommandPalette, StatusBar, BrainPanel (.svelte)
+│       ├── components/        # Launcher, Workspace, FileTree, Tabs, Editor, TreeMenu, BacklinksPanel, DeleteDialog, MoveDialog, CommandPalette, StatusBar, BrainPanel (.svelte)
 │       ├── editor/
 │       │   ├── cm-editor.ts   # CodeMirror 6 (one view, a state per tab); [[link]] autocomplete and hover plug in here
 │       │   ├── editor-tabs.ts # tabs -> editor: opens a note when its tab is first shown, saves the one left

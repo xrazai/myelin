@@ -43,6 +43,8 @@ export interface NoteEditor extends SaverEditor {
   show(path: string | null): void;
   /** Toggles paragraph focus dimming on the active view. */
   setFocusDim(enabled: boolean): void;
+  /** Puts the cursor at `line` (from 1) and `column` of a note, now or once it shows. */
+  reveal(path: string, line: number, column: number): void;
   /** Opens find over the note on screen, if there is one. */
   find(): void;
   /** Forgets every note not in `paths`. */
@@ -69,6 +71,8 @@ export function createNoteEditor(
   const notes = new Map<string, Note>();
   let shown: string | null = null;
   let focusDimOn = false;
+  /** A position to go to once its note is on screen. */
+  let wanted: { path: string; line: number; column: number } | null = null;
   view.dom.hidden = true;
 
   const edits = EditorView.updateListener.of((update) => {
@@ -85,6 +89,16 @@ export function createNoteEditor(
       note.state = view.state;
       note.scroll = view.scrollSnapshot();
     }
+  }
+
+  function goToWanted() {
+    if (!wanted || wanted.path !== shown) return;
+    const { doc } = view.state;
+    const line = doc.line(Math.min(Math.max(1, wanted.line), doc.lines));
+    const position = Math.min(line.from + wanted.column, line.to);
+    wanted = null;
+    view.dispatch({ selection: { anchor: position }, effects: EditorView.scrollIntoView(position, { y: 'center' }) });
+    view.focus();
   }
 
   return {
@@ -131,6 +145,11 @@ export function createNoteEditor(
       // `setState` keeps the scroll of the note before. 0 also shows the top padding.
       else view.scrollDOM.scrollTop = 0;
       if (focus) view.focus();
+      goToWanted();
+    },
+    reveal(path, line, column) {
+      wanted = { path, line, column };
+      goToWanted();
     },
     setFocusDim(enabled) {
       focusDimOn = enabled;
