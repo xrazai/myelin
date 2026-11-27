@@ -6,7 +6,7 @@ import { lstat, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { TreeEntry } from '../shared/ipc';
 
-const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
 
 /** Folders first, then by name; code units break ties, so the order is stable. */
 function compareEntries(a: TreeEntry, b: TreeEntry): number {
