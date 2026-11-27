@@ -2,11 +2,13 @@
   import type { VaultInfo } from '../../shared/ipc';
   import { learning } from '../activity';
 
-  let { vault }: { vault: VaultInfo } = $props();
+  let { vault, unsaved }: { vault: VaultInfo; unsaved: string[] } = $props();
 </script>
 
 <footer>
   <span class="vault" title={vault.root}>{vault.name}</span>
+  <!-- Also covers a failed save of a note that is not on screen. -->
+  <span class="unsaved" role="status">{unsaved.length > 0 ? `Not saved: ${unsaved.join(', ')}` : ''}</span>
   <!-- The `learning` indicator: anything that calls `learning.begin()` or `.pulse()` lights it. -->
   <span class={['learning', { active: $learning }]} role="status">
     <span class="dot" aria-hidden="true"></span>
@@ -26,6 +28,16 @@
     border-top: 1px solid var(--divider);
     font-size: 12px;
     color: var(--text-muted);
+  }
+
+  .unsaved {
+    flex: 1;
+    overflow: hidden;
+    color: var(--text);
+    font-weight: 600;
+    text-align: right;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .vault {

@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, expect, test } from 'vitest';
-import { existingNotePath, resolveNotePath } from './vault-path';
+import { existingNotePath, resolveNotePath, writableNotePath } from './vault-path';
 
 let base: string;
 let root: string;
@@ -60,4 +60,14 @@ test('refuses a path through a junction or symlink', async () => {
 test('refuses a folder and a missing note', async () => {
   await expect(existingNotePath(root, 'dir.md')).rejects.toThrow('not a note');
   await expect(existingNotePath(root, 'missing.md')).rejects.toThrow('ENOENT');
+});
+
+test('a note to write may be new, with new folders, but goes through no link', async () => {
+  await expect(writableNotePath(root, 'folder/Note.md')).resolves.toBe(join(root, 'folder', 'Note.md'));
+  await expect(writableNotePath(root, 'new/deeper/Note.md')).resolves.toBe(join(root, 'new', 'deeper', 'Note.md'));
+  for (const path of ['link/Secret.md', 'link/New.md', 'link/new/New.md', 'dir.md', 'folder/Note.md/x.md']) {
+    await expect(writableNotePath(root, path)).rejects.toThrow('not a note');
+  }
+  await expect(writableNotePath(root, '../outside/Secret.md')).rejects.toThrow('not a note path');
+  await expect(writableNotePath(join(base, 'gone'), 'a.md')).rejects.toThrow('ENOENT');
 });

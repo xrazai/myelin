@@ -31,7 +31,8 @@ Opened by the synapse/chat icon (top right) or `Ctrl+Shift+L`. The graph slides 
 - Quick open through the `Ctrl+P` palette.
 - Instant navigation: hovering a `[[link]]` shows a floating preview (title + first ~500 chars). Previews for links in the editor viewport are prefetched into an LRU cache, so those hovers take `< 1ms`; a cold hover may take one IPC round-trip.
 - Renaming a note updates every `[[link]]` pointing to it.
-- Saving: auto-save 500 ms after typing stops (light path). `Ctrl+S` / note switch only bring the heavy path forward. Details: `AGENTS.md`, rule 2.
+- Saving: auto-save 500 ms after typing stops (light path); `Ctrl+S`, note switch, tab close, window blur and quit save at once (and bring the heavy path forward).
+- External changes: a clean note reloads in place. With unsaved edits, a bar offers "Keep mine" / "Load disk version" (or "Save it again" for a deleted note). Unsaved notes are marked on their tab and in the status bar. Details: `AGENTS.md`, rule 2.
 
 ## Pillar B: GPU graph
 Built as the standalone library `@myelin/graph` (`docs/graph-lib.md`). App target: 100k nodes at 60 FPS.

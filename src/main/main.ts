@@ -46,6 +46,9 @@ async function pickAndOpenVault(
   return info;
 }
 
+/** Does the latest close or reload that a page held back to save first. */
+let heldUnload: (() => void) | null = null;
+
 function createWindow(): void {
   const window = new BrowserWindow({
     width: 1200,
@@ -66,6 +69,15 @@ function createWindow(): void {
   });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', (event) => event.preventDefault());
+
+  // A close (quitting included) raises `close` before the page is asked; a reload does not.
+  let closing = false;
+  window.on('close', () => (closing = true));
+  window.webContents.on('will-prevent-unload', () => {
+    const close = closing;
+    closing = false;
+    heldUnload = () => (close ? window.close() : window.webContents.reload());
+  });
 
   // The dev server URL only exists under `electron-vite dev`; the packaged app loads from disk.
   const devUrl = process.env['ELECTRON_RENDERER_URL'];
@@ -90,6 +102,11 @@ void app.whenReady().then(() => {
     openVault: () => pickAndOpenVault(vault, 'Open a vault', 'Open vault'),
     getTree: () => vault.call('getTree'),
     readNote: (path) => vault.call('readNote', path),
+    writeNote: (path, content, base) => vault.call('writeNote', path, content, base),
+    resumeUnload: () => {
+      heldUnload?.();
+      heldUnload = null;
+    },
   });
   createWindow();
   app.on('activate', () => {

@@ -17,9 +17,25 @@ function setup() {
   const reads: { resolve(text: string): void; reject(error: Error): void }[] = [];
   const readNote = vi.fn((_path: string) => new Promise<string>((resolve, reject) => reads.push({ resolve, reject })));
   const statuses: EditorStatus[] = [];
-  const connection = connectEditor(editor, readNote, (status) => statuses.push(status));
+  /** Reads under way; like the saver, one whose tab closed meanwhile loads nothing. */
+  const opening = new Map<string, symbol>();
+  const saver = {
+    async open(path: string, wanted: () => boolean) {
+      const mine = Symbol();
+      opening.set(path, mine);
+      const text = await readNote(path);
+      if (opening.get(path) !== mine || !wanted()) return false;
+      editor.load(path, text);
+      return true;
+    },
+    save: vi.fn((_path: string) => Promise.resolve(true)),
+    keep: vi.fn((paths: readonly string[]) => {
+      for (const path of opening.keys()) if (!paths.includes(path)) opening.delete(path);
+    }),
+  };
+  const connection = connectEditor(editor, saver, (status) => statuses.push(status));
   const settle = () => new Promise((resolve) => setTimeout(resolve));
-  return { notes, reads, readNote, connection, settle, shown: () => shown, status: () => statuses.at(-1) };
+  return { notes, reads, readNote, saver, connection, settle, shown: () => shown, status: () => statuses.at(-1) };
 }
 
 const a = openTab(NO_TABS, 'a.md');
@@ -82,4 +98,30 @@ test('a failed read is reported, and tried again on the next change of tabs', as
   expect(status()).toEqual({ kind: 'error', message: 'gone' });
   connection.sync(a);
   expect(readNote).toHaveBeenCalledTimes(2);
+});
+
+test('leaving a note saves it; a closed one is only forgotten', () => {
+  const { saver, connection } = setup();
+  connection.sync(a);
+  connection.sync(ab);
+  expect(saver.save.mock.calls).toEqual([['a.md']]);
+  connection.sync(ab);
+  connection.sync(closeTab(ab, 'b.md'));
+  expect(saver.save.mock.calls).toEqual([['a.md']]);
+  expect(saver.keep).toHaveBeenLastCalledWith(['a.md']);
+});
+
+test('a tab closed and opened again during its read is read again', async () => {
+  const { reads, readNote, connection, settle, shown } = setup();
+  connection.sync(a);
+  connection.sync(closeTab(a, 'a.md'));
+  connection.sync(a);
+  expect(readNote).toHaveBeenCalledTimes(1);
+  // The first read loads nothing: it was for the closed tab.
+  reads[0]!.resolve('stale');
+  await settle();
+  expect(readNote).toHaveBeenCalledTimes(2);
+  reads[1]!.resolve('A');
+  await settle();
+  expect(shown()).toBe('a.md');
 });

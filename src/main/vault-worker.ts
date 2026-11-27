@@ -1,14 +1,14 @@
 // Owner of all vault file I/O, the watcher, parsing and SQLite (AGENTS.md, rule 1).
 // Tests start this file directly in Node (type stripping): erasable TypeScript only, and
 // project imports other than `import type` carry the `.ts` extension.
-import { readFile, stat } from 'node:fs/promises';
-import { basename, resolve } from 'node:path';
+import { mkdir, readFile, stat } from 'node:fs/promises';
+import { basename, dirname, resolve } from 'node:path';
 import { parentPort, workerData } from 'node:worker_threads';
 import Database from 'better-sqlite3';
 import type { VaultRequest, VaultRequests, VaultWorkerData, WorkerMessage } from './vault-protocol';
 import { loadVaultConfig } from './vault-config.ts';
 import { indexPath, openIndex } from './vault-index.ts';
-import { existingNotePath } from './vault-path.ts';
+import { existingNotePath, writableNotePath } from './vault-path.ts';
 import { watchVault, type VaultWatch } from './vault-watcher.ts';
 
 // Startup check: the native module loads in this thread and its SQLite has FTS5.
@@ -68,6 +68,16 @@ const handlers: Handlers = {
   },
   async readNote(path) {
     return readFile(await existingNotePath(openSession().root, path), 'utf8');
+  },
+  async writeNote(path, content, base) {
+    if (typeof content !== 'string' || (base !== null && typeof base !== 'string')) {
+      throw new Error('the note text must be a string');
+    }
+    const { root, watch } = openSession();
+    const file = await writableNotePath(root, path);
+    // A note saved again after its folder was deleted.
+    if (base === null) await mkdir(dirname(file), { recursive: true });
+    return watch.write(path, content, base);
   },
   async whenIndexed() {
     return openSession().watch.indexed;

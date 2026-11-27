@@ -25,6 +25,7 @@ const api: MyelinApi = {
   readNote: call('readNote'),
   writeNote: call('writeNote'),
   search: call('search'),
+  resumeUnload: call('resumeUnload'),
   onVaultEvents: subscribe(EVENT_CHANNELS.vaultEvents),
   onIndexing: subscribe(EVENT_CHANNELS.indexing),
 };

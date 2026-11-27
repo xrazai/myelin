@@ -31,4 +31,5 @@ export const pendingHandlers: CallHandlers = {
   readNote: notImplemented('readNote'),
   writeNote: notImplemented('writeNote'),
   search: notImplemented('search'),
+  resumeUnload: notImplemented('resumeUnload'),
 };
