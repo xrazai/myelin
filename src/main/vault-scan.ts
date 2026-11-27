@@ -51,6 +51,35 @@ async function toEntries(dir: string, prefix: string, dirents: Dirent[]): Promis
   return entries.filter((entry) => entry !== null).sort(compareEntries);
 }
 
+/**
+ * The names the tree lists in the folder `dir` (`''` is the root), as they are written on
+ * disk: Windows paths ignore case, so only a listing sees a case-only rename. `null` if the
+ * folder is gone or cannot be read.
+ */
+export async function listFolder(
+  root: string,
+  dir: string,
+): Promise<{ name: string; kind: TreeEntry['kind'] }[] | null> {
+  const folder = join(root, dir);
+  const dirents = await readdir(folder, { withFileTypes: true }).catch(skip);
+  if (!dirents) return null;
+  const listed = await Promise.all(
+    dirents.map(async (dirent) => {
+      if (dirent.name.startsWith('.')) return null;
+      const kind = await entryKind(folder, dirent);
+      return kind && { name: dirent.name, kind };
+    }),
+  );
+  return listed.filter((entry) => entry !== null);
+}
+
+/** Entries of the folder `dir`, with their paths from the root. `null` like `listFolder`. */
+export async function scanFolder(root: string, dir: string): Promise<TreeEntry[] | null> {
+  const folder = join(root, dir);
+  const dirents = await readdir(folder, { withFileTypes: true }).catch(skip);
+  return dirents && toEntries(folder, `${dir}/`, dirents);
+}
+
 /** Entries at the vault root. Rejects if the root itself cannot be read. */
 export async function scanVault(root: string): Promise<TreeEntry[]> {
   return toEntries(root, '', await readdir(root, { withFileTypes: true }));

@@ -51,6 +51,7 @@ Do not create tables, dependencies, queues or files for AI before the decision. 
    - Heavy path: runs the registered processors (none yet) on every note whose content hash differs from what that processor last saw. `Ctrl+S`, note switch, a few seconds idle, window blur and app close only bring it forward; on startup, pending notes are processed. Correctness never depends on a trigger, and external edits go through the same path.
    - Atomic write on Windows: write `<note>.md.tmp`, `fsync`, then rename over the original. Retry the rename on `EPERM`/`EBUSY`/`EACCES` (antivirus, OneDrive, indexer holding the file).
    - Watcher loop guard: ignore `*.tmp`; before writing, the worker records the expected content hash of each file it is about to write, and a watcher event whose file hash matches is dropped. Any event whose hash equals the indexed hash is a no-op.
+   - Watcher (`main/vault-watcher.ts`): what chokidar reports (its events and `raw`) only marks paths to look at. `VaultEvent`s come from comparing folder listings with the last reported tree, and `changed` from content hashes. Never forward chokidar events: on Windows it misses repeated case-only renames. The tree is updated at once; the index waits for the first sync. The worker writes notes only through `VaultWatch.write`.
    - Rename is one batch: rename the file, rewrite the linking notes, reindex once. Those rewrites are marked as link-only and do not count as content changes for the heavy path.
 3. The main thread never blocks: scanning, parsing, indexing and heavy processors run in workers.
 4. Golden rule: Svelte owns only the shell (file tree, tabs, palette, status bar, Brain panel). CodeMirror 6 and `@myelin/graph` run in plain TS inside containers mounted by Svelte, outside its reactivity.
@@ -104,7 +105,8 @@ myelin/
 │   │   ├── ipc.ts             # registers the contract's handlers, sends its events
 │   │   ├── vault-worker.ts    # file I/O (atomic), watcher, parsing, index.db, FTS5, usage events, heavy path
 │   │   ├── vault-config.ts    # .myelin/vault.json (used by vault-worker)
-│   │   ├── vault-index.ts     # index.db: schema and sync (used by vault-worker)
+│   │   ├── vault-index.ts     # index.db: schema, sync and updates (used by vault-worker)
+│   │   ├── vault-watcher.ts   # chokidar watcher, loop guard, tree events (used by vault-worker)
 │   │   └── brain-adapter.ts   # AI slot: search(query), process(changedNote); FTS5 now
 │   ├── preload/preload.ts     # contextBridge, exposes window.myelin
 │   ├── shared/ipc.ts          # window.myelin contract: types and channel names
@@ -118,6 +120,7 @@ myelin/
 │       ├── components/        # Launcher, Workspace, FileTree, Tabs, CommandPalette, StatusBar, BrainPanel (.svelte)
 │       ├── editor/
 │       │   └── cm-editor.ts   # CodeMirror 6, live preview, [[link]] autocomplete, hover preview
+│       ├── tree-model.ts      # file tree logic: visible rows, watcher events, keyboard
 │       ├── note-cache.ts      # LRU of short previews, viewport prefetch
 │       └── graph-view.ts      # glue: note path <-> node id, feeds @myelin/graph, wires events
 └── vault-dev/                 # local test vault
