@@ -7,6 +7,7 @@
   import { linkDestination, linkFollowing, type FollowLink } from '../editor/link-follow';
   import { linkHover } from '../editor/link-hover';
   import { LINK_PULSE_EVENT, linkPulse } from '../editor/link-pulse';
+  import { computeNoteMetrics, type NoteMetrics } from '../editor/note-metrics';
   import { createNoteSaver, type NoteProblems, type NoteSaver } from '../editor/note-saver';
   import { errorMessage } from '../error-message';
   import { createNoteCache } from '../note-cache';
@@ -21,6 +22,7 @@
     onproblems,
     ondiscard,
     onfollow,
+    onmetrics,
   }: {
     vault: VaultInfo;
     tabs: Tabs;
@@ -32,6 +34,8 @@
     ondiscard: (path: string) => void;
     /** Open the note a link of `source` leads to, in its place or in a new tab. */
     onfollow: (path: string, source: string, newTab: boolean) => void;
+    /** Debounced reading metrics for the active note, or `null` when none is shown. */
+    onmetrics?: (metrics: NoteMetrics | null) => void;
   } = $props();
 
   /** Why the last link followed could not be opened. */
@@ -67,9 +71,29 @@
         }),
         linkHover({ notes: list, cache }),
       ];
-      const editor = createNoteEditor(parent, links, (path) => notes.edited(path));
+      let metricsTimer: ReturnType<typeof setTimeout> | undefined;
+      let activePath: string | null = null;
+      const emitMetrics = (path: string | null) => {
+        clearTimeout(metricsTimer);
+        if (!path || !editor.has(path)) {
+          onmetrics?.(null);
+          return;
+        }
+        onmetrics?.(computeNoteMetrics(editor.text(path)));
+      };
+      const scheduleMetrics = (path: string) => {
+        clearTimeout(metricsTimer);
+        metricsTimer = setTimeout(() => {
+          if (activePath === path && editor.has(path)) onmetrics?.(computeNoteMetrics(editor.text(path)));
+        }, 250);
+      };
+      const editor = createNoteEditor(parent, links, (path) => {
+        notes.edited(path);
+        if (activePath === path) scheduleMetrics(path);
+      });
       const notes = createNoteSaver(editor, window.myelin, (path, before, after) => {
         cache.invalidate(path);
+        if (activePath === path) scheduleMetrics(path);
         const pulse = list.isLoaded() ? linkPulse(path, before, after, list.resolve) : null;
         if (pulse) window.dispatchEvent(new CustomEvent(LINK_PULSE_EVENT, { detail: pulse }));
       });
@@ -78,11 +102,15 @@
         status = next;
         // Before the editor shows a note, so that it can measure and scroll it.
         parent.hidden = next.kind !== 'ready';
+        activePath = next.kind === 'ready' ? tabs.active : null;
+        emitMetrics(activePath);
       });
       saver = notes;
       onsaver(notes);
       connection = connected;
       return () => {
+        clearTimeout(metricsTimer);
+        onmetrics?.(null);
         onsaver(null);
         for (const stop of unsubscribe) stop();
         connected.stop();
