@@ -22,7 +22,7 @@ Thanks for your interest. Myelin is maintained by one person, so small, focused 
 ## Pull requests
 1. Fork the repo and create a branch: `<issue-number>-short-slug` (e.g. `7-watcher-loop-guard`).
 2. Keep the PR small and about one issue. Write `Closes #N` in the description.
-3. Make sure checks pass (typecheck, tests, build, once CI exists).
+3. Make sure checks pass (`npm run typecheck`, `npm test`, `npm run build`). CI runs them on every PR.
 4. The maintainer reviews. PRs are squash-merged: the PR title becomes the commit message, so write it as a Conventional Commit (`feat(vault): add watcher loop guard`).
 
 ## License
