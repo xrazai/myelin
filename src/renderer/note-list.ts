@@ -17,20 +17,37 @@ export interface NoteList {
 
 export function watchNoteList(api: Pick<MyelinApi, 'listNotes' | 'onVaultEvents'>): NoteList {
   const paths = new Set<string>();
+  const lowerCounts = new Map<string, number>();
   /** Events that arrived before the list: it may or may not have them already. */
   let early: VaultEvent[] | null = [];
   // Built when first needed after a change: both take a while on a large vault.
   let resolver: LinkResolver | null = null;
   let search: NoteSearch | null = null;
 
+  function addPath(path: string): boolean {
+    if (paths.has(path)) return false;
+    paths.add(path);
+    const lower = path.toLowerCase();
+    lowerCounts.set(lower, (lowerCounts.get(lower) ?? 0) + 1);
+    return true;
+  }
+
+  function removePath(path: string): boolean {
+    if (!paths.delete(path)) return false;
+    const lower = path.toLowerCase();
+    const count = (lowerCounts.get(lower) ?? 0) - 1;
+    if (count <= 0) lowerCounts.delete(lower);
+    else lowerCounts.set(lower, count);
+    return true;
+  }
+
   function apply(events: VaultEvent[]): void {
     for (const event of events) {
       // A deleted or created folder also reports each of its notes.
       if (event.type === 'changed' || event.kind !== 'note') continue;
       if (event.type === 'created') {
-        if (paths.has(event.path)) continue;
-        paths.add(event.path);
-      } else if (!paths.delete(event.path)) continue;
+        if (!addPath(event.path)) continue;
+      } else if (!removePath(event.path)) continue;
       resolver = search = null;
     }
   }
@@ -42,7 +59,7 @@ export function watchNoteList(api: Pick<MyelinApi, 'listNotes' | 'onVaultEvents'
   });
 
   const ready = api.listNotes().then((list) => {
-    for (const path of list) paths.add(path);
+    for (const path of list) addPath(path);
     apply(early!);
     early = null;
     resolver = search = null;
@@ -54,12 +71,7 @@ export function watchNoteList(api: Pick<MyelinApi, 'listNotes' | 'onVaultEvents'
     isLoaded: () => early === null,
     resolve: (target, source) => (resolver ??= createLinkResolver(paths))(target, source),
     search: (query, limit, recent) => (search ??= createNoteSearch(paths))(query, limit, recent),
-    has: (path) => {
-      if (paths.has(path)) return true;
-      const lower = path.toLowerCase();
-      for (const existing of paths) if (existing.toLowerCase() === lower) return true;
-      return false;
-    },
+    has: (path) => (lowerCounts.get(path.toLowerCase()) ?? 0) > 0,
     stop: unsubscribe,
   };
 }
