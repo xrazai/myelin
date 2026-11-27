@@ -9,6 +9,7 @@
     onactivate,
     onclose,
     onmove,
+    onrename,
   }: {
     tabs: Tabs;
     /** Notes whose edits are not saved. */
@@ -16,6 +17,7 @@
     onactivate: (path: string) => void;
     onclose: (path: string) => void;
     onmove: (path: string, to: number) => void;
+    onrename: (from: string, to: string) => void;
   } = $props();
 
   /** Pointer travel before a press becomes a drag. */
@@ -27,8 +29,32 @@
   let press: { pointer: number; path: string; startX: number } | null = null;
   /** The drag going on. `to`: where the tab lands; `marker`: where that is, in the strip. */
   let drag = $state.raw<{ path: string; to: number; marker: number | null } | null>(null);
+  /** Tab being renamed, with the text of its inline input. */
+  let renaming = $state.raw<string | null>(null);
+  let renameText = $state('');
+  let input = $state<HTMLInputElement>();
 
   const tabElements = () => [...(strip?.querySelectorAll<HTMLElement>('.tab') ?? [])];
+
+  function startRename(path: string) {
+    renaming = path;
+    renameText = tabName(path);
+    queueMicrotask(() => {
+      input?.focus();
+      input?.select();
+    });
+  }
+
+  function commitRename() {
+    const from = renaming;
+    if (!from) return;
+    const name = renameText.trim();
+    renaming = null;
+    if (!name) return;
+    const dir = from.slice(0, Math.max(0, from.lastIndexOf('/')));
+    const to = dir ? `${dir}/${name}.md` : `${name}.md`;
+    if (to !== from) onrename(from, to);
+  }
 
   function reveal() {
     strip?.querySelector('.tab.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -96,6 +122,8 @@
       onactivate(tabs.list[event.key === 'Home' ? 0 : length - 1]!.path);
     } else if (event.key === 'Delete') {
       onclose(path);
+    } else if (event.key === 'F2') {
+      startRename(path);
     } else {
       return;
     }
@@ -126,24 +154,46 @@
       onauxclick={(event) => event.button === 1 && onclose(tab.path)}
       onmousedown={(event) => event.button === 1 && event.preventDefault()}
     >
-      <button
-        type="button"
-        class="label"
-        role="tab"
-        aria-selected={active}
-        tabindex={active ? 0 : -1}
-        title={`${tab.path}${tab.deleted ? ' (deleted)' : ''}${unsaved ? ' (not saved)' : ''}`}
-        onpointerdown={(event) => onpointerdown(event, tab.path)}
-        {onpointermove}
-        {onpointerup}
-        onpointercancel={endDrag}
-        onlostpointercapture={endDrag}
-        onclick={() => onactivate(tab.path)}
-        onkeydown={(event) => onkeydown(event, index)}
-      >
-        {#if unsaved}<span class="mark" aria-label="Not saved">!</span>{/if}
-        {tabName(tab.path)}
-      </button>
+      {#if renaming === tab.path}
+        <!-- svelte-ignore a11y_autofocus -->
+        <input
+          class="rename"
+          bind:this={input}
+          bind:value={renameText}
+          aria-label="Rename note"
+          title={tab.path}
+          onkeydown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              commitRename();
+            } else if (event.key === 'Escape') {
+              event.preventDefault();
+              renaming = null;
+            }
+          }}
+          onblur={commitRename}
+        />
+      {:else}
+        <button
+          type="button"
+          class="label"
+          role="tab"
+          aria-selected={active}
+          tabindex={active ? 0 : -1}
+          title={`${tab.path}${tab.deleted ? ' (deleted)' : ''}${unsaved ? ' (not saved)' : ''} — double-click or F2 to rename`}
+          onpointerdown={(event) => onpointerdown(event, tab.path)}
+          {onpointermove}
+          {onpointerup}
+          onpointercancel={endDrag}
+          onlostpointercapture={endDrag}
+          onclick={() => onactivate(tab.path)}
+          ondblclick={() => startRename(tab.path)}
+          onkeydown={(event) => onkeydown(event, index)}
+        >
+          {#if unsaved}<span class="mark" aria-label="Not saved">!</span>{/if}
+          {tabName(tab.path)}
+        </button>
+      {/if}
       <button
         type="button"
         class="close"
@@ -217,6 +267,17 @@
 
   .label:focus-visible {
     outline-offset: -2px;
+  }
+
+  .rename {
+    width: 100%;
+    min-width: 60px;
+    padding: 0 6px;
+    color: var(--text);
+    background: var(--bg-editor);
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    font: inherit;
   }
 
   .mark {

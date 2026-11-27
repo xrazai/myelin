@@ -86,6 +86,40 @@ export function noteLinks(source: string, text: string, resolve: LinkResolver): 
   return parseLinks(text).map((link) => ({ ...link, source, ...resolve(link.target, source) }));
 }
 
+/**
+ * Rewrites the links in `text` that resolve to `from` so they point to `to`. Only the
+ * target is replaced: alias, heading/block subpath, table escapes and line endings stay
+ * as they were. `oldResolve` must be the resolver from BEFORE the rename; `newResolve`
+ * the one after. Returns the new text and the number of links changed.
+ */
+export function rewriteLinksForRename(
+  text: string,
+  source: string,
+  from: string,
+  to: string,
+  oldResolve: LinkResolver,
+  newResolve: LinkResolver,
+): { text: string; count: number } {
+  const links = parseLinks(text).filter((link) => oldResolve(link.target, source).path === from);
+  if (links.length === 0) return { text, count: 0 };
+
+  // Suggested target: the new basename when it is unambiguous, otherwise the full path.
+  const fullTarget = to.slice(0, -'.md'.length); // keeps any folder prefix
+  const basename = to.slice(to.lastIndexOf('/') + 1, -'.md'.length);
+  const suggest = (target: string): string => {
+    if (target === '' || target.includes('/')) return fullTarget;
+    // Bare name: use it only if it now resolves to `to` unambiguously.
+    return newResolve(basename, source).path === to ? basename : fullTarget;
+  };
+
+  let result = text;
+  for (const link of [...links].reverse()) {
+    const target = link.target === '' ? fullTarget : suggest(link.target);
+    result = result.slice(0, link.targetFrom) + target + result.slice(link.targetTo);
+  }
+  return { text: result, count: links.length };
+}
+
 /** Every link in a note's text, in text order. Accepts LF and CRLF. */
 export function parseLinks(text: string): ParsedLink[] {
   const links: ParsedLink[] = [];

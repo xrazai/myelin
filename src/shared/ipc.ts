@@ -82,6 +82,8 @@ export interface MyelinApi {
    * only if there is none. `content` is written as is, BOM and line endings included.
    */
   writeNote(path: string, content: string, base: string | null): Promise<WriteResult>;
+  /** Renames a note, rewriting every link to it. Rejects if `to` already exists. */
+  renameNote(from: string, to: string): Promise<void>;
   /**
    * Does the close or reload that the page held back (`beforeunload`) to save first. The
    * page cannot tell which one it was.
@@ -118,6 +120,7 @@ export const CALL_CHANNELS = {
   readNote: 'note:read',
   getPreviews: 'note:previews',
   writeNote: 'note:write',
+  renameNote: 'note:rename',
   search: 'brain:search',
   resumeUnload: 'window:resume-unload',
 } as const satisfies Record<CallName, string>;

@@ -3,7 +3,7 @@
 // scroll position. Saving is `note-saver.ts`'s job.
 import { defaultKeymap, history, historyKeymap, isolateHistory } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
-import { Annotation, EditorState, Transaction, type Extension, type StateEffect } from '@codemirror/state';
+import { Annotation, Compartment, EditorState, Transaction, type Extension, type StateEffect } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
 import { livePreview } from './live-preview';
 import { notePath } from './note-path';
@@ -39,12 +39,16 @@ export interface NoteEditor extends SaverEditor {
   show(path: string | null): void;
   /** Forgets every note not in `paths`. */
   keep(paths: readonly string[]): void;
+  /** Rekeys a note's state to a new path, preserving text, cursor, scroll and undo history. */
+  rename(from: string, to: string): void;
   destroy(): void;
 }
 
 interface Note {
   state: EditorState;
   scroll: StateEffect<unknown> | null;
+  /** Holds the path facet, so a rename can reconfigure it without a new state. */
+  pathField: Compartment;
 }
 
 /** `extra` adds the links (and the benchmark's probe); `onEdit` hears the user change a note's text. */
@@ -77,8 +81,12 @@ export function createNoteEditor(
   return {
     has: (path) => notes.has(path),
     load(path, text) {
-      const state = EditorState.create({ doc: text, extensions: [extensions, notePath.of(path), edits, extra] });
-      notes.set(path, { state, scroll: null });
+      const pathField = new Compartment();
+      const state = EditorState.create({
+        doc: text,
+        extensions: [extensions, pathField.of(notePath.of(path)), edits, extra],
+      });
+      notes.set(path, { state, scroll: null, pathField });
     },
     text: (path) => stateOf(path).doc.toString(),
     replace(path, text, undoable) {
@@ -123,6 +131,20 @@ export function createNoteEditor(
           view.dom.hidden = true;
         }
       }
+    },
+    rename(from, to) {
+      const note = notes.get(from);
+      if (!note || notes.has(to)) return;
+      stash();
+      const reconfigure = note.pathField.reconfigure(notePath.of(to));
+      if (from === shown) {
+        view.dispatch({ effects: reconfigure });
+      } else {
+        note.state = note.state.update({ effects: reconfigure }).state;
+      }
+      notes.delete(from);
+      notes.set(to, note);
+      if (shown === from) shown = to;
     },
     destroy: () => view.destroy(),
   };

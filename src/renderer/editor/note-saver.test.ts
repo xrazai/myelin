@@ -17,6 +17,10 @@ function setup(files: Record<string, string> = { 'a.md': 'one' }) {
       undoable.push(undo);
       texts.set(path, text);
     },
+    rename: (from: string, to: string) => {
+      texts.set(to, texts.get(from)!);
+      texts.delete(from);
+    },
   };
   const api = {
     async readNote(path: string) {
@@ -411,6 +415,52 @@ describe('another program deletes the note', () => {
     await pause();
     expect(t.writes).toEqual([]);
     expect(t.problem()).toEqual({ kind: 'deleted' });
+  });
+});
+
+describe('rename', () => {
+  test('a deleted(old) report arriving before rename does not leave the new note gone', async () => {
+    const t = setup({ 'a.md': 'one' });
+    await t.open();
+    t.type('mine');
+    // The watcher's tree batch reaches the renderer before renameNote resolves.
+    t.disk.delete('a.md');
+    await t.report('deleted');
+    expect(t.problem()).toEqual({ kind: 'deleted' });
+
+    t.disk.set('b.md', 'mine');
+    await t.saver.rename('a.md', 'b.md');
+    await pause();
+    expect(t.problem()).toBeUndefined();
+    expect(t.texts.has('b.md')).toBe(true);
+    expect(t.texts.has('a.md')).toBe(false);
+    expect(t.writes).toEqual([]);
+  });
+
+  test('a clean editor adopts link-only rewrites at the new path without an undo step', async () => {
+    const t = setup({ 'a.md': '[[self]]' });
+    await t.open();
+    t.disk.delete('a.md');
+    t.disk.set('b.md', '[[b]]');
+    await t.saver.rename('a.md', 'b.md');
+    await pause();
+    expect(t.texts.get('b.md')).toBe('[[b]]');
+    expect(t.undoable).toEqual([false]);
+    expect(t.writes).toEqual([]);
+  });
+
+  test('a genuinely changed disk keeps the user text and never recreates the old path', async () => {
+    const t = setup({ 'a.md': 'one' });
+    await t.open();
+    t.type('mine');
+    t.disk.delete('a.md');
+    t.disk.set('b.md', 'theirs');
+    await t.saver.rename('a.md', 'b.md');
+    await pause();
+    expect(t.disk.has('a.md')).toBe(false);
+    expect(t.disk.get('b.md')).toBe('theirs');
+    expect(t.texts.get('b.md')).toBe('mine');
+    expect(t.problem('b.md')).toEqual({ kind: 'changed', message: null });
   });
 });
 

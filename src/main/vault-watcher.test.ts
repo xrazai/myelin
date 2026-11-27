@@ -278,6 +278,19 @@ describe('after the first sync', () => {
       expect(await settled()).toEqual([event('changed', 'Home.md'), event('changed', 'Home.md')]);
     });
 
+    test('a rename rewrites links once, without reporting link-only changes', async () => {
+      await write('Target.md', '[[Home]] [[#Self]]');
+      await until(() => expect(notes()).toContain('Target.md'));
+      const from = seen.length;
+      await watching.rename('Home.md', 'Renamed.md');
+      await until(() => expect(notes()).toEqual(['Renamed.md', 'Target.md']));
+      expect(await readFile(at('Target.md'), 'utf8')).toBe('[[Renamed]] [[#Self]]');
+      expect(await readFile(at('Renamed.md'), 'utf8')).toBe('start [[Later]]');
+      expect(linkTargets()).toContainEqual({ source: 'Target.md', path: 'Renamed.md', name: null });
+      expect(await settled(from)).not.toContainEqual(event('changed', 'Target.md'));
+      await expectTreeMatchesDisk();
+    });
+
     test('a failed own write leaves no expected hash behind', async () => {
       await expect(watching.write('missing/A.md', 'lost', null)).rejects.toThrow('ENOENT');
       await mkdir(at('missing'));

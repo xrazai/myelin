@@ -16,6 +16,8 @@ export interface SaverEditor {
   text(path: string): string;
   /** Replaces the text without counting as typing. `undoable`: undo brings the old one back. */
   replace(path: string, text: string, undoable: boolean): void;
+  /** Rekeys an open note after a rename, preserving its state and undo history. */
+  rename(from: string, to: string): void;
 }
 
 export interface NoteDisk {
@@ -76,6 +78,8 @@ export interface NoteSaver {
   unsaved(): string[];
   /** Changes made by other programs. */
   external(events: VaultEvent[]): void;
+  /** Rekeys a note's state after a rename, then reconciles its text with the disk. */
+  rename(from: string, to: string): Promise<void>;
   /** Writes the editor's text over what is on disk, or recreates a deleted note. */
   keepMine(path: string): Promise<boolean>;
   /** Replaces the editor's text with the disk's; undo brings it back. */
@@ -337,6 +341,48 @@ export function createNoteSaver(
           // If it cannot be read now, the next write still refuses to replace it.
         }).catch((error: unknown) => console.error(`[note-saver] reading ${path} failed:`, error));
       }
+    },
+
+    async rename(from, to) {
+      const entry = entries.get(from);
+      if (!entry) return;
+      entries.delete(from);
+      stopTimer(entry);
+      editor.rename(from, to);
+      entries.set(to, entry);
+      // The watcher's `deleted(old)` may have queued work under the old entry; `held`
+      // checks identity, so it becomes harmless once the entry moved.
+      await enqueue(entry, async () => {
+        const note = held(to, entry);
+        if (!note) return;
+        const raw = await readDisk(to);
+        if (held(to, entry) !== note) return;
+        if (raw === null) {
+          apply(to, entry, note, raw);
+        } else {
+          // The watcher may have reported `deleted(old)` before this call: the note
+          // was marked `gone`, but at `to` it exists again. Clear that before adopting.
+          note.gone = false;
+          const { text, format } = parseNote(raw);
+          const mine = editor.text(to);
+          if (text === mine) {
+            adopt(note, raw);
+          } else if (mine === note.saved) {
+            // Clean editor: link-only rewrites are not the user's text, so load them
+            // without adding an undo step.
+            editor.replace(to, text, false);
+            adopt(note, raw);
+          } else if (text === note.saved) {
+            Object.assign(note, { base: raw, format, gone: false, changed: false });
+          } else {
+            // Dirty editor with genuinely different disk text: keep the user's text
+            // and let the usual conflict UI decide.
+            stopTimer(entry);
+            Object.assign(note, { gone: false, changed: true, error: null, disk: raw });
+          }
+        }
+        notify();
+      }).catch((error: unknown) => console.error(`[note-saver] renaming ${from} to ${to} failed:`, error));
     },
 
     keepMine(path) {

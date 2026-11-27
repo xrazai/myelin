@@ -2,6 +2,7 @@
 // Tests start this file directly in Node (type stripping): erasable TypeScript only, and
 // project imports other than `import type` carry the `.ts` extension.
 import { mkdir, readFile, stat } from 'node:fs/promises';
+import { appendUsageEvent } from './vault-usage.ts';
 import { basename, dirname, resolve } from 'node:path';
 import { parentPort, workerData } from 'node:worker_threads';
 import Database from 'better-sqlite3';
@@ -9,7 +10,7 @@ import type { VaultRequest, VaultRequests, VaultWorkerData, WorkerMessage } from
 import { loadVaultConfig } from './vault-config.ts';
 import { deleteIndex, indexPath, notePaths, openIndex } from './vault-index.ts';
 import { readNotePreview } from './note-preview.ts';
-import { existingNotePath, writableNotePath } from './vault-path.ts';
+import { existingNotePath, resolveNotePath, writableNotePath } from './vault-path.ts';
 import { watchVault, type VaultWatch } from './vault-watcher.ts';
 
 // Startup check: the native module loads in this thread and its SQLite has FTS5.
@@ -97,6 +98,15 @@ const handlers: Handlers = {
     // A note saved again after its folder was deleted.
     if (base === null) await mkdir(dirname(file), { recursive: true });
     return watch.write(path, content, base);
+  },
+  async renameNote(from, to) {
+    if (typeof from !== 'string' || typeof to !== 'string') throw new Error('both paths must be strings');
+    const { root, watch } = openSession();
+    // Validate both paths before touching anything; watch.rename rechecks existence.
+    resolveNotePath(root, from);
+    resolveNotePath(root, to);
+    await watch.rename(from, to);
+    await appendUsageEvent(root, { type: 'renamed', from, to, at: new Date().toISOString() });
   },
   async whenIndexed() {
     return openSession().watch.indexed;

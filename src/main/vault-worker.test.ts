@@ -192,3 +192,58 @@ test('getPreviews returns previews for valid notes and null for missing or trave
     null,
   ]);
 });
+
+test('rename rewrites links and self links, moves the file and logs one usage event', async () => {
+  const folder = await mkdtemp(join(tmpdir(), 'myelin-rename-'));
+  try {
+    await mkdir(join(folder, 'from'));
+    await writeFile(join(folder, 'from', 'Old.md'), '\uFEFF# Old\r\n[[#Heading]]\r\n', 'utf8');
+    await writeFile(join(folder, 'Link.md'), '[[from/Old|apelido#Heading]] [[Other]]', 'utf8');
+    await writeFile(join(folder, 'Other.md'), 'other', 'utf8');
+    const events: unknown[] = [];
+    const own = new Worker(new URL('./vault-worker.ts', import.meta.url), { workerData: { userData } });
+    try {
+      const client = createVaultClient(own, (batch) => events.push(...batch));
+      await client.call('open', folder);
+      await client.call('whenIndexed');
+      await client.call('renameNote', 'from/Old.md', 'to/New.md');
+
+      expect(existsSync(join(folder, 'from', 'Old.md'))).toBe(false);
+      expect(readFileSync(join(folder, 'to', 'New.md'), 'utf8')).toBe('\uFEFF# Old\r\n[[to/New#Heading]]\r\n');
+      expect(readFileSync(join(folder, 'Link.md'), 'utf8')).toBe('[[to/New|apelido#Heading]] [[Other]]');
+      expect((await client.call('listNotes')).sort()).toEqual(['Link.md', 'Other.md', 'to/New.md']);
+      expect(events).toContainEqual({ type: 'deleted', kind: 'note', path: 'from/Old.md' });
+      expect(events).toContainEqual({ type: 'created', kind: 'note', path: 'to/New.md' });
+      const log = readFileSync(join(folder, '.myelin', 'usage.jsonl'), 'utf8').trim().split('\n');
+      expect(log).toHaveLength(1);
+      expect(JSON.parse(log[0]!)).toMatchObject({ type: 'renamed', from: 'from/Old.md', to: 'to/New.md' });
+    } finally {
+      await own.terminate();
+    }
+  } finally {
+    await rm(folder, { recursive: true, force: true });
+  }
+});
+
+test('rename rejects a missing source and an occupied destination without changing the vault', async () => {
+  const folder = await mkdtemp(join(tmpdir(), 'myelin-rename-'));
+  try {
+    await writeFile(join(folder, 'A.md'), 'a', 'utf8');
+    await writeFile(join(folder, 'B.md'), 'b', 'utf8');
+    const own = new Worker(new URL('./vault-worker.ts', import.meta.url), { workerData: { userData } });
+    try {
+      const client = createVaultClient(own);
+      await client.call('open', folder);
+      await client.call('whenIndexed');
+      await expect(client.call('renameNote', 'A.md', 'B.md')).rejects.toThrow('already exists');
+      await expect(client.call('renameNote', 'Missing.md', 'C.md')).rejects.toThrow('no such note');
+      await expect(client.call('renameNote', '../A.md', 'C.md')).rejects.toThrow('not a note path');
+      expect(await client.call('listNotes')).toEqual(['A.md', 'B.md']);
+      expect(existsSync(join(folder, '.myelin', 'usage.jsonl'))).toBe(false);
+    } finally {
+      await own.terminate();
+    }
+  } finally {
+    await rm(folder, { recursive: true, force: true });
+  }
+});

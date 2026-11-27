@@ -328,6 +328,8 @@ export interface NoteUpdate {
   /** The hash the index had: `null` for a note whose content it did not have. */
   previous: string | null;
   mtimeMs: number;
+  /** A rename's link-only rewrite: not a content change for the heavy path. */
+  linkOnly: boolean;
 }
 
 /**
@@ -345,7 +347,7 @@ export async function updateIndex(
   exists: (path: string) => boolean,
   signal: AbortSignal,
   onNote: (update: NoteUpdate) => void,
-  { trustStamp = false } = {},
+  { trustStamp = false, linkOnly = new Set<string>() }: { trustStamp?: boolean; linkOnly?: ReadonlySet<string> } = {},
 ): Promise<string[]> {
   signal.throwIfAborted();
   const row = db.prepare('SELECT 1 FROM notes WHERE path = ?');
@@ -368,7 +370,7 @@ export async function updateIndex(
   await inSlices(db, present, signal, (path) => {
     const result = indexNote(path, trustStamp);
     if (result === 'failed') failed.push(path);
-    else onNote({ path, ...result });
+    else onNote({ path, ...result, linkOnly: linkOnly.has(path) });
   });
   return failed;
 }

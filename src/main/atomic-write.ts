@@ -58,7 +58,8 @@ async function replaceFile(path: string, content: string, deps: AtomicWriteDeps)
   }
 }
 
-async function renameWithRetry(from: string, to: string, deps: AtomicWriteDeps): Promise<void> {
+/** Renames a file, retrying when Windows holds it for a moment. */
+export async function renameWithRetry(from: string, to: string, deps: AtomicWriteDeps = { rename, sleep }): Promise<void> {
   for (let attempt = 0; ; attempt++) {
     try {
       await deps.rename(from, to);
