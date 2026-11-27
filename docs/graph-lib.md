@@ -41,8 +41,26 @@ Layout alone, no canvas (done; `MyelinGraph` composes it):
 - A graph with every position saved settles almost at once; a node with a non-finite coordinate gets a seeded one.
 - First layout, solver only: `node scripts/bench-layout.ts`.
 
+Graph on a canvas (done: drawing and camera):
+- `new MyelinGraph(canvas, { colors?, layout?, createWorker? })`; `destroy()`. The page gives the canvas a CSS size; the library sets its backing size (DPR-aware).
+- `colors`: `background`, `node`, `activeNode` (by `states`), `edge`, `strongEdge` (by weight), `#rgb` or `#rrggbb`; neutral defaults.
+- `fit()` shows the whole graph and follows the layout again; the camera follows it until the user (or the host) moves it. `camera` get / set: `{ x, y, zoom }` (world center, CSS px per world unit).
+- Input: drag or one finger pans, two fingers pinch; mouse wheel zooms at the pointer; trackpad scroll pans, trackpad pinch zooms. Browsers do not name the device: a wheel gesture that starts sideways or with a step under 40 px is a trackpad (`src/controls.ts`).
+- Draws only when something changed. A lost WebGL context is restored.
+- `on` / `off`: the layout events.
+- Demo: `npm run demo -w @myelin/graph` (`?nodes=100000`).
+
+Drawing (`src/backend/`, `src/shaders/`):
+- Positions in one RG32F texture, read by node id: a layout update uploads only it; edge instances hold two ids and a strength.
+- Edge strength `w / (w + 1)` (weight 1 when absent) sets width (0.5-2 CSS px), opacity and color. Node radius grows with the square root of the degree, with a floor and a ceiling in pixels.
+- `node scripts/bench.ts --graph`: GPU and CPU per frame and the weak-GPU estimate (a model, error up to ~2x; `scripts/gpu-profiles.json`). The 100k budget is checked on the whole-graph view; zoomed in, long edges fill more pixels and cost more GPU.
+
+Adaptive quality, defaults chosen with that estimate (not implemented yet, #40; the bloom measured by the bench is a stand-in):
+- Bloom at 1/2 resolution; below 50 FPS go to 1/4, then off. Never drop nodes.
+- Weak GPUs at 100k are bound by nodes and edges: turning the glow off does not bring them to 50 FPS.
+
 Data:
-- `graph.setGraph({ nodeCount, edges, weights, states, positions?, communities? })`: full load (vault open). Resets ids.
+- `graph.setGraph({ nodeCount, edges, weights?, states?, positions?, communities? })`: full load (vault open). Resets ids.
 - `graph.addNodes(count, { positions?, states? }) => ids`: new nodes start at the centroid of their neighbors once their edges arrive.
 - `graph.removeNodes(ids)`: tombstones; their edges are removed.
 - `graph.addEdges(pairs, weights)`, `graph.removeEdges(pairs)`, `graph.updateWeights(pairs, weights)`: `pairs` is a `Uint32Array` `[s0, t0, s1, t1, ...]`.

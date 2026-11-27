@@ -4,13 +4,15 @@ name: Benchmark
 # it is outside CI so that it stays out of `all-checks`. Shared runners are noisy.
 on:
   pull_request:
-    # Only the code the benchmark runs: add here whatever `bench.ts` starts to import
-    # (`packages/graph/**` when graph FPS joins). Safe to filter because the check is not required.
+    # Only the code the benchmark runs: add here whatever `bench.ts` starts to import. Safe to
+    # filter because the check is not required. `--graph` needs a GPU, which the runner has not:
+    # this job never runs it, so `packages/graph/**` is not listed.
     paths:
       - src/main/**
       - src/shared/**
       - scripts/bench.ts
       - scripts/bench-compare.ts
+      - scripts/bench-graph*.ts
       - scripts/gen-vault.ts
       - package.json
       - package-lock.json
