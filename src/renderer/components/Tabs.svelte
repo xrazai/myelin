@@ -18,6 +18,7 @@
   const DRAG_THRESHOLD = 5;
 
   let strip = $state<HTMLDivElement>();
+  let stripWidth = $state(0);
   /** The press that may become a drag. */
   let press: { pointer: number; path: string; startX: number } | null = null;
   /** The drag going on. `to`: where the tab lands; `marker`: where that is, in the strip. */
@@ -30,8 +31,8 @@
   }
 
   $effect(() => {
-    // Runs after the DOM has the new active tab or order.
-    if (tabs.active !== null && tabs.list.length > 0) reveal();
+    // Runs after the DOM has the new active tab, order or width.
+    if (tabs.active !== null && tabs.list.length > 0 && stripWidth > 0) reveal();
   });
 
   function endDrag() {
@@ -107,6 +108,7 @@
   role="tablist"
   aria-label="Open notes"
   bind:this={strip}
+  bind:clientWidth={stripWidth}
   onwheel={(event) => {
     if (strip) strip.scrollLeft += event.deltaY;
   }}
