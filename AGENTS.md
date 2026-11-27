@@ -29,7 +29,7 @@ Status: stage 1 in progress (app scaffold in place). Repo: https://github.com/xr
 - Search: FTS5, tokenizer `unicode61 remove_diacritics 2` (Portuguese-friendly; `porter` is English-only).
 - Editor: CodeMirror 6.
 - Graph: `@myelin/graph`, WebGL2 only (GLSL ES 3.0), graphics backend behind an internal interface. Layout: own ForceAtlas2 (LinLog) + Barnes-Hut solver inside the library, no dependency (`docs/graph-lib.md`).
-- Fonts: serif body, Inter (UI), JetBrains Mono (code, raw syntax, metadata). Bundled (offline), variable, OFL.
+- Fonts: Literata (body serif), Inter (UI), JetBrains Mono (code, raw syntax, metadata). Bundled (offline), variable, OFL.
 - Shortcuts: `Ctrl+P` is a single palette (notes by default, `>` prefix for commands). `Ctrl+Shift+L` toggles graph / Brain panel.
 
 ## AI: prepared, not decided
@@ -110,7 +110,8 @@ myelin/
 │       ├── index.ts           # mounts App.svelte
 │       ├── App.svelte         # launcher -> workspace
 │       ├── styles.css         # palette and font variables (docs/identity.md)
-│       ├── fonts/             # body serif, Inter, JetBrains Mono (variable, OFL)
+│       ├── fonts/             # Literata, Inter, JetBrains Mono (variable, OFL) + fonts.css
+│       ├── public/licenses/   # font licenses, copied into the build
 │       ├── components/        # FileTree, Tabs, CommandPalette, StatusBar, BrainPanel (.svelte)
 │       ├── editor/
 │       │   └── cm-editor.ts   # CodeMirror 6, live preview, [[link]] autocomplete, hover preview
@@ -157,7 +158,6 @@ Workspace layout: tabs (top) | tree (left) | editor | graph or Brain panel (righ
 Decide only when the stage that needs it starts.
 - AI (after stage 4): semantic search (embedding model, must be multilingual; vector store), local model and runtime, syntheses and suggested links, how answers stay confined to the vault (retrieval + citations), where model files live (not bundled in the installer), and how to measure answer quality.
   - Quality set: 30-50 real questions with expected notes, covering: purely semantic (no shared words), literal terms/acronyms/names (hybrid must not lose what FTS5 gets right), mixed PT-BR + EN technical terms, and answers spread over 2-3 linked notes. Multi-note questions need "all expected notes in top k" (e.g. recall@5), not recall@3. With ~40 questions one miss is ~2.5 pts: only trust large differences.
-- Body serif (stage 1 theme): Literata or Newsreader, by visual test (`docs/identity.md`).
 - Obsidian vault compatibility (future option, not a goal now): link syntax stays a subset of Obsidian's (`[[Note]]`, `[[folder/Note]]`, `[[Note|alias]]`, #24); no Myelin-only link forms, so the option stays open.
 - GitHub organization (before the first release, #12): moving the repo from `xrazai` to an org enables merge queue and a shared name, but installed apps' auto-update points at `owner/repo`. Move before `v0.1.0` or never; after releases it relies on GitHub redirects.
 - Code signing (before sharing installers widely): Windows certificate or Azure Trusted Signing; macOS needs an Apple Developer account.

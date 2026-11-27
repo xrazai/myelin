@@ -1,0 +1,101 @@
+/* Nocturnal Botany theme. Values come from docs/identity.md (theme.test.ts keeps them equal). */
+@import './fonts/fonts.css';
+
+:root {
+  --bg-editor: #111615;
+  --bg-panel: #0b0f0e;
+  --divider: #1e2926;
+  --accent: #52b788;
+  --learning: #f3e9d2;
+  --text: #e2e8e5;
+  --text-muted: #8a9992;
+
+  --font-body: 'Literata', Georgia, serif;
+  --font-ui: 'Inter', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --font-size-body: 17px;
+  --font-size-ui: 13px;
+
+  color-scheme: dark;
+  scrollbar-color: var(--divider) transparent;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg-editor);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--font-size-ui);
+  font-feature-settings: 'tnum';
+  font-optical-sizing: auto;
+}
+
+/* Writing and reading text: editor, previews, Brain panel excerpts. */
+.prose {
+  font-family: var(--font-body);
+  font-size: var(--font-size-body);
+  font-feature-settings: normal;
+  line-height: 1.65;
+}
+
+code,
+kbd,
+pre,
+samp {
+  font-family: var(--font-mono);
+}
+
+a {
+  color: var(--accent);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+input,
+select,
+textarea {
+  accent-color: var(--accent);
+}
+
+/* Text fields: filled with bg-editor, meant to sit on bg-panel. */
+input:not([type='checkbox'], [type='radio'], [type='range']),
+select,
+textarea {
+  padding: 6px 10px;
+  background: var(--bg-editor);
+  border: 1px solid var(--divider);
+  border-radius: 6px;
+}
+
+::placeholder {
+  color: var(--text-muted);
+}
+
+:focus-visible {
+  outline: 1px solid var(--accent);
+}
+
+/* The accent border is the ring; the transparent outline survives forced-colors mode. */
+input:not([type='checkbox'], [type='radio'], [type='range']):focus,
+select:focus,
+textarea:focus {
+  border-color: var(--accent);
+  outline: 1px solid transparent;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--bg-panel);
+}
