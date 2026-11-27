@@ -12,6 +12,11 @@ export interface NoteList {
   resolve: LinkResolver;
   search: NoteSearch;
   has(path: string): boolean;
+  /**
+   * The folder of a note that `path` writes in another case, or `null`. Windows would put
+   * the new note in it, under a path the app does not know.
+   */
+  folderInOtherCase(path: string): string | null;
   stop(): void;
 }
 
@@ -23,6 +28,32 @@ export function watchNoteList(api: Pick<MyelinApi, 'listNotes' | 'onVaultEvents'
   // Built when first needed after a change: both take a while on a large vault.
   let resolver: LinkResolver | null = null;
   let search: NoteSearch | null = null;
+  let folders: { exact: Set<string>; lower: Map<string, string> } | null = null;
+
+  function readFolders() {
+    const exact = new Set<string>();
+    const lower = new Map<string, string>();
+    for (const path of paths) {
+      // Innermost first: a folder already seen brought its parents.
+      for (let end = path.lastIndexOf('/'); end > 0; end = path.lastIndexOf('/', end - 1)) {
+        const folder = path.slice(0, end);
+        if (exact.has(folder)) break;
+        exact.add(folder);
+        lower.set(folder.toLowerCase(), folder);
+      }
+    }
+    return { exact, lower };
+  }
+
+  function folderInOtherCase(path: string): string | null {
+    const { exact, lower } = (folders ??= readFolders());
+    const segments = path.split('/');
+    for (let depth = 1; depth < segments.length; depth++) {
+      const folder = segments.slice(0, depth).join('/');
+      if (!exact.has(folder)) return lower.get(folder.toLowerCase()) ?? null;
+    }
+    return null;
+  }
 
   function addPath(path: string): boolean {
     if (paths.has(path)) return false;
@@ -48,7 +79,7 @@ export function watchNoteList(api: Pick<MyelinApi, 'listNotes' | 'onVaultEvents'
       if (event.type === 'created') {
         if (!addPath(event.path)) continue;
       } else if (!removePath(event.path)) continue;
-      resolver = search = null;
+      resolver = search = folders = null;
     }
   }
 
@@ -62,7 +93,7 @@ export function watchNoteList(api: Pick<MyelinApi, 'listNotes' | 'onVaultEvents'
     for (const path of list) addPath(path);
     apply(early!);
     early = null;
-    resolver = search = null;
+    resolver = search = folders = null;
   });
   ready.catch((error: unknown) => console.error('[note-list] listing the notes failed:', error));
 
@@ -72,6 +103,7 @@ export function watchNoteList(api: Pick<MyelinApi, 'listNotes' | 'onVaultEvents'
     resolve: (target, source) => (resolver ??= createLinkResolver(paths))(target, source),
     search: (query, limit, recent) => (search ??= createNoteSearch(paths))(query, limit, recent),
     has: (path) => (lowerCounts.get(path.toLowerCase()) ?? 0) > 0,
+    folderInOtherCase,
     stop: unsubscribe,
   };
 }

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import Database from 'better-sqlite3';
 import { afterEach, beforeEach, expect, test } from 'vitest';
-import { contentHash, openIndex, SCHEMA_VERSION, syncIndex } from './vault-index';
+import { contentHash, openIndex, SCHEMA_VERSION, syncIndex, updateIndex } from './vault-index';
 import { writeFileAtomic } from './atomic-write';
 
 let base: string;
@@ -201,4 +201,18 @@ test('an aborted sync stops, and the next one finishes the job', async () => {
 
   expect(await sync()).toMatchObject({ indexed: count - done, removed: 0 });
   expect(db.prepare('SELECT count(*) FROM links WHERE target_path IS NOT NULL').pluck().get()).toBe(count * 50);
+});
+
+// The seam for the heavy path (AGENTS.md, rule 2): no processor reads the mark yet.
+test('updateIndex marks as link-only just the notes it was told are', async () => {
+  await write('A.md', 'a');
+  await write('B.md', 'b');
+  await sync();
+  await write('A.md', '[[B]]');
+  await write('B.md', 'changed');
+  const marks: [string, boolean][] = [];
+  await updateIndex(db, root, ['A.md', 'B.md'], () => true, new AbortController().signal, (u) => marks.push([u.path, u.linkOnly]), {
+    linkOnly: new Set(['A.md']),
+  });
+  expect(marks).toEqual([['A.md', true], ['B.md', false]]);
 });

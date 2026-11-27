@@ -6,15 +6,36 @@ import { Decoration, type DecorationSet, type EditorView, ViewPlugin, type ViewU
 import type { SyntaxNode } from '@lezer/common';
 
 const mark = (name: string) => Decoration.mark({ class: name });
+const lineDeco = (name: string) => Decoration.line({ class: name });
+
+const quoteLine = lineDeco('cm-md-quote-line');
+const codeBlockLine = lineDeco('cm-md-codeblock-line');
+const codeBlockFirst = lineDeco('cm-md-codeblock-first');
+const codeBlockLast = lineDeco('cm-md-codeblock-last');
+const hrLine = lineDeco('cm-md-hr-line');
+const taskOpen = mark('cm-md-task');
+const taskDone = mark('cm-md-task cm-md-task-done');
+
+const HEADING_LINES: Record<string, Decoration> = Object.fromEntries(
+  [1, 2, 3, 4, 5, 6].flatMap((level) => {
+    const deco = lineDeco(`cm-md-heading-line cm-md-h${level}-line`);
+    return [
+      [`ATXHeading${level}`, deco],
+      [`SetextHeading${level}`, deco],
+    ];
+  }),
+);
 
 /** Styles of whole nodes, on every line. */
 const STYLES: Record<string, Decoration> = {
   Emphasis: mark('cm-md-em'),
   StrongEmphasis: mark('cm-md-strong'),
   Strikethrough: mark('cm-md-strike'),
-  InlineCode: mark('cm-md-code'),
+  InlineCode: mark('cm-md-code cm-md-inline-code'),
   FencedCode: mark('cm-md-code'),
   CodeBlock: mark('cm-md-code'),
+  Blockquote: mark('cm-md-quote'),
+  HorizontalRule: mark('cm-md-hr'),
   Link: mark('cm-md-link'),
   WikiLink: mark('cm-md-wikilink'),
   ...Object.fromEntries(
@@ -34,7 +55,7 @@ const hidden = Decoration.replace({});
 
 /** Syntax that always shows: hiding it would lose the shape of the text. */
 const ALWAYS_SHOWN = new Set([
-  'ListMark', 'QuoteMark', 'TaskMarker', 'HorizontalRule', 'TableDelimiter', 'CodeInfo', 'LinkLabel',
+  'ListMark', 'QuoteMark', 'HorizontalRule', 'TableDelimiter', 'CodeInfo', 'LinkLabel',
 ]);
 
 /** Marks hidden only under these parents; under any other they always show. */
@@ -95,11 +116,19 @@ export function livePreviewDecorations(
   const add = (decoration: Decoration, from: number, to: number) => {
     if (to > from) found.push(decoration.range(from, to));
   };
+  const addLine = (decoration: Decoration, lineFrom: number) => {
+    found.push(decoration.range(lineFrom));
+  };
   const conceal = (from: number, to: number) => {
     if (isRevealed(from, to)) add(syntax, from, to);
     // A view plugin may not replace a line break.
     else if (to <= doc.lineAt(from).to) add(hidden, from, to);
   };
+
+  /** Guard against duplicating line decorations across nested blocks or adjacent ranges. */
+  const decoratedQuoteLines = new Set<number>();
+  const decoratedCodeLines = new Set<number>();
+  const decoratedHeadingLines = new Set<number>();
 
   let done = -1;
   for (const range of ranges) {
@@ -107,13 +136,54 @@ export function livePreviewDecorations(
       from: range.from,
       to: range.to,
       enter(cursor) {
-        // A node that spans two ranges is entered twice, and decorated once.
-        if (cursor.from <= done) return;
         const { name, from, to } = cursor;
+        // Multi-line block line decorations are clamped to each visible range so huge blocks stay O(visible lines).
+        if (name === 'Blockquote') {
+          const first = doc.lineAt(Math.max(from, range.from)).number;
+          const last = doc.lineAt(Math.min(to, range.to)).number;
+          for (let n = first; n <= last; n++) {
+            const lineFrom = doc.line(n).from;
+            if (!decoratedQuoteLines.has(lineFrom)) {
+              decoratedQuoteLines.add(lineFrom);
+              addLine(quoteLine, lineFrom);
+            }
+          }
+        } else if (name === 'FencedCode' || name === 'CodeBlock') {
+          const nodeFirst = doc.lineAt(from).number;
+          const nodeLast = doc.lineAt(to).number;
+          const first = Math.max(nodeFirst, doc.lineAt(Math.max(from, range.from)).number);
+          const last = Math.min(nodeLast, doc.lineAt(Math.min(to, range.to)).number);
+          for (let n = first; n <= last; n++) {
+            const lineFrom = doc.line(n).from;
+            if (!decoratedCodeLines.has(lineFrom)) {
+              decoratedCodeLines.add(lineFrom);
+              addLine(codeBlockLine, lineFrom);
+              if (n === nodeFirst) addLine(codeBlockFirst, lineFrom);
+              if (n === nodeLast) addLine(codeBlockLast, lineFrom);
+            }
+          }
+        }
+
+        // A node that spans two ranges is entered twice, and mark-decorated once.
+        if (from <= done) return;
         const style = STYLES[name];
         if (style) add(style, from, to);
 
-        if (name === 'Link') {
+        const headingLine = HEADING_LINES[name];
+        if (headingLine) {
+          const lineFrom = doc.lineAt(from).from;
+          if (!decoratedHeadingLines.has(lineFrom)) {
+            decoratedHeadingLines.add(lineFrom);
+            addLine(headingLine, lineFrom);
+          }
+        } else if (name === 'HorizontalRule') {
+          addLine(hrLine, doc.lineAt(from).from);
+        }
+
+        if (name === 'TaskMarker') {
+          const marker = doc.sliceString(from, to);
+          add(/[xX]/.test(marker) ? taskDone : taskOpen, from, to);
+        } else if (name === 'Link') {
           const parts = linkSyntax(cursor.node);
           if (parts) for (const [start, end] of parts) conceal(start, end);
         } else if (name === 'LinkMark' || name === 'URL' || name === 'LinkTitle') {

@@ -2,13 +2,23 @@
   import { tick } from 'svelte';
   import type { TreeEntry } from '../../shared/ipc';
   import { errorMessage } from '../error-message';
+  import { renamedPath } from '../rename-note';
   import { flatten, keyAction, pruneExpanded, scrollToShow, visibleRange, watchTree } from '../tree-model';
 
   /** `selected`: path of the open note. `onopen`: a note was clicked or chosen by keyboard. */
-  let { selected, onopen }: { selected: string | null; onopen: (path: string) => void } = $props();
+  let {
+    selected,
+    onopen,
+    onrename,
+  }: {
+    selected: string | null;
+    onopen: (path: string) => void;
+    onrename: (from: string, to: string) => void;
+  } = $props();
 
   /** Fixed, so only the rows in view need to be in the DOM. */
-  const ROW_HEIGHT = 24;
+  const ROW_HEIGHT = 28;
+  const INDENT = 14;
   const OVERSCAN = 10;
 
   // Raw state: the model replaces these, and a deep proxy over a whole vault is slow.
@@ -17,6 +27,10 @@
   /** Path under the keyboard cursor. */
   let cursor = $state.raw<string | null>(null);
   let error = $state('');
+  /** Path currently being renamed, and the text in the inline input. */
+  let renaming = $state.raw<string | null>(null);
+  let renameText = $state('');
+  let input = $state<HTMLInputElement>();
 
   let list = $state<HTMLDivElement>();
   let scrollTop = $state(0);
@@ -46,6 +60,24 @@
     expanded = next;
   }
 
+  function startRename(path: string) {
+    renaming = path;
+    renameText = path.slice(path.lastIndexOf('/') + 1, -'.md'.length);
+    // Focus after the input is in the DOM.
+    queueMicrotask(() => {
+      input?.focus();
+      input?.select();
+    });
+  }
+
+  function commitRename() {
+    const from = renaming;
+    if (!from) return;
+    renaming = null;
+    const to = renamedPath(from, renameText);
+    if (to) onrename(from, to);
+  }
+
   function onclick(event: MouseEvent) {
     const element = (event.target as Element).closest<HTMLElement>('[data-index]');
     const entry = element && rows[Number(element.dataset['index'])]?.entry;
@@ -55,6 +87,17 @@
     else onopen(entry.path);
   }
 
+  function oncontextmenu(event: MouseEvent) {
+    // The rename input keeps its own menu.
+    if (event.target instanceof HTMLInputElement) return;
+    const element = (event.target as Element).closest<HTMLElement>('[data-index]');
+    const entry = element && rows[Number(element.dataset['index'])]?.entry;
+    if (!entry || entry.kind !== 'note') return;
+    event.preventDefault();
+    cursor = entry.path;
+    startRename(entry.path);
+  }
+
   async function onkeydown(event: KeyboardEvent) {
     if (event.ctrlKey || event.altKey || event.metaKey) return;
     const action = keyAction(rows, cursorIndex, event.key, expanded);
@@ -62,6 +105,9 @@
     event.preventDefault();
     if (action.type === 'move') {
       cursor = rows[action.index]!.entry.path;
+    } else if (action.type === 'rename') {
+      cursor = action.path;
+      startRename(action.path);
     } else {
       cursor = action.path;
       if (action.type === 'toggle') toggle(action.path);
@@ -90,10 +136,11 @@
     bind:clientHeight={viewHeight}
     onscroll={(event) => (scrollTop = event.currentTarget.scrollTop)}
     {onclick}
+    {oncontextmenu}
     {onkeydown}
   >
     <div class="sizer" role="none" style:height="{rows.length * ROW_HEIGHT}px">
-      <div role="none" style:transform="translateY({range.start * ROW_HEIGHT}px)">
+      <div class="window" role="none" style:transform="translateY({range.start * ROW_HEIGHT}px)">
         {#each rows.slice(range.start, range.end) as row, offset (`${row.entry.kind}:${row.entry.path}`)}
           {@const index = range.start + offset}
           {@const open = row.entry.kind === 'folder' && expanded.has(row.entry.path)}
@@ -109,10 +156,40 @@
             data-index={index}
             title={row.entry.name}
             style:height="{ROW_HEIGHT}px"
-            style:padding-left="{(row.level - 1) * 14 + 8}px"
+            style:padding-left="{(row.level - 1) * INDENT + 8}px"
+            style:--guides="{Math.max(0, row.level - 1) * INDENT}px"
           >
-            <span class="chevron" aria-hidden="true"></span>
-            <span class="name">{row.entry.name}</span>
+            {#if row.entry.kind === 'folder'}
+              <svg class="glyph chevron" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                <path d="M4.5 2.5 8 6l-3.5 3.5" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            {:else}
+              <svg class="glyph note-icon" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true">
+                <rect x="2" y="1.5" width="8" height="9" rx="1.5" />
+                <path d="M4 4.5h4M4 7h2.8" stroke-linecap="round" />
+              </svg>
+            {/if}
+            {#if renaming === row.entry.path}
+              <input
+                class="rename"
+                bind:this={input}
+                bind:value={renameText}
+                aria-label="Rename note"
+                onclick={(event) => event.stopPropagation()}
+                onkeydown={(event) => {
+                  // The tree would take space, arrows and Enter. Shortcuts still reach the window.
+                  if (!event.ctrlKey && !event.metaKey) event.stopPropagation();
+                  if (event.key !== 'Enter' && event.key !== 'Escape') return;
+                  event.preventDefault();
+                  if (event.key === 'Enter') commitRename();
+                  else renaming = null;
+                  list?.focus();
+                }}
+                onblur={commitRename}
+              />
+            {:else}
+              <span class="name">{row.entry.name}</span>
+            {/if}
           </div>
         {/each}
       </div>
@@ -122,10 +199,16 @@
 
 <style>
   .tree {
+    --guide-color: var(--divider);
     height: 100%;
+    padding: 2px 0 12px;
     overflow-x: hidden;
     overflow-y: auto;
     overflow-anchor: none;
+  }
+
+  .tree:hover {
+    --guide-color: color-mix(in srgb, var(--accent) 24%, var(--divider));
   }
 
   .tree:focus-visible {
@@ -136,47 +219,99 @@
     overflow: hidden;
   }
 
+  .window {
+    padding: 0 6px;
+  }
+
   .row {
+    position: relative;
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 7px;
     padding-right: 8px;
+    border-radius: 6px;
+    font-size: 12.8px;
     white-space: nowrap;
     cursor: pointer;
+    transition:
+      background-color var(--t-fast) ease,
+      color var(--t-fast) ease;
+  }
+
+  /* Vertical indentation guides aligned under parent folder chevrons (O(1) DOM cost). */
+  .row::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 14px;
+    width: var(--guides, 0px);
+    background-image: repeating-linear-gradient(
+      to right,
+      var(--guide-color) 0 1px,
+      transparent 1px 14px
+    );
+    pointer-events: none;
+  }
+
+  .row.folder {
+    font-weight: 500;
+    color: var(--text-muted);
+  }
+
+  .row.note {
+    color: color-mix(in srgb, var(--text) 86%, var(--text-muted));
   }
 
   .row:hover {
-    background: var(--divider);
+    background: var(--surface-hover);
+    color: var(--text);
   }
 
   .row[aria-selected='true'] {
-    background: color-mix(in srgb, var(--accent) 16%, transparent);
+    background: var(--surface-active);
     color: var(--accent);
+    font-weight: 500;
   }
 
+  /* Keyboard focus stays instant: zero transition on outline. */
   .tree:focus-visible .cursor {
     outline: 1px solid var(--accent);
     outline-offset: -1px;
   }
 
-  .chevron {
+  .glyph {
     flex: none;
-    width: 10px;
+    width: 12px;
+    height: 12px;
   }
 
-  .folder .chevron::before {
-    content: '';
-    display: block;
-    width: 5px;
-    height: 5px;
-    margin-left: 1px;
-    border-top: 1.5px solid var(--text-muted);
-    border-right: 1.5px solid var(--text-muted);
-    transform: rotate(45deg);
+  .chevron {
+    color: var(--text-muted);
+    transition:
+      transform 140ms var(--ease-out),
+      color var(--t-fast) ease;
   }
 
-  .folder.open .chevron::before {
-    transform: rotate(135deg);
+  .folder.open .chevron {
+    transform: rotate(90deg);
+  }
+
+  .folder:hover .chevron {
+    color: var(--text);
+  }
+
+  .note-icon {
+    opacity: 0.42;
+    transition: opacity var(--t-fast) ease;
+  }
+
+  .row.note:hover .note-icon {
+    opacity: 0.72;
+  }
+
+  .row[aria-selected='true'] .note-icon {
+    opacity: 0.95;
   }
 
   .name {
@@ -184,11 +319,28 @@
     text-overflow: ellipsis;
   }
 
+  .rename {
+    flex: 1;
+    min-width: 0;
+    padding: 1px 4px;
+    color: var(--text);
+    background: var(--bg-editor);
+    border: 1px solid var(--accent);
+    border-radius: 3px;
+    font: inherit;
+  }
+
   .message {
     margin: 0;
-    padding: 4px 12px;
+    padding: 8px 14px;
     color: var(--text-muted);
     overflow-wrap: anywhere;
     user-select: text;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .chevron {
+      transition: none;
+    }
   }
 </style>

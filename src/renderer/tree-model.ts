@@ -186,7 +186,8 @@ export function scrollToShow(index: number, scrollTop: number, viewHeight: numbe
 export type KeyAction =
   | { type: 'move'; index: number }
   | { type: 'toggle'; path: string }
-  | { type: 'open'; path: string };
+  | { type: 'open'; path: string }
+  | { type: 'rename'; path: string };
 
 /** The ARIA tree keys, with the cursor on `rows[index]`. `null`: nothing to do. */
 export function keyAction(
@@ -224,6 +225,8 @@ export function keyAction(
     case 'Enter':
     case ' ':
       return { type: entry.kind === 'folder' ? 'toggle' : 'open', path: entry.path };
+    case 'F2':
+      return entry.kind === 'note' ? { type: 'rename', path: entry.path } : null;
     default:
       return null;
   }

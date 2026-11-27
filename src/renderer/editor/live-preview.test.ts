@@ -86,3 +86,21 @@ test('decorates only the given ranges, and a node that spans two of them once', 
   expect(styled.filter(([name]) => name === 'cm-md-code')).toHaveLength(1);
   expect(styled.some(([name]) => name === 'cm-md-strong')).toBe(false);
 });
+
+test('styles research Markdown constructs: blockquotes, code blocks, inline code, headings, hr and tasks', () => {
+  const doc = away(
+    '# Heading\n\n> Quoted claim\n\nUse `inline` here.\n\n```ts\nconst x = 1;\n```\n\n---\n\n- [ ] open\n- [x] done',
+  );
+  const { styled } = run(doc);
+  expect(styled).toContainEqual(['cm-md-heading-line cm-md-h1-line', '']);
+  expect(styled).toContainEqual(['cm-md-quote', '> Quoted claim']);
+  expect(styled).toContainEqual(['cm-md-quote-line', '']);
+  expect(styled).toContainEqual(['cm-md-code cm-md-inline-code', '`inline`']);
+  expect(styled).toContainEqual(['cm-md-codeblock-line', '']);
+  expect(styled).toContainEqual(['cm-md-codeblock-first', '']);
+  expect(styled).toContainEqual(['cm-md-codeblock-last', '']);
+  expect(styled).toContainEqual(['cm-md-hr', '---']);
+  expect(styled).toContainEqual(['cm-md-hr-line', '']);
+  expect(styled).toContainEqual(['cm-md-task', '[ ]']);
+  expect(styled).toContainEqual(['cm-md-task cm-md-task-done', '[x]']);
+});

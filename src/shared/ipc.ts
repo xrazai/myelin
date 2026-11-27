@@ -36,6 +36,14 @@ export interface SearchCard {
   score: number;
 }
 
+/** Short preview of a note for hover tooltips. */
+export interface NotePreview {
+  path: string;
+  title: string;
+  /** First ~500 chars of the note, plain text. */
+  excerpt: string;
+}
+
 /**
  * What `writeNote` did. `conflict`: the disk did not hold `base`, so nothing was written;
  * `disk` is what it holds (`null`: there is no note).
@@ -55,6 +63,11 @@ export type VaultEvent =
  * `window.myelin`. Calls reject on failure. All calls except `createVault` and
  * `openVault` need an open vault.
  */
+export interface RenameResult {
+  /** Notes whose links could not be rewritten: held by another program or changed meanwhile. */
+  notUpdated: string[];
+}
+
 export interface MyelinApi {
   /** Shows the folder dialog and creates a vault there. `null` if canceled. */
   createVault(): Promise<VaultInfo | null>;
@@ -66,12 +79,20 @@ export interface MyelinApi {
   listNotes(): Promise<string[]>;
   /** Full text of a note. */
   readNote(path: string): Promise<string>;
+  /** Short previews for a batch of note paths; `null` for missing or unreadable notes. */
+  getPreviews(paths: string[]): Promise<(NotePreview | null)[]>;
   /**
    * Atomically replaces the note's text, only if the disk still holds `base`: the text
    * `readNote` returned or the last one written. `null` creates the note (and its folders),
    * only if there is none. `content` is written as is, BOM and line endings included.
    */
   writeNote(path: string, content: string, base: string | null): Promise<WriteResult>;
+  /**
+   * Renames a note and rewrites the links that would stop leading where they did. Each
+   * rewritten note, the renamed one apart, is reported `changed`. Rejects, with the vault
+   * untouched, if `to` is taken or cannot be a note name.
+   */
+  renameNote(from: string, to: string): Promise<RenameResult>;
   /**
    * Does the close or reload that the page held back (`beforeunload`) to save first. The
    * page cannot tell which one it was.
@@ -106,7 +127,9 @@ export const CALL_CHANNELS = {
   getTree: 'vault:tree',
   listNotes: 'note:list',
   readNote: 'note:read',
+  getPreviews: 'note:previews',
   writeNote: 'note:write',
+  renameNote: 'note:rename',
   search: 'brain:search',
   resumeUnload: 'window:resume-unload',
 } as const satisfies Record<CallName, string>;

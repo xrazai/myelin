@@ -7,6 +7,8 @@ export type CommandId =
   | 'previous-tab'
   | 'close-tab'
   | 'toggle-right-panel'
+  | 'toggle-focus-mode'
+  | 'toggle-left-panel'
   | 'save';
 
 export type KeyEventLike = Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'shiftKey' | 'altKey' | 'metaKey'>;
@@ -63,6 +65,18 @@ export const COMMANDS: readonly Command[] = [
     label: 'Toggle graph / Brain panel',
     shortcut: 'Ctrl+Shift+L',
     match: ctrl('l', true),
+  },
+  {
+    id: 'toggle-focus-mode',
+    label: 'Toggle focus mode',
+    shortcut: 'Ctrl+\\',
+    match: ctrl('\\'),
+  },
+  {
+    id: 'toggle-left-panel',
+    label: 'Toggle file tree',
+    shortcut: 'Ctrl+Shift+B',
+    match: ctrl('b', true),
   },
 ];
 

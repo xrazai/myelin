@@ -3,8 +3,9 @@
 // scroll position. Saving is `note-saver.ts`'s job.
 import { defaultKeymap, history, historyKeymap, isolateHistory } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
-import { Annotation, EditorState, Transaction, type Extension, type StateEffect } from '@codemirror/state';
+import { Annotation, Compartment, EditorState, Transaction, type Extension, type StateEffect } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
+import { focusDim, setFocusDimEffect } from './focus-dim';
 import { livePreview } from './live-preview';
 import { notePath } from './note-path';
 import type { SaverEditor } from './note-saver';
@@ -28,6 +29,7 @@ const extensions: Extension = [
   EditorView.lineWrapping,
   EditorView.contentAttributes.of({ 'aria-label': 'Note text' }),
   livePreview,
+  focusDim,
   theme,
 ];
 
@@ -37,14 +39,20 @@ export interface NoteEditor extends SaverEditor {
   has(path: string): boolean;
   /** Shows a loaded note, or nothing. */
   show(path: string | null): void;
+  /** Toggles paragraph focus dimming on the active view. */
+  setFocusDim(enabled: boolean): void;
   /** Forgets every note not in `paths`. */
   keep(paths: readonly string[]): void;
+  /** Rekeys a note's state to a new path, preserving text, cursor, scroll and undo history. */
+  rename(from: string, to: string): void;
   destroy(): void;
 }
 
 interface Note {
   state: EditorState;
   scroll: StateEffect<unknown> | null;
+  /** Holds the path facet, so a rename can reconfigure it without a new state. */
+  pathField: Compartment;
 }
 
 /** `extra` adds the links (and the benchmark's probe); `onEdit` hears the user change a note's text. */
@@ -56,6 +64,7 @@ export function createNoteEditor(
   const view = new EditorView({ parent });
   const notes = new Map<string, Note>();
   let shown: string | null = null;
+  let focusDimOn = false;
   view.dom.hidden = true;
 
   const edits = EditorView.updateListener.of((update) => {
@@ -77,8 +86,12 @@ export function createNoteEditor(
   return {
     has: (path) => notes.has(path),
     load(path, text) {
-      const state = EditorState.create({ doc: text, extensions: [extensions, notePath.of(path), edits, extra] });
-      notes.set(path, { state, scroll: null });
+      const pathField = new Compartment();
+      const state = EditorState.create({
+        doc: text,
+        extensions: [extensions, pathField.of(notePath.of(path)), edits, extra],
+      });
+      notes.set(path, { state, scroll: null, pathField });
     },
     text: (path) => stateOf(path).doc.toString(),
     replace(path, text, undoable) {
@@ -109,10 +122,16 @@ export function createNoteEditor(
       view.dom.hidden = !note;
       if (!note) return;
       view.setState(note.state);
+      view.dispatch({ effects: setFocusDimEffect.of(focusDimOn) });
       if (note.scroll) view.dispatch({ effects: note.scroll });
       // `setState` keeps the scroll of the note before. 0 also shows the top padding.
       else view.scrollDOM.scrollTop = 0;
       if (focus) view.focus();
+    },
+    setFocusDim(enabled) {
+      focusDimOn = enabled;
+      view.dom.classList.toggle('cm-focus-dim', enabled);
+      if (shown !== null) view.dispatch({ effects: setFocusDimEffect.of(enabled) });
     },
     keep(paths) {
       for (const path of notes.keys()) {
@@ -123,6 +142,20 @@ export function createNoteEditor(
           view.dom.hidden = true;
         }
       }
+    },
+    rename(from, to) {
+      const note = notes.get(from);
+      if (!note || notes.has(to)) return;
+      stash();
+      const reconfigure = note.pathField.reconfigure(notePath.of(to));
+      if (from === shown) {
+        view.dispatch({ effects: reconfigure });
+      } else {
+        note.state = note.state.update({ effects: reconfigure }).state;
+      }
+      notes.delete(from);
+      notes.set(to, note);
+      if (shown === from) shown = to;
     },
     destroy: () => view.destroy(),
   };

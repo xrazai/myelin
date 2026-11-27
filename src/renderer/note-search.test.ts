@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { createNoteSearch, normalizeNewNotePath } from './note-search';
+import { createNoteSearch, newNoteFor } from './note-search';
 
 describe('createNoteSearch', () => {
   const paths = [
@@ -40,7 +40,28 @@ describe('createNoteSearch', () => {
     ]);
   });
 
-  test('searches 100k note paths in under 16 ms per keystroke', () => {
+  test('a short list is the start of the full ranking', () => {
+    // Every mix of exact, prefix, word start, inside, scattered, accented and path-only matches.
+    const words = ['a', 'ab', 'ba', 'Álbum', 'cab', 'a b', 'b-a', 'xaxb', 'dado', 'Mapa de aba'];
+    const mixed: string[] = [];
+    for (const folder of ['', 'a/', 'ab/c/', 'zz/']) {
+      for (const first of words) {
+        mixed.push(`${folder}${first}.md`);
+        for (const second of words) mixed.push(`${folder}${first} ${second}.md`);
+      }
+    }
+    const search = createNoteSearch(mixed);
+
+    for (const query of ['a', 'ab', 'b', 'a b', 'alb', 'ba', 'a/', 'ab/c/a', 'z a', 'mapa', 'qq']) {
+      // A limit above the number of notes cuts nothing short.
+      const full = search(query, mixed.length + 1).map((match) => match.path);
+      for (const limit of [1, 2, 5, 20, 100]) {
+        expect(search(query, limit).map((match) => match.path), `${query} ${limit}`).toEqual(full.slice(0, limit));
+      }
+    }
+  });
+
+  test('searches 100k note paths', () => {
     const large: string[] = [];
     for (let i = 0; i < 100_000; i++) {
       large.push(`folder-${i % 100}/Note-${i}.md`);
@@ -50,40 +71,28 @@ describe('createNoteSearch', () => {
     // Warm up JIT once, then measure 3 realistic keystroke queries.
     search('note-9999', 20);
 
-    const measure = (q: string) => {
-      const start = performance.now();
-      const hits = search(q, 20);
-      return { hits, elapsedMs: performance.now() - start };
-    };
+    const start = performance.now();
+    const broad = search('n', 20);
+    const specific = search('note-99999', 20);
+    const miss = search('zzzz', 20);
+    const elapsedMs = performance.now() - start;
 
-    const broad = measure('n');
-    const specific = measure('note-99999');
-    const miss = measure('zzzz');
-
-    console.info(
-      `[100k-search] broad('n')=${broad.elapsedMs.toFixed(2)}ms, specific('note-99999')=${specific.elapsedMs.toFixed(2)}ms, miss('zzzz')=${miss.elapsedMs.toFixed(2)}ms`,
-    );
-
-    expect(broad.hits.length).toBe(20);
-    expect(specific.hits[0]?.path).toBe('folder-99/Note-99999.md');
-    expect(miss.hits.length).toBe(0);
-
-    expect(broad.elapsedMs).toBeLessThan(16);
-    expect(specific.elapsedMs).toBeLessThan(16);
-    expect(miss.elapsedMs).toBeLessThan(16);
+    expect(broad.length).toBe(20);
+    expect(specific[0]?.path).toBe('folder-99/Note-99999.md');
+    expect(miss.length).toBe(0);
+    // Only against a gross regression: the suite runs in parallel on shared machines.
+    // The budget per keystroke (16 ms) is measured by `scripts/bench.ts` (`palette`).
+    expect(elapsedMs).toBeLessThan(750);
   });
 });
 
-test('normalizeNewNotePath normalizes .md extension and rejects empty or invalid input', () => {
-  expect(normalizeNewNotePath('')).toBeNull();
-  expect(normalizeNewNotePath('   /  ')).toBeNull();
-  expect(normalizeNewNotePath('a\\b')).toBeNull();
-  expect(normalizeNewNotePath('C:foo')).toBeNull();
-  expect(normalizeNewNotePath('a\0b')).toBeNull();
-  expect(normalizeNewNotePath('a//b')).toBeNull();
-  expect(normalizeNewNotePath('../secret')).toBeNull();
-  expect(normalizeNewNotePath('.myelin/vault')).toBeNull();
-  expect(normalizeNewNotePath('Ideas')).toBe('Ideas.md');
-  expect(normalizeNewNotePath('notes/Ideas.MD')).toBe('notes/Ideas.MD');
-  expect(normalizeNewNotePath('/notes/Ideas/')).toBe('notes/Ideas.md');
+test('newNoteFor adds .md and follows the name rules of a rename', () => {
+  expect(newNoteFor('')).toBeNull();
+  expect(newNoteFor('   /  ')).toBeNull();
+  expect(newNoteFor('Ideas')).toEqual({ path: 'Ideas.md', problem: null });
+  expect(newNoteFor('notes/Ideas.MD')).toEqual({ path: 'notes/Ideas.MD', problem: null });
+  expect(newNoteFor('/notes/Ideas/')).toEqual({ path: 'notes/Ideas.md', problem: null });
+
+  const refused = ['a\\b', 'C:foo', 'a\0b', 'a//b', '../secret', '.myelin/vault', 'C# notes', '[x]', 'a|b', 'why?', 'a /b', 'end.', 'x.md.md'];
+  for (const query of refused) expect(newNoteFor(query)?.problem, query).toEqual(expect.any(String));
 });

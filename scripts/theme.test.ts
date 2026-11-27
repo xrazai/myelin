@@ -12,3 +12,24 @@ test('styles.css declares every palette token of docs/identity.md with the same 
     expect(styles).toContain(`--${name}: ${hex!.toLowerCase()};`);
   }
 });
+
+test('styles.css defines derived surface tokens, motion primitives and reduced-motion collapse', () => {
+  const styles = read('src/renderer/styles.css');
+  for (const name of [
+    '--surface-hover',
+    '--surface-active',
+    '--surface-code',
+    '--surface-elevated',
+    '--hairline',
+    '--accent-soft',
+    '--learning-soft',
+    '--ease-out',
+    '--t-fast',
+    '--t-base',
+    '--t-panel',
+  ]) {
+    expect(styles).toContain(`${name}:`);
+  }
+  expect(styles).toMatch(/@media\s*\(prefers-reduced-motion:\s*reduce\)/);
+  expect(styles).toMatch(/::selection\s*\{[^}]*color-mix\(/s);
+});

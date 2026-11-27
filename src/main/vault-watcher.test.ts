@@ -65,6 +65,7 @@ const notes = () => db.prepare('SELECT path FROM notes ORDER BY path').pluck().a
 const hashOf = (path: string) => db.prepare('SELECT hash FROM notes WHERE path = ?').pluck().get(path);
 const linkTargets = () =>
   db.prepare('SELECT source, target_path AS path, name FROM links ORDER BY source, from_pos').all();
+const indexedPaths = () => db.prepare('SELECT path FROM notes ORDER BY path').pluck().all();
 const search = (query: string) =>
   db
     .prepare(
@@ -276,6 +277,50 @@ describe('after the first sync', () => {
       await writeFileAtomic(at('Home.md'), 'mine');
       await until(() => expect(hashOf('Home.md')).toBe(contentHash('mine')));
       expect(await settled()).toEqual([event('changed', 'Home.md'), event('changed', 'Home.md')]);
+    });
+
+    test('a rename updates the index at once and reports each rewritten note', async () => {
+      await write('Target.md', '[[Home]] [[#Self]]');
+      await until(() => expect(notes()).toContain('Target.md'));
+      await settled();
+      const from = seen.length;
+      expect(await watching.rename('Home.md', 'Renamed.md')).toEqual({ notUpdated: [] });
+      // No waiting: the index is up to date once the rename resolves.
+      expect(indexedPaths()).toContain('Renamed.md');
+      expect(indexedPaths()).not.toContain('Home.md');
+      expect(linkTargets()).toContainEqual({ source: 'Target.md', path: 'Renamed.md', name: null });
+      expect(await readFile(at('Target.md'), 'utf8')).toBe('[[Renamed]] [[#Self]]');
+      expect(await readFile(at('Renamed.md'), 'utf8')).toBe('start [[Later]]');
+      expect((await settled(from)).filter((e) => e.type === 'changed')).toEqual([event('changed', 'Target.md')]);
+      await expectTreeMatchesDisk();
+    });
+
+    test('a rename rewrites a link another program wrote moments before', async () => {
+      await write('Late.md', 'now links [[Home]]');
+      await watching.rename('Home.md', 'Renamed.md');
+      expect(await readFile(at('Late.md'), 'utf8')).toBe('now links [[Renamed]]');
+    });
+
+    test('a rename may change only the case of the name', async () => {
+      await write('lower.md', 'x');
+      await until(() => expect(notes()).toContain('lower.md'));
+      await watching.rename('lower.md', 'Lower.md');
+      expect(notes()).toContain('Lower.md');
+      expect(notes()).not.toContain('lower.md');
+      await expectTreeMatchesDisk();
+    });
+
+    test('a refused rename leaves the vault untouched', async () => {
+      await write('Target.md', '[[Home]]');
+      await mkdir(at('Dir'));
+      await write('Dir/In.md', 'in');
+      await until(() => expect(notes()).toContain('Dir/In.md'));
+      await expect(watching.rename('Home.md', 'Target.md')).rejects.toThrow('already exists');
+      await expect(watching.rename('Home.md', 'target.md')).rejects.toThrow('already exists');
+      await expect(watching.rename('Home.md', 'C# notes.md')).rejects.toThrow('cannot contain');
+      await expect(watching.rename('Home.md', 'dir/Home.md')).rejects.toThrow('the folder is named Dir');
+      expect(await readFile(at('Target.md'), 'utf8')).toBe('[[Home]]');
+      expect(await readFile(at('Home.md'), 'utf8')).toBe('start [[Later]]');
     });
 
     test('a failed own write leaves no expected hash behind', async () => {

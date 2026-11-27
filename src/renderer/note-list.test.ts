@@ -97,3 +97,15 @@ test('NoteList.has checks exact and case-insensitive paths and updates on events
   expect(list.has('New.md')).toBe(false);
   list.stop();
 });
+
+test('NoteList.folderInOtherCase names the folder a new note would land in', async () => {
+  const { list, answer } = setup();
+  answer(['Notes/deep/Idea.md', 'Home.md']);
+  await list.ready;
+
+  expect(list.folderInOtherCase('Notes/New.md')).toBeNull();
+  expect(list.folderInOtherCase('Notes/deep/New.md')).toBeNull();
+  expect(list.folderInOtherCase('other/New.md')).toBeNull();
+  expect(list.folderInOtherCase('notes/New.md')).toBe('Notes');
+  expect(list.folderInOtherCase('Notes/Deep/x/New.md')).toBe('Notes/deep');
+});

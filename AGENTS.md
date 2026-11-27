@@ -3,10 +3,12 @@
 Desktop app over a vault of `.md` notes that learns from how you write and navigate. Editor, file tree, GPU graph, Brain panel (vault query).
 
 Goal priority:
-1. The personal vault that learns (Rafa's daily use). Scale and scope decisions serve this.
+1. The personal vault (Rafa's daily use). Scale and scope decisions serve this. In this order:
+   - First, a solid manual base: notes, folders and links managed by hand (create, find, organize, rename, delete), with every link kept right.
+   - Then the vault that learns: paused (#34) until the base is solid and the maintainer resumes it.
 2. `@myelin/graph` as an open-source library. Library-only ambitions go to "Later".
 
-Status: stage 1 in progress (app scaffold in place). Repo: https://github.com/xrazai/myelin (branch `main`).
+Status: stage 1 done; stage 2 in progress, with the manual base first (Roadmap). Search, graph and speed work is not paused, but comes after the base. Repo: https://github.com/xrazai/myelin (branch `main`).
 
 ## Commands
 `npm install`, `npm run dev`, `npm run typecheck`, `npm test`, `npm run build`, `npm run preview`, `npm run gen-vault -- --notes 10000 --seed 1` (synthetic vault outside the repo; options in `scripts/gen-vault.ts`).
@@ -31,7 +33,7 @@ Status: stage 1 in progress (app scaffold in place). Repo: https://github.com/xr
 - Editor: CodeMirror 6.
 - Graph: `@myelin/graph`, WebGL2 only (GLSL ES 3.0), graphics backend behind an internal interface. Layout: own ForceAtlas2 (LinLog) + Barnes-Hut solver inside the library, no dependency (`docs/graph-lib.md`).
 - Fonts: Literata (body serif), Inter (UI), JetBrains Mono (code, raw syntax, metadata). Bundled (offline), variable, OFL.
-- Shortcuts: `Ctrl+P` is a single palette (notes by default, `>` prefix for commands). `Ctrl+Shift+L` toggles graph / Brain panel. `Ctrl+S` saves now.
+- Shortcuts: `Ctrl+P` is a single palette (notes by default, `>` prefix for commands). `Ctrl+Shift+L` toggles graph / Brain panel. `Ctrl+\` toggles Focus Mode (collapses both side panels). `Ctrl+Shift+B` toggles the file tree. `Ctrl+S` saves now.
 
 ## AI: prepared, not decided
 No AI model is chosen or built now. The app ships ready to receive it, through three slots:
@@ -58,7 +60,9 @@ Do not create tables, dependencies, queues or files for AI before the decision. 
    - Atomic write on Windows: write `<note>.md.tmp`, `fsync`, then rename over the original. Retry the rename on `EPERM`/`EBUSY`/`EACCES` (antivirus, OneDrive, indexer holding the file).
    - Watcher loop guard: ignore `*.tmp`; before writing, the worker records the expected content hash of each file it is about to write, and a watcher event whose file hash matches is dropped. Any event whose hash equals the indexed hash is a no-op.
    - Watcher (`main/vault-watcher.ts`): what chokidar reports (its events and `raw`) only marks paths to look at. `VaultEvent`s come from comparing folder listings with the last reported tree, and `changed` from content hashes. Never forward chokidar events: on Windows it misses repeated case-only renames. The tree is updated at once; the index waits for the first sync. The worker writes notes only through `VaultWatch.write`. An app write that creates a note (or its folders) is the one own write reported, as `created`.
-   - Rename is one batch: rename the file, rewrite the linking notes, reindex once. Those rewrites are marked as link-only and do not count as content changes for the heavy path.
+   - Rename is one batch: rename the file, rewrite the linking notes, reindex once. Those rewrites are marked as link-only and do not count as content changes for the heavy path (the renderer still gets `changed`, to reload open notes).
+     - Every link keeps leading where it did, those to a namesake the new name would capture included; `[[#Heading]]` is never rewritten. Open notes are saved first, and each rewrite follows the `writeNote` base rule: a note that cannot be rewritten is reported, not overwritten.
+     - Only the notes the index says can be affected are read, plus those it is behind on.
 3. The main thread never blocks: scanning, parsing, indexing and heavy processors run in workers.
 4. Golden rule: Svelte owns only the shell (file tree, tabs, palette, status bar, Brain panel). CodeMirror 6 and `@myelin/graph` run in plain TS inside containers mounted by Svelte, outside its reactivity.
 5. Graph data crosses boundaries as typed arrays (`Float32Array` / `Uint32Array`).
@@ -84,10 +88,12 @@ Do not create tables, dependencies, queues or files for AI before the decision. 
 - Link hover preview `< 1ms` for links visible in the editor: `note-cache.ts` is an LRU of short previews (title + first ~500 chars), prefetched for the `[[links]]` in the editor viewport. A cold hover (not prefetched) may take one IPC round-trip. Never hold full note texts for the whole vault in the renderer.
 
 ## Benchmark (`scripts/bench.ts`)
-On `gen-vault` output (10k / 100k notes): graph FPS with glow, hover latency (warm and cold), FTS5 indexing time. First layout time is measured by `node scripts/bench-layout.ts`.
+On `gen-vault` output (10k / 100k notes): graph FPS with glow, hover latency (warm and cold), FTS5 indexing time, one `Ctrl+P` keystroke (`palette`; budget <= 16 ms at 100k notes). First layout time is measured by `node scripts/bench-layout.ts`.
 `--editor` (`scripts/bench-editor.ts`): typing latency of the editor, with real key events in the repo's Electron (needs a desktop session). Budget on a 10k-line note: p95 <= 16 ms from keydown to the DOM updated and laid out.
 
 ## Learning (what "Myelin" means in code)
+**Paused** (#34, label `paused`; see Workflow): do not build any of this until the maintainer resumes it. What already exists stays (a rename still appends its `renamed` event).
+
 Now, no AI: myelination. Edges you use get stronger.
 - Usage events (link followed, notes co-opened, notes co-retrieved in a search, note renamed) are appended to `.myelin/usage.jsonl`: plain text, append-only, keyed by note path. A rename is an event, so old lines never need rewriting.
 - Edge weights are computed from these events into `index.db`. The graph draws strong edges thicker and brighter.
@@ -120,7 +126,8 @@ myelin/
 │   │   ├── vault-config.ts    # .myelin/vault.json (used by vault-worker)
 │   │   ├── vault-path.ts      # validates note paths from the renderer (used by vault-worker)
 │   │   ├── vault-index.ts     # index.db: schema, sync and updates (used by vault-worker)
-│   │   ├── vault-watcher.ts   # chokidar watcher, loop guard, tree events (used by vault-worker)
+│   │   ├── vault-watcher.ts   # chokidar watcher, loop guard, tree events, rename batch (used by vault-worker)
+│   │   ├── vault-usage.ts     # appends learning events to usage.jsonl (used by vault-worker)
 │   │   └── brain-adapter.ts   # AI slot: search(query), process(changedNote); FTS5 now
 │   ├── preload/preload.ts     # contextBridge, exposes window.myelin
 │   ├── shared/ipc.ts          # window.myelin contract: types and channel names
@@ -144,13 +151,18 @@ myelin/
 │       │   ├── link-complete.ts # [[ completion: note names, then headings after Note#
 │       │   ├── headings.ts    # a note's headings, for that completion
 │       │   ├── link-follow.ts # Ctrl+Click / Ctrl+Enter (+Shift: new tab); creates a missing note
+│       │   ├── link-hover.ts  # viewport-prefetched hover preview card (< 1 ms warm)
 │       │   ├── link-pulse.ts  # a save that adds a link -> `myelin:link-pulse` window event
+│       │   ├── focus-dim.ts   # optional paragraph focus dimming mode (off by default)
+│       │   ├── note-metrics.ts # debounced word count, read time and link count for StatusBar
 │       │   ├── note-path.ts   # which note an editor state holds
 │       │   └── theme.ts       # editor look, from the identity tokens
 │       ├── tree-model.ts      # file tree logic: visible rows, watcher events, keyboard
 │       ├── note-list.ts       # every note path (no content), kept current by watcher events
 │       ├── note-search.ts     # fuzzy search over note names, ignoring case and accents
+│       ├── commands.ts        # every workspace command and its shortcut; `>` in the palette lists them
 │       ├── note-cache.ts      # LRU of short previews, viewport prefetch
+│       ├── rename-note.ts     # rename order: save, worker batch, move tab and editor state
 │       └── graph-view.ts      # glue: note path <-> node id, feeds @myelin/graph, wires events
 └── vault-dev/                 # local test vault
     ├── .myelin/
@@ -166,6 +178,9 @@ Workspace layout: tabs (top) | tree (left) | editor | graph or Brain panel (righ
 ## Workflow (GitHub)
 - Board: GitHub Project "Myelin", https://github.com/users/xrazai/projects/7. Status: Backlog -> Todo -> In progress -> Done.
 - Every piece of work is an issue, in English. ID = issue number (`#12`). Labels: type (`task`, `bug`, `enhancement`, `documentation`) + `area: vault|editor|graph|ui|tooling`. Milestone = roadmap stage.
+- `paused`: on hold, to be resumed later (work given up is closed as "not planned" instead). The issue stays open, in Backlog, even with no open blocker. Agents do not pick it, move it or work on it, even when asked by number: they say it is paused and ask. Only the maintainer pauses and resumes. An issue blocked by a paused one stays blocked: tell the maintainer.
+- `needs decision`: waits for the maintainer; stays in Backlog.
+- Impact review: creating an issue, changing its scope, pausing it or closing it as "not planned" is not done until every open issue was checked against it. Agents update the ones that are now outdated or lack information (text, `Depends on:` and "Blocked by" links, shared files that must not run in parallel, priority, board status). One that no longer makes sense as a whole is not closed or paused: they tell the maintainer. The review also asks whether an issue is missing, to fix something already implemented or for later work: agents confirm the gap on `main`, search open and closed issues (no duplicate, nothing dropped comes back), prefer extending an open one, and otherwise create it. Ideas that change direction or add scope nobody asked for, or that belong to paused work, are only suggested. They report what changed or was created and why, or that nothing did.
 - License: MIT for everything (app and `@myelin/graph`). Every `package.json` says `"license": "MIT"`; `packages/graph` ships its own `LICENSE`.
 - Community files: `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `.github/CODEOWNERS`, templates in `.github/` (bug, feature, task, PR; blank issues off).
 - Solo flow (Rafa): commit straight to `main` (ruleset bypass); the commit that finishes an issue ends its message with `Closes #N` (partial work: `Refs #N`). Closing moves the card to Done. Rafa's agents follow `CLAUDE.local.md` (local, git-ignored) for when to commit, push and open PRs; if it is missing, ask before any push.
@@ -187,8 +202,9 @@ Workspace layout: tabs (top) | tree (left) | editor | graph or Brain panel (righ
 
 ## Roadmap
 1. Skeleton, I/O and proof tools: themed window, launcher, file tree, `vault-worker` (atomic writes, watcher loop guard, `index.db` + FTS5), `gen-vault` and `bench`.
-2. Fluid editor: CodeMirror 6, live preview, `Ctrl+P` palette, `[[link]]` autocomplete, rename updates links, hover preview with viewport prefetch. Daily use starts here: first release `v0.1.0` with auto-update (#12).
-3. Search and Brain panel: `brain-adapter` with FTS5, excerpt cards with sources, usage events in `usage.jsonl` and edge weights.
+2. Fluid editor: CodeMirror 6, live preview, `Ctrl+P` palette, `[[link]]` autocomplete, rename updates links, hover preview with viewport prefetch. Daily use starts here: first release `v0.1.0` with auto-update (#12), which ships the manual base.
+   - Manual base for notes, folders and links, before new work in later stages: palette to find, open or create a note (#31) -> create from the tree (#95) -> delete to the Recycle Bin (#96) -> rename a folder (#97) -> move notes and folders (#98). Reopen the last vault (#99), backlinks (#104) and find in the open note (#105) follow #31 too. End-to-end proof closes it (#22).
+3. Search and Brain panel: `brain-adapter` with FTS5, excerpt cards with sources, usage events in `usage.jsonl` and edge weights (the last two are paused, #34).
 4. Graph: `@myelin/graph` on WebGL2, layout worker, incremental API, semantic zoom, micro-animations, edge weights as thickness/glow.
 
 ## Decide later

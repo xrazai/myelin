@@ -19,6 +19,8 @@ test('workspace commands match their shortcuts', () => {
   expect(press('W')).toBe('close-tab');
   expect(press('L', { shift: true })).toBe('toggle-right-panel');
   expect(press('s')).toBe('save');
+  expect(press('\\')).toBe('toggle-focus-mode');
+  expect(press('b', { shift: true })).toBe('toggle-left-panel');
 });
 
 test('unregistered combinations return null', () => {

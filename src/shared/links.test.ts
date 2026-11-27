@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createLinkResolver, linkKey, noteLinks, parseLinks } from './links';
+import { createLinkResolver, linkKey, noteLinks, noteNameProblem, parseLinks, rewriteLinksForRename } from './links';
 
 const targets = (text: string) => parseLinks(text).map((l) => l.target);
 
@@ -167,5 +167,87 @@ describe('resolution', () => {
 
   it('builds the same key for a path and the targets that name it', () => {
     expect(linkKey('Referências/Configuração.md')).toBe(linkKey('REFERÊNCIAS/configuração'.normalize('NFD')));
+  });
+});
+
+describe('noteNameProblem', () => {
+  it.each(['New.md', 'folder/Nova nota (2).md', 'C#/Note.md', 'v1.2.md'])('accepts %s', (path) => {
+    expect(noteNameProblem(path)).toBeNull();
+  });
+
+  it.each(['C# notes.md', 'a|b.md', '[x].md', 'why?.md', 'a /b.md', 'b .md', 'dir./b.md', 'b..md', 'x.md.md'])(
+    'refuses %s',
+    (path) => {
+      expect(noteNameProblem(path)).not.toBeNull();
+    },
+  );
+});
+
+describe('rewriteLinksForRename', () => {
+  const rename = (text: string, source: string, from: string, to: string, all: string[]) =>
+    rewriteLinksForRename(text, source, from, to, createLinkResolver(all), createLinkResolver(all.map((p) => (p === from ? to : p))));
+
+  it('rewrites a bare target, keeping alias, heading and block', () => {
+    expect(rename('[[Old|alias]] [[Old#H]] [[Old#^b]]', 'Other.md', 'Old.md', 'New.md', ['Old.md', 'Other.md', 'New.md'])).toEqual({
+      text: '[[New|alias]] [[New#H]] [[New#^b]]',
+      count: 3,
+    });
+  });
+
+  it('keeps `[[#Heading]]` and rewrites a link of the note to itself by name', () => {
+    expect(rename('[[#H]] [[a/Old]]', 'a/Old.md', 'a/Old.md', 'b/New.md', ['a/Old.md', 'New.md'])).toEqual({
+      text: '[[#H]] [[b/New]]',
+      count: 1,
+    });
+  });
+
+  it('keeps a link to a namesake from being captured by the new name', () => {
+    const all = ['Old.md', 'x/y/Foo.md', 'Link.md'];
+    expect(rename('[[Foo|f#H]] [[Old]]', 'Link.md', 'Old.md', 'Foo.md', all).text).toBe('[[x/y/Foo|f#H]] [[Foo]]');
+  });
+
+  it('after a folder move, keeps a bare link and rewrites a qualified one', () => {
+    const all = ['a/Note.md', 'Link.md'];
+    expect(rename('[[note]] [[a/Note|n]]', 'Link.md', 'a/Note.md', 'b/Note.md', all)).toEqual({
+      text: '[[note]] [[b/Note|n]]',
+      count: 1,
+    });
+  });
+
+  it('follows a change of case only', () => {
+    expect(rename('[[note]] [[Note]]', 'Link.md', 'note.md', 'Note.md', ['note.md', 'Link.md'])).toEqual({
+      text: '[[Note]] [[Note]]',
+      count: 1,
+    });
+  });
+
+  it('refuses a rename into a folder that links cannot name', () => {
+    const all = ['a/Old.md', 'Link.md'];
+    expect(() => rename('[[a/Old]]', 'Link.md', 'a/Old.md', 'C#/Old.md', all)).toThrow('cannot point to');
+  });
+
+  it('leaves another note\'s self link untouched', () => {
+    expect(rename('[[#Self]] [[Old]]', 'Target.md', 'Old.md', 'New.md', ['Old.md', 'Target.md', 'New.md']).text).toBe(
+      '[[#Self]] [[New]]',
+    );
+  });
+
+  it('keeps links in code and to other notes untouched', () => {
+    const text = '`[[Old]]` [[Other]] [[Old]]';
+    expect(rename(text, 'Link.md', 'Old.md', 'New.md', ['Old.md', 'Other.md', 'New.md', 'Link.md']).text).toBe(
+      '`[[Old]]` [[Other]] [[New]]',
+    );
+  });
+
+  it('preserves BOM, CRLF and table escapes', () => {
+    const text = '\uFEFF| [[Old\\|alias]] |\r\n| [[Old]] |\r\n';
+    const out = rename(text, 'Link.md', 'Old.md', 'New.md', ['Old.md', 'Link.md', 'New.md']).text;
+    expect(out).toBe('\uFEFF| [[New\\|alias]] |\r\n| [[New]] |\r\n');
+  });
+
+  it('uses the full path when a bare new name would be ambiguous', () => {
+    expect(rename('[[Old]]', 'Link.md', 'a/Old.md', 'b/New.md', ['a/Old.md', 'b/New.md', 'New.md', 'Link.md']).text).toBe(
+      '[[b/New]]',
+    );
   });
 });

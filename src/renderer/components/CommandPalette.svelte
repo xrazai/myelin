@@ -2,13 +2,13 @@
   import { tick } from 'svelte';
   import { COMMANDS, searchCommands, type Command, type CommandId } from '../commands';
   import type { NoteList } from '../note-list';
-  import { normalizeNewNotePath, type NoteMatch } from '../note-search';
+  import { newNoteFor, type NewNote, type NoteMatch } from '../note-search';
 
   const PALETTE_COMMANDS = COMMANDS.filter((c) => c.id !== 'open-palette');
 
   type PaletteItem =
     | { kind: 'note'; match: NoteMatch }
-    | { kind: 'create'; path: string }
+    | ({ kind: 'create' } & NewNote)
     | { kind: 'command'; command: Command };
 
   let {
@@ -46,9 +46,11 @@
     }
     const matches = notes.search(query, 50, recent);
     const result: PaletteItem[] = matches.map((match) => ({ kind: 'note', match }));
-    const newPath = normalizeNewNotePath(query);
-    if (newPath !== null && !notes.has(newPath)) {
-      result.push({ kind: 'create', path: newPath });
+    const wanted = newNoteFor(query);
+    if (wanted !== null && !notes.has(wanted.path)) {
+      const folder = notes.folderInOtherCase(wanted.path);
+      const problem = wanted.problem ?? (folder === null ? null : `the folder is named ${folder}`);
+      result.push({ kind: 'create', path: wanted.path, problem });
     }
     return result;
   });
@@ -79,7 +81,8 @@
   }
 
   function activate(item: PaletteItem | undefined, newTab: boolean) {
-    if (!item) return;
+    // A refused name keeps the palette open, with the reason, to be fixed.
+    if (!item || (item.kind === 'create' && item.problem !== null)) return;
     close(false);
     if (item.kind === 'command') oncommand(item.command.id);
     else if (item.kind === 'note') onopen(item.match.path, newTab);
@@ -94,6 +97,8 @@
   }
 
   function onkeydown(event: KeyboardEvent) {
+    // `Enter` that ends an input method composition belongs to the text.
+    if (event.isComposing) return;
     if (event.key === 'Escape') {
       event.preventDefault();
       event.stopPropagation();
@@ -133,6 +138,7 @@
           <li
             role="option"
             aria-selected={index === selected}
+            aria-disabled={item.kind === 'create' && item.problem !== null}
             class:selected={index === selected}
             onmouseenter={() => (selected = index)}
             onmousedown={(e) => {
@@ -146,8 +152,12 @@
                 <span class="secondary">{item.match.folder}</span>
               {/if}
             {:else if item.kind === 'create'}
-              <span class="primary create">Create note "{item.path}"</span>
-              <span class="secondary">Enter</span>
+              {#if item.problem === null}
+                <span class="primary create">Create note "{item.path}"</span>
+                <span class="secondary">Enter</span>
+              {:else}
+                <span class="refused">Cannot create "{item.path}": {item.problem}</span>
+              {/if}
             {:else}
               <span class="primary">{item.command.label}</span>
               <kbd class="secondary">{item.command.shortcut}</kbd>
@@ -235,6 +245,15 @@
     color: var(--text-muted);
     font-size: 12px;
     flex-shrink: 0;
+  }
+
+  .refused {
+    color: var(--text-muted);
+    overflow-wrap: anywhere;
+  }
+
+  li[aria-disabled='true'] {
+    cursor: default;
   }
 
   .empty {
