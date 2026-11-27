@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import type { VaultInfo } from '../../shared/ipc';
+  import type { NoteMetrics } from '../editor/note-metrics';
   import type { NoteProblems, NoteSaver } from '../editor/note-saver';
   import {
     chooseWidth,
@@ -31,6 +32,7 @@
 
   let saver: NoteSaver | null = null;
   let problems = $state.raw<NoteProblems>(new Map());
+  let metrics = $state.raw<NoteMetrics | null>(null);
 
   /** A tab closes once nothing of the user's would be lost; otherwise it stays, showing why. */
   async function requestClose(path: string) {
@@ -187,6 +189,7 @@
       onproblems={(next) => (problems = next)}
       ondiscard={(path) => (tabs = closeTab(tabs, path))}
       onfollow={follow}
+      onmetrics={(next) => (metrics = next)}
     />
   </main>
 
@@ -229,7 +232,7 @@
   </aside>
 
   <div class="status">
-    <StatusBar {vault} unsaved={[...problems.keys()].map(tabName)} />
+    <StatusBar {metrics} hasActiveNote={tabs.active !== null} unsaved={[...problems.keys()].map(tabName)} />
   </div>
 </div>
 
