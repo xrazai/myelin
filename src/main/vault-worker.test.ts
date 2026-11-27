@@ -1,5 +1,5 @@
 // Starts the real vault-worker in a worker thread and talks to it as main does.
-import { readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
@@ -8,6 +8,7 @@ import { afterAll, beforeAll, expect, test, vi } from 'vitest';
 import { createVaultClient, type VaultClient } from './vault-client';
 
 let root: string;
+let userData: string;
 let worker: Worker;
 let vault: VaultClient;
 
@@ -15,13 +16,15 @@ beforeAll(async () => {
   vi.spyOn(console, 'log').mockImplementation(() => {});
   root = await mkdtemp(join(tmpdir(), 'myelin-worker-'));
   await writeFile(join(root, 'Home.md'), '# Home\n', 'utf8');
-  worker = new Worker(new URL('./vault-worker.ts', import.meta.url));
+  userData = await mkdtemp(join(tmpdir(), 'myelin-userdata-'));
+  worker = new Worker(new URL('./vault-worker.ts', import.meta.url), { workerData: { userData } });
   vault = createVaultClient(worker);
 });
 
 afterAll(async () => {
   await worker.terminate();
   await rm(root, { recursive: true, force: true });
+  await rm(userData, { recursive: true, force: true });
   vi.restoreAllMocks();
 });
 
@@ -58,11 +61,51 @@ test('a vault.json it cannot use rejects the open and keeps the current vault', 
   }
 });
 
-// Rule 3: main only routes. Scanning code reaches it through no import.
+test('open indexes the vault into userData, with nothing added to the vault', async () => {
+  const { id } = await vault.call('open', root);
+  expect(await vault.call('whenIndexed')).toMatchObject({ notes: 1, failed: 0 });
+  expect(existsSync(join(userData, 'vaults', id, 'index.db'))).toBe(true);
+  expect(readdirSync(join(root, '.myelin'))).toEqual(['vault.json']);
+});
+
+test('a second open cancels the first sync and indexes again', async () => {
+  await vault.call('open', root);
+  await vault.call('whenIndexed');
+  await vault.call('open', root);
+  const first = vault.call('whenIndexed').then(
+    () => 'finished',
+    (error: Error) => error.message,
+  );
+  await vault.call('open', root);
+  expect(await vault.call('whenIndexed')).toMatchObject({ notes: 1, indexed: 0 });
+  expect(['finished', 'indexing was cancelled']).toContain(await first);
+});
+
+test('an index that cannot be opened still lets the vault open', async () => {
+  const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+  const blocked = new Worker(new URL('./vault-worker.ts', import.meta.url), {
+    // A file where the userData folder should be.
+    workerData: { userData: join(root, 'Home.md') },
+    stderr: true,
+  });
+  try {
+    const client = createVaultClient(blocked);
+    await client.call('open', root);
+    await expect(client.call('whenIndexed')).rejects.toThrow(/ENOTDIR|ENOENT|EEXIST/);
+    expect(await client.call('getTree')).toHaveLength(1);
+  } finally {
+    await blocked.terminate();
+    error.mockRestore();
+  }
+});
+
+// Rule 3: main only routes. Scanning and indexing code reaches it through no import.
 test('main and its vault client do no file I/O', () => {
   for (const name of ['main.ts', 'vault-client.ts']) {
     const source = readFileSync(join(import.meta.dirname, name), 'utf8');
     expect(source).not.toMatch(/['"](node:)?fs(\/promises)?['"]|\.\/vault-(scan|config)|\.\/vault-worker['"]/);
+    // Types are fine; anything else would load SQLite and the index in the main thread.
+    expect(source).not.toMatch(/^import (?!type ).*(vault-index|better-sqlite3)/m);
   }
 });
 

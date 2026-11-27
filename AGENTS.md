@@ -26,6 +26,7 @@ Status: stage 1 in progress (app scaffold in place). Repo: https://github.com/xr
 - Storage:
   - Inside the vault, `.myelin/` holds only text files: `vault.json` (`{ "id": <UUID>, "formatVersion": 1 }`; created when missing, never overwritten; the vault does not open if it is invalid or has another version) and `usage.jsonl` (learning events). Safe to sync with Git, Syncthing or cloud folders.
   - Index: `better-sqlite3` (WAL, FTS5) at `<userData>/vaults/<vault-id>/index.db`, outside the vault. 100% rebuildable; never synced (SQLite + WAL in a synced folder risks corruption and binary conflicts). Native module: `better-sqlite3` >= 13 ships Node-API prebuilds, so one binary serves Node (tests) and Electron: no `@electron/rebuild`, and its install script stays denied (`allowScripts`).
+  - Index code: `main/vault-index.ts`. Tables `notes` (with the content hash), `links` (one row per link, `target_path` or unresolved `name`) and `notes_fts`. Schema change = bump `SCHEMA_VERSION` (rebuilds). `open` returns at once and the index syncs in the background (new, changed by mtime + size then hash, removed); a failing index never keeps a vault from opening. Anything that adds or removes notes must re-resolve the affected links in the same transaction.
 - Search: FTS5, tokenizer `unicode61 remove_diacritics 2` (Portuguese-friendly; `porter` is English-only).
 - Editor: CodeMirror 6.
 - Graph: `@myelin/graph`, WebGL2 only (GLSL ES 3.0), graphics backend behind an internal interface. Layout: own ForceAtlas2 (LinLog) + Barnes-Hut solver inside the library, no dependency (`docs/graph-lib.md`).
@@ -103,6 +104,7 @@ myelin/
 │   │   ├── ipc.ts             # registers the contract's handlers, sends its events
 │   │   ├── vault-worker.ts    # file I/O (atomic), watcher, parsing, index.db, FTS5, usage events, heavy path
 │   │   ├── vault-config.ts    # .myelin/vault.json (used by vault-worker)
+│   │   ├── vault-index.ts     # index.db: schema and sync (used by vault-worker)
 │   │   └── brain-adapter.ts   # AI slot: search(query), process(changedNote); FTS5 now
 │   ├── preload/preload.ts     # contextBridge, exposes window.myelin
 │   ├── shared/ipc.ts          # window.myelin contract: types and channel names

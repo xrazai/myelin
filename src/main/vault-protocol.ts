@@ -1,14 +1,27 @@
 // Messages between main and vault-worker (worker thread, not Electron IPC).
 // A new request is a line here and a handler in `vault-worker.ts`.
 import type { TreeEntry, VaultInfo } from '../shared/ipc';
+import type { SyncReport } from './vault-index';
+
+/** `workerData` of the worker. */
+export interface VaultWorkerData {
+  /** Electron's `userData` folder: each vault's `index.db` lives under it. */
+  userData: string;
+}
 
 export interface VaultRequests {
   /**
    * Makes the folder at this absolute path the current vault, creating `.myelin/vault.json`
    * if it is missing. Rejects, keeping the current vault, if that file cannot be used.
+   * Resolves without waiting for the index, which syncs in the background.
    */
   open(root: string): VaultInfo;
   getTree(): TreeEntry[];
+  /**
+   * Settles when the current vault's index sync ends. Rejects if the index cannot be
+   * opened or synced, or if another `open` cancels it.
+   */
+  whenIndexed(): SyncReport;
 }
 
 export type VaultRequest = {
