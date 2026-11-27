@@ -121,12 +121,14 @@ Workspace layout: tabs (top) | tree (left) | editor | graph or Brain panel (righ
 ## Workflow (GitHub)
 - Board: GitHub Project "Myelin", https://github.com/users/xrazai/projects/7. Status: Backlog -> Todo -> In progress -> Done.
 - Every piece of work is an issue, in English. ID = issue number (`#12`). Labels: type (`task`, `bug`, `enhancement`, `documentation`) + `area: vault|editor|graph|ui|tooling`. Milestone = roadmap stage.
-- Templates in `.github/` (bug, feature, task, PR). Contributors: fork + PR with `Closes #N`.
-- Solo flow: commit straight to `main`; the commit that finishes an issue ends its message with `Closes #N` (partial work: `Refs #N`). Closing moves the card to Done.
-- Starting an issue: move it to In progress:
-  `gh project item-edit --project-id PVT_kwHODk2s-84BtdwQ --field-id PVTSSF_lAHODk2s-84BtdwQzhrnHsE --id <item-id> --single-select-option-id <option>`
-  Options: Backlog `be9d4ac3`, Todo `b4b903af`, In progress `8dcd1b3a`, Done `61e2d1b2`. Item id: `gh project item-list 7 --owner xrazai --format json`.
-- New issues: `gh issue create` with labels + milestone, then `gh project item-add 7 --owner xrazai --url <issue-url>` and set Status.
+- License: MIT for everything (app and `@myelin/graph`). Every `package.json` says `"license": "MIT"`; `packages/graph` ships its own `LICENSE`.
+- Community files: `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `.github/CODEOWNERS`, templates in `.github/` (bug, feature, task, PR; blank issues off).
+- Solo flow (Rafa): commit straight to `main` (ruleset bypass); the commit that finishes an issue ends its message with `Closes #N` (partial work: `Refs #N`). Closing moves the card to Done.
+- Contributors: fork, branch `<issue>-short-slug`, PR with `Closes #N`. Ruleset "Protect main": PR required, 1 approval (code owner), review threads resolved, no force push, no deletion; Rafa (admin) bypasses. Merge: squash only (PR title = commit), branch deleted after merge. CI as a required check comes with #14.
+- Security: private vulnerability reporting on; Dependabot alerts and security updates on.
+- Automations: new issues/PRs are auto-added to the board in Backlog; closed/merged -> Done; card moved to Done -> issue closed; PR linked -> In progress.
+- Change status: `gh project item-edit 7 --owner xrazai --url <issue-url> --field Status --value "In progress"` (values: Backlog, Todo, In progress, Done).
+- New issue: `gh issue create -R xrazai/myelin` with labels + milestone; it lands in Backlog by itself.
 
 ## Releases and updates
 - Packaging: `electron-builder` (NSIS on Windows). Updates: `electron-updater`, GitHub provider.
