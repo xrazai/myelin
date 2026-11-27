@@ -2,6 +2,8 @@ name: Benchmark
 
 # Compares `scripts/bench.ts` on a PR with its base, on the same machine. Not a required check:
 # it is outside CI so that it stays out of `all-checks`. Shared runners are noisy.
+# It never comments on the PR (every comment sends e-mail): the table is in the job summary of
+# the run, and a slower metric adds a warning annotation.
 on:
   pull_request:
     # Only the code the benchmark runs: add here whatever `bench.ts` starts to import
@@ -28,8 +30,6 @@ jobs:
   bench:
     runs-on: windows-latest
     timeout-minutes: 30
-    outputs:
-      comment: ${{ steps.compare.outputs.comment }}
     defaults:
       run:
         shell: bash
@@ -90,49 +90,14 @@ jobs:
           exit "$pr_failed"
 
       - name: Compare
-        id: compare
         if: ${{ !cancelled() }}
         env:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           node scripts/bench-compare.ts --base "$RUNNER_TEMP/results/base" --pr "$RUNNER_TEMP/results/pr" \
-            --note "Head ${HEAD_SHA:0:7} · [run]($RUN_URL)" --out "$RUNNER_TEMP/comment.md"
-          cat "$RUNNER_TEMP/comment.md" >> "$GITHUB_STEP_SUMMARY"
-          delimiter="bench-$(node -e 'process.stdout.write(crypto.randomUUID())')"
-          {
-            echo "comment<<$delimiter"
-            cat "$RUNNER_TEMP/comment.md"
-            echo "$delimiter"
-          } >> "$GITHUB_OUTPUT"
-
-  # Runs no code from the PR. The token of a fork or Dependabot PR cannot write: for those,
-  # the table is only in the job summary of the run.
-  comment:
-    needs: bench
-    if: >-
-      !cancelled() && needs.bench.outputs.comment != '' &&
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      github.actor != 'dependabot[bot]'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      pull-requests: write
-    steps:
-      # One comment per PR, updated on every run.
-      - name: Post the table
-        env:
-          GH_TOKEN: ${{ github.token }}
-          BODY: ${{ needs.bench.outputs.comment }}
-          REPO: ${{ github.repository }}
-          PR: ${{ github.event.pull_request.number }}
-        run: |
-          printf '%s\n' "$BODY" > comment.md
-          id=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
-            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- myelin-bench -->"))) | .id' |
-            sed -n 1p)
-          if [[ -n $id ]]; then
-            gh api -X PATCH "repos/$REPO/issues/comments/$id" -F body=@comment.md --silent
-          else
-            gh api -X POST "repos/$REPO/issues/$PR/comments" -F body=@comment.md --silent
+            --note "Head ${HEAD_SHA:0:7} · [run]($RUN_URL)" --out "$RUNNER_TEMP/report.md"
+          cat "$RUNNER_TEMP/report.md" >> "$GITHUB_STEP_SUMMARY"
+          if grep -q 'metric(s) slower than the base' "$RUNNER_TEMP/report.md"; then
+            echo "::warning title=Benchmark::Slower than the base. See the table in the job summary."
           fi
