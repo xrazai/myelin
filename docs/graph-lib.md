@@ -19,13 +19,14 @@ Positioning: GPU graph with organic shaders and fluid animations out of the box.
    - Incremental: a new node starts at the centroid of its neighbors; a local temperature/damping relaxes only that neighborhood instead of reheating the whole graph (stable mental map).
    - Deterministic seed: same graph, same picture.
    - First layout of a large graph can take tens of seconds to minutes in JS; acceptable because the host persists positions.
-   - Density clusters for far zoom are computed here too.
+   - The worker only computes layout. No clustering here (see rule 11).
 5. Buffers move between threads by transfer (`postMessage(buf, [buf])`), double-buffered. `SharedArrayBuffer` is an opt-in, never required (it forces cross-origin isolation on the host page).
 6. Labels: `options.getLabel(nodeId: number) => string`, same numeric id as the buffers (an array is wrapped as `id => labels[id]`). The library only calls it for visible nodes. At most ~50-100 labels drawn at once, by priority (degree, weight), skipping overlaps (same spatial hash as hover). Drawn on a transparent Canvas 2D layer over the WebGL2 canvas: any font, any character, no strings sent to the GPU, no DOM nodes.
 7. App-specific code (notes, SQLite, IPC, palette values) never goes inside the library; colors come in through `options`.
 8. Node ids: dense slot indices owned by the host's mapping, valid for one session. A removed node becomes a tombstone (hidden, slot goes to a free list and may be reused by `addNodes`). No compaction during a session; `setGraph` (full load) is the only compaction. Hosts persist by their own keys (Myelin: note path), never by node id.
 9. Edges are identified by their `(source, target)` pair; the library keeps the pair -> slot map internally.
 10. Labels and WebGL stay in sync: both canvases read the same camera state and `devicePixelRatio`, are resized together, and are drawn in the same `requestAnimationFrame`. Never update the camera between the two draws (otherwise labels "float" behind nodes during pan/zoom).
+11. Far zoom density is drawn on the GPU, not computed: nodes are splatted with additive blending into a low-resolution offscreen texture, then blurred; dense regions become luminous constellations. No CPU work, updates in the same frame as the layout. Constellations are visual only (not clickable, no names). Named, clickable clusters (community detection, e.g. Louvain/Leiden in the worker) are "Later".
 
 ## API
 Data:
@@ -42,7 +43,7 @@ Effects and events:
 - `graph.on('layoutChange', (positions) => ...)`: lets the host persist positions (by its own keys).
 
 ## Later
-Millions of nodes, WebGPU backend and GPU compute layout, MSDF text in WebGL (only worth it for thousands of labels), edge bundling, spatial streaming, Pro tier.
+Millions of nodes, WebGPU backend and GPU compute layout, MSDF text in WebGL (only worth it for thousands of labels), named clickable clusters (community detection), edge bundling, spatial streaming, Pro tier.
 
 ## Open points
 - npm scope `@myelin`: see `AGENTS.md`, "Decide later".
