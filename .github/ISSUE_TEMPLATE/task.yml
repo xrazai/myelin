@@ -22,4 +22,4 @@ body:
     id: notes
     attributes:
       label: Notes
-      description: Links to docs (CLAUDE.md rules, docs/*.md), constraints, open questions.
+      description: Links to docs (AGENTS.md rules, docs/*.md), constraints, open questions.

@@ -20,7 +20,7 @@ Checks: `npm run typecheck`, `npm test`, `npm run build`.
 - Brain panel: search across your vault with excerpts and sources
 - Myelination: links you use get stronger
 
-Stack: Electron, TypeScript, Svelte 5, SQLite. Details in [`CLAUDE.md`](CLAUDE.md) and [`docs/`](docs/).
+Stack: Electron, TypeScript, Svelte 5, SQLite. Details in [`AGENTS.md`](AGENTS.md) and [`docs/`](docs/).
 
 ## Contributing
 Issues and PRs are welcome. Read [`CONTRIBUTING.md`](CONTRIBUTING.md) first. Security reports: [`SECURITY.md`](SECURITY.md).

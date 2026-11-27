@@ -1,4 +1,4 @@
-// Owner of all vault file I/O, the watcher, parsing and SQLite (CLAUDE.md, rule 1).
+// Owner of all vault file I/O, the watcher, parsing and SQLite (AGENTS.md, rule 1).
 import { parentPort } from 'node:worker_threads';
 import Database from 'better-sqlite3';
 
