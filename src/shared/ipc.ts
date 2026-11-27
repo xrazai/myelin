@@ -16,7 +16,12 @@ export interface VaultInfo {
   root: string;
 }
 
-/** The tree has folders and `.md` notes only; `.myelin/` is never listed. */
+/**
+ * The tree has folders and `.md` notes only; `.myelin/` is never listed, nor is any other
+ * dot entry. Symlinks and junctions are not listed. A folder is listed even if empty.
+ * A note's `name` has no `.md`. Order: folders first, then by name (case and accents
+ * ignored, numbers by value).
+ */
 export type TreeEntry =
   | { kind: 'folder'; name: string; path: string; children: TreeEntry[] }
   | { kind: 'note'; name: string; path: string };
