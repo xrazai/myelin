@@ -2,6 +2,7 @@
 import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { app, BrowserWindow } from 'electron';
+import { pendingHandlers, registerIpc } from './ipc';
 import type { WorkerMessage } from './vault-worker';
 import vaultWorkerPath from './vault-worker?modulePath';
 
@@ -45,6 +46,7 @@ function createWindow(): void {
 
 void app.whenReady().then(() => {
   startVaultWorker();
+  registerIpc(pendingHandlers);
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
