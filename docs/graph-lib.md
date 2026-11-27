@@ -19,18 +19,23 @@ Positioning: GPU graph with organic shaders and fluid animations out of the box.
    - Incremental: a new node starts at the centroid of its neighbors; a local temperature/damping relaxes only that neighborhood instead of reheating the whole graph (stable mental map).
    - Deterministic seed: same graph, same picture.
    - First layout of a large graph can take tens of seconds to minutes in JS; acceptable because the host persists positions.
-   - The worker only computes layout. No clustering here (see rule 11).
+   - The worker also runs community detection (rule 11).
 5. Buffers move between threads by transfer (`postMessage(buf, [buf])`), double-buffered. `SharedArrayBuffer` is an opt-in, never required (it forces cross-origin isolation on the host page).
 6. Labels: `options.getLabel(nodeId: number) => string`, same numeric id as the buffers (an array is wrapped as `id => labels[id]`). The library only calls it for visible nodes. At most ~50-100 labels drawn at once, by priority (degree, weight), skipping overlaps (same spatial hash as hover). Drawn on a transparent Canvas 2D layer over the WebGL2 canvas: any font, any character, no strings sent to the GPU, no DOM nodes.
 7. App-specific code (notes, SQLite, IPC, palette values) never goes inside the library; colors come in through `options`.
 8. Node ids: dense slot indices owned by the host's mapping, valid for one session. A removed node becomes a tombstone (hidden, slot goes to a free list and may be reused by `addNodes`). No compaction during a session; `setGraph` (full load) is the only compaction. Hosts persist by their own keys (Myelin: note path), never by node id.
 9. Edges are identified by their `(source, target)` pair; the library keeps the pair -> slot map internally.
 10. Labels and WebGL stay in sync: both canvases read the same camera state and `devicePixelRatio`, are resized together, and are drawn in the same `requestAnimationFrame`. Never update the camera between the two draws (otherwise labels "float" behind nodes during pan/zoom).
-11. Far zoom density is drawn on the GPU, not computed: nodes are splatted with additive blending into a low-resolution offscreen texture, then blurred; dense regions become luminous constellations. No CPU work, updates in the same frame as the layout. Constellations are visual only (not clickable, no names). Named, clickable clusters (community detection, e.g. Louvain/Leiden in the worker) are "Later".
+11. Constellations are real groups, drawn with GPU glow:
+   - Meaning: hierarchical community detection (Leiden) on the weighted edge graph, in the worker. Levels of the hierarchy = levels of semantic zoom. Weights come from `weights`, so use shapes the groups.
+   - Stability: recompute debounced on idle after graph changes; new communities are matched to old ones by overlap so ids, colors and names do not jump. Hosts can pass a saved assignment (`setGraph({ communities })`) for instant open.
+   - Drawing: nodes splatted with additive blending into a low-resolution offscreen texture per visible level, then blurred; the glow follows community membership, not just density, so neighbors from different subjects do not merge.
+   - Naming: the library exposes for each community its most central nodes; the host names it (Myelin: title of the top node now; the AI slot may name it later).
+   - Fast enough: Leiden on 100k nodes / ~300k edges is seconds in a worker; never blocks drawing.
 
 ## API
 Data:
-- `graph.setGraph({ nodeCount, edges, weights, states, positions? })`: full load (vault open). Resets ids.
+- `graph.setGraph({ nodeCount, edges, weights, states, positions?, communities? })`: full load (vault open). Resets ids.
 - `graph.addNodes(count, { positions?, states? }) => ids`: new nodes start at the centroid of their neighbors once their edges arrive.
 - `graph.removeNodes(ids)`: tombstones; their edges are removed.
 - `graph.addEdges(pairs, weights)`, `graph.removeEdges(pairs)`, `graph.updateWeights(pairs, weights)`: `pairs` is a `Uint32Array` `[s0, t0, s1, t1, ...]`.
@@ -41,9 +46,13 @@ Effects and events:
 - `graph.focusNode(nodeId, { duration: 600 })`: smooth camera glide to a node.
 - `graph.on('nodeHover', (id) => ...)`: hover hit-test in `< 0.1ms` (spatial hash).
 - `graph.on('layoutChange', (positions) => ...)`: lets the host persist positions (by its own keys).
+- `graph.on('communityHover' | 'communityClick', (communityId, level) => ...)`, `graph.on('nodeClick', (id) => ...)`.
+- `graph.getCommunity(id) => { level, size, topNodes, parent, children, neighbors: [{ id, weight }] }`: what the host needs for names, cards and "related subjects".
+- `graph.focusCommunity(id, { duration })`: camera fits the community.
+- `graph.on('communitiesChange', (assignment) => ...)`: lets the host persist the assignment.
 
 ## Later
-Millions of nodes, WebGPU backend and GPU compute layout, MSDF text in WebGL (only worth it for thousands of labels), named clickable clusters (community detection), edge bundling, spatial streaming, Pro tier.
+Millions of nodes, WebGPU backend and GPU compute layout, MSDF text in WebGL (only worth it for thousands of labels), edge bundling, spatial streaming, Pro tier.
 
 ## Open points
 - npm scope `@myelin`: see `AGENTS.md`, "Decide later".
