@@ -21,7 +21,7 @@
 // Run directly by Node (type stripping): erasable TypeScript only.
 
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { cpus, release, tmpdir, totalmem, version as osVersion } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -30,7 +30,9 @@ import { fileURLToPath } from 'node:url';
 import { parseArgs, promisify } from 'node:util';
 import Database from 'better-sqlite3';
 import { indexPath, openIndex, SCHEMA_VERSION, syncIndex, type SyncReport } from '../src/main/vault-index.ts';
+import { readNotePreview } from '../src/main/note-preview.ts';
 import { scanVault } from '../src/main/vault-scan.ts';
+import { createNoteCache } from '../src/renderer/note-cache.ts';
 import { generateVault } from './gen-vault.ts';
 
 /** Bump when the JSON changes in a way that breaks comparing two files. */
@@ -39,7 +41,7 @@ export const FORMAT = 1;
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
 const PHASES = ['cold', 'warm', 'reopen'] as const;
-export const METRICS = ['scanMs', 'coldMs', 'warmMs', 'reopenMs'] as const;
+export const METRICS = ['scanMs', 'coldMs', 'warmMs', 'reopenMs', 'hoverColdMs', 'hoverWarmMs'] as const;
 
 /** What each metric measured, saved with the numbers. */
 const CONDITIONS: Record<Metric, string> = {
@@ -49,6 +51,8 @@ const CONDITIONS: Record<Metric, string> = {
     '(system Node) and not read since by the benchmark; not a cold disk: the OS may cache them.',
   warmMs: 'Another new index (scan included) over notes the measuring process has already read.',
   reopenMs: 'The warm index again with nothing changed (scan and mtime + size check).',
+  hoverColdMs: 'Cold hover preview fetch from disk into NoteCache.',
+  hoverWarmMs: 'Warm hover preview lookup from NoteCache.',
 };
 
 type Phase = (typeof PHASES)[number];
@@ -60,6 +64,8 @@ interface Measurement {
   coldMs: number;
   warmMs: number;
   reopenMs: number;
+  hoverColdMs: number;
+  hoverWarmMs: number;
   /** What `syncIndex` reported in each phase. */
   sync: Record<Phase, SyncReport>;
   /** Size of the closed index. */
@@ -107,7 +113,8 @@ export interface BenchReport {
   results: SizeResult[];
 }
 
-const round = (value: number) => Math.round(value * 10) / 10;
+const round = (value: number) =>
+  value < 1 ? Math.round(value * 10000) / 10000 : Math.round(value * 10) / 10;
 
 export function stats(values: number[]): Stats {
   const sorted = [...values].sort((a, b) => a - b);
@@ -134,7 +141,15 @@ function check(phase: Phase, report: SyncReport, notes: number): void {
 
 /** Runs in its own process. `vault` must be freshly generated; `userData` must be empty. */
 async function measure(vault: string, userData: string, notes: number): Promise<Measurement> {
-  const [scanMs] = await timed(() => scanVault(vault));
+  const [scanMs, tree] = await timed(() => scanVault(vault));
+  const firstNote = (function findFirst(entries: typeof tree): string | null {
+    for (const entry of entries) {
+      if (entry.kind === 'note') return entry.path;
+      const nested = findFirst(entry.children);
+      if (nested) return nested;
+    }
+    return null;
+  })(tree);
 
   const index = async (phase: Phase, file: string) => {
     const [ms, report] = await timed(async () => {
@@ -153,6 +168,19 @@ async function measure(vault: string, userData: string, notes: number): Promise<
   const warm = await index('warm', warmFile);
   const reopen = await index('reopen', warmFile);
 
+  const cache = createNoteCache({
+    getPreviews: async (paths) =>
+      Promise.all(paths.map((p) => readNotePreview(join(vault, p), p))),
+    onVaultEvents: () => () => {},
+  });
+  const [hoverColdMs] = firstNote ? await timed(() => cache.fetch(firstNote)) : [0];
+  const warmStart = performance.now();
+  if (firstNote) {
+    for (let i = 0; i < 10_000; i++) cache.peek(firstNote);
+  }
+  const hoverWarmMs = Math.max(0.0001, round((performance.now() - warmStart) / 10_000));
+  cache.stop();
+
   const memory = new Database(':memory:');
   const sqlite = memory.prepare('SELECT sqlite_version()').pluck().get() as string;
   memory.close();
@@ -163,6 +191,8 @@ async function measure(vault: string, userData: string, notes: number): Promise<
     coldMs: cold.ms,
     warmMs: warm.ms,
     reopenMs: reopen.ms,
+    hoverColdMs,
+    hoverWarmMs,
     sync: { cold: cold.report, warm: warm.report, reopen: reopen.report },
     dbBytes: (await stat(warmFile)).size,
     versions: { node: process.versions.node, electron: process.versions.electron ?? null, sqlite, betterSqlite3 },

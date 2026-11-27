@@ -182,3 +182,13 @@ test('reopening a vault whose links table is damaged rebuilds its index', async 
     await rm(damaged, { recursive: true, force: true });
   }
 });
+
+test('getPreviews returns previews for valid notes and null for missing or traversal paths', async () => {
+  await writeFile(join(root, 'Preview.md'), '\uFEFFHello\r\nWorld', 'utf8');
+  const results = await vault.call('getPreviews', ['Preview.md', 'Missing.md', '../outside.md']);
+  expect(results).toEqual([
+    { path: 'Preview.md', title: 'Preview', excerpt: 'Hello\nWorld' },
+    null,
+    null,
+  ]);
+});

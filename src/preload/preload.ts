@@ -24,6 +24,7 @@ const api: MyelinApi = {
   getTree: call('getTree'),
   listNotes: call('listNotes'),
   readNote: call('readNote'),
+  getPreviews: call('getPreviews'),
   writeNote: call('writeNote'),
   search: call('search'),
   resumeUnload: call('resumeUnload'),

@@ -36,6 +36,14 @@ export interface SearchCard {
   score: number;
 }
 
+/** Short preview of a note for hover tooltips. */
+export interface NotePreview {
+  path: string;
+  title: string;
+  /** First ~500 chars of the note, plain text. */
+  excerpt: string;
+}
+
 /**
  * What `writeNote` did. `conflict`: the disk did not hold `base`, so nothing was written;
  * `disk` is what it holds (`null`: there is no note).
@@ -66,6 +74,8 @@ export interface MyelinApi {
   listNotes(): Promise<string[]>;
   /** Full text of a note. */
   readNote(path: string): Promise<string>;
+  /** Short previews for a batch of note paths; `null` for missing or unreadable notes. */
+  getPreviews(paths: string[]): Promise<(NotePreview | null)[]>;
   /**
    * Atomically replaces the note's text, only if the disk still holds `base`: the text
    * `readNote` returned or the last one written. `null` creates the note (and its folders),
@@ -106,6 +116,7 @@ export const CALL_CHANNELS = {
   getTree: 'vault:tree',
   listNotes: 'note:list',
   readNote: 'note:read',
+  getPreviews: 'note:previews',
   writeNote: 'note:write',
   search: 'brain:search',
   resumeUnload: 'window:resume-unload',
