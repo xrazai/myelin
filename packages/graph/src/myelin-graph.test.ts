@@ -286,3 +286,55 @@ describe('incremental changes', () => {
     expect(() => graph.addNodes(1)).toThrow(/setGraph/);
   });
 });
+
+describe('pointing and focus', () => {
+  function ready() {
+    const t = setup();
+    resize(400, 300);
+    t.graph.setGraph({ nodeCount: 2, edges: Uint32Array.of(0, 1), positions: Float32Array.of(0, 0, 100, 0) });
+    t.graph.camera = { x: 0, y: 0, zoom: 1 };
+    return t;
+  }
+  const at = (x: number, y: number) => ({ clientX: x, clientY: y, pointerId: 1, button: 0, buttons: 0 });
+
+  test('tells what the pointer is over and what is clicked, not what a drag passes', () => {
+    const { graph, event } = ready();
+    const hovered: (number | null)[] = [];
+    const clicked: number[] = [];
+    graph.on('nodeHover', (id) => hovered.push(id));
+    graph.on('nodeClick', (id) => clicked.push(id));
+    event('pointermove', at(200, 150));
+    event('pointermove', at(201, 150));
+    event('pointermove', at(200, 40));
+    event('pointermove', at(300, 150));
+    event('pointerleave');
+    expect(hovered).toEqual([0, null, 1, null]);
+    event('pointerdown', at(300, 150));
+    event('pointerup', at(301, 150));
+    event('pointerdown', at(200, 150));
+    event('pointermove', { ...at(230, 150), buttons: 1 });
+    event('pointerup', at(230, 150));
+    expect(clicked).toEqual([1]);
+  });
+
+  test('glides to a node and ends exactly on it; the user takes the camera back', () => {
+    const now = vi.spyOn(performance, 'now').mockReturnValue(1000);
+    const { graph, event } = ready();
+    graph.camera = { x: 0, y: 0, zoom: 0.25 };
+    graph.focusNode(1, { duration: 600 });
+    now.mockReturnValue(1300);
+    nextFrame();
+    expect(graph.camera.x).toBeCloseTo(50);
+    expect(graph.camera.zoom).toBeCloseTo(0.5);
+    now.mockReturnValue(1700);
+    nextFrame();
+    expect(graph.camera).toEqual({ x: 100, y: 0, zoom: 1 });
+    graph.focusNode(0, { duration: 600 });
+    event('pointerdown', at(10, 10));
+    now.mockReturnValue(2500);
+    nextFrame();
+    expect(graph.camera.x).toBe(100);
+    expect(() => graph.focusNode(7)).toThrow(/no node 7/);
+    now.mockRestore();
+  });
+});
