@@ -3,7 +3,7 @@
   import type { TreeEntry } from '../../shared/ipc';
   import { errorMessage } from '../error-message';
   import { foldersAbove, menuItems, newItem, targetFolder, type ItemKind, type MenuItem } from '../new-item';
-  import { renamedPath } from '../rename-note';
+  import { movedPath, renamedFolderPath, renamedPath } from '../rename-note';
   import { cursorAfter, flatten, keyAction, pruneExpanded, scrollToShow, visibleRange, watchTree } from '../tree-model';
   import TreeMenu from './TreeMenu.svelte';
 
@@ -14,13 +14,17 @@
     onrename,
     hasTab,
     ondelete,
+    locked,
   }: {
     selected: string | null;
     onopen: (path: string) => void;
-    onrename: (from: string, to: string) => void;
+    /** Resolves `true` once renamed. */
+    onrename: (from: string, to: string, kind: TreeEntry['kind']) => Promise<boolean>;
     /** A note with no file but a tab was deleted: its tab may hold its text. */
     hasTab: (path: string) => boolean;
     ondelete: (target: { path: string; kind: TreeEntry['kind'] }) => void;
+    /** Why nothing can be created right now, or `null`. */
+    locked: () => string | null;
   } = $props();
 
   export function focus() {
@@ -39,8 +43,8 @@
   /** Path under the keyboard cursor. */
   let cursor = $state.raw<string | null>(null);
   let error = $state('');
-  /** Path currently being renamed, and the text in the inline input. */
-  let renaming = $state.raw<string | null>(null);
+  /** What is being renamed, and the text in the inline input. */
+  let renaming = $state.raw<{ path: string; kind: TreeEntry['kind'] } | null>(null);
   let renameText = $state('');
   let input = $state<HTMLInputElement>();
 
@@ -117,6 +121,11 @@
     const asked = creating;
     if (!asked || !item || item.problem !== null || submitting) return;
     const { path } = item;
+    const wait = locked();
+    if (wait !== null) {
+      failure = wait;
+      return;
+    }
     if (asked.kind === 'note' && hasTab(path)) {
       // Shown, not written over. If it is the active tab already, nothing else takes the focus.
       creating = null;
@@ -154,9 +163,10 @@
     expanded = next;
   }
 
-  function startRename(path: string) {
-    renaming = path;
-    renameText = path.slice(path.lastIndexOf('/') + 1, -'.md'.length);
+  function startRename({ path, kind }: { path: string; kind: TreeEntry['kind'] }) {
+    renaming = { path, kind };
+    const file = path.slice(path.lastIndexOf('/') + 1);
+    renameText = kind === 'note' ? file.slice(0, -'.md'.length) : file;
     // Focus after the input is in the DOM.
     queueMicrotask(() => {
       input?.focus();
@@ -164,12 +174,20 @@
     });
   }
 
-  function commitRename() {
-    const from = renaming;
-    if (!from) return;
+  async function commitRename() {
+    const asked = renaming;
+    if (!asked) return;
     renaming = null;
-    const to = renamedPath(from, renameText);
-    if (to) onrename(from, to);
+    const { path: from, kind } = asked;
+    const to = (kind === 'note' ? renamedPath : renamedFolderPath)(from, renameText);
+    if (!to) return;
+    // Read now: the old paths leave the tree, and their state with them, before this ends.
+    const open = [...expanded];
+    const wasAt = cursor;
+    if (!(await onrename(from, to, kind)) || kind === 'note') return;
+    expanded = new Set([...expanded, ...open.map((path) => movedPath(path, from, to))]);
+    if (wasAt !== null) cursor = movedPath(wasAt, from, to);
+    await scrollToCursor();
   }
 
   function onclick(event: MouseEvent) {
@@ -208,7 +226,7 @@
       list?.focus();
       if (entry) ondelete({ path: entry.path, kind: entry.kind });
     } else if (id === 'rename') {
-      if (entry) startRename(entry.path);
+      if (entry) startRename(entry);
     } else {
       void startCreate(id === 'new-note' ? 'note' : 'folder', targetFolder(entry));
     }
@@ -242,7 +260,8 @@
       }
     } else if (action.type === 'rename') {
       cursor = action.path;
-      startRename(action.path);
+      const entry = rows.find((row) => row.entry.path === action.path)?.entry;
+      if (entry) startRename(entry);
     } else {
       cursor = action.path;
       if (action.type === 'toggle') toggle(action.path);
@@ -356,19 +375,19 @@
                 <path d="M4 4.5h4M4 7h2.8" stroke-linecap="round" />
               </svg>
             {/if}
-            {#if renaming === row.entry.path}
+            {#if renaming?.path === row.entry.path && renaming.kind === row.entry.kind}
               <input
                 class="rename"
                 bind:this={input}
                 bind:value={renameText}
-                aria-label="Rename note"
+                aria-label="Rename {row.entry.kind}"
                 onclick={(event) => event.stopPropagation()}
                 onkeydown={(event) => {
                   // The tree would take space, arrows and Enter. Shortcuts still reach the window.
                   if (!event.ctrlKey && !event.metaKey) event.stopPropagation();
                   if (event.key !== 'Enter' && event.key !== 'Escape') return;
                   event.preventDefault();
-                  if (event.key === 'Enter') commitRename();
+                  if (event.key === 'Enter') void commitRename();
                   else renaming = null;
                   list?.focus();
                 }}

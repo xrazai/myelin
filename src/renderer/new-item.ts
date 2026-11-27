@@ -71,8 +71,6 @@ export function menuItems(entry: TreeEntry | null): MenuItem[] {
     { id: 'new-note', label: 'New note' },
     { id: 'new-folder', label: 'New folder' },
   ];
-  // Folders cannot be renamed yet.
-  if (entry?.kind === 'note') items.push({ id: 'rename', label: 'Rename' });
-  if (entry) items.push({ id: 'delete', label: 'Delete…' });
+  if (entry) items.push({ id: 'rename', label: 'Rename' }, { id: 'delete', label: 'Delete…' });
   return items;
 }

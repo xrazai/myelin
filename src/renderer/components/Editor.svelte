@@ -26,6 +26,7 @@
     onfollow,
     onmetrics,
     onfocusmode,
+    locked,
   }: {
     vault: VaultInfo;
     tabs: Tabs;
@@ -38,6 +39,8 @@
     ondiscard: (path: string) => void;
     /** Open the note a link of `source` leads to, in its place or in a new tab. */
     onfollow: (path: string, source: string, newTab: boolean) => void;
+    /** Why a link cannot be followed right now (it may create a note), or `null`. */
+    locked: () => string | null;
     /** Debounced reading metrics for the active note, or `null` when none is shown. */
     onmetrics?: (metrics: NoteMetrics | null) => void;
     /** Toggles Focus Mode from the quiet editor chrome. */
@@ -69,6 +72,11 @@
       const cache = createNoteCache(window.myelin);
       const follow: FollowLink = (link, source, newTab) => {
         linkError = '';
+        const wait = locked();
+        if (wait !== null) {
+          linkError = `Could not open the link. ${wait}`;
+          return;
+        }
         linkDestination(list, window.myelin, link.target, source, (path) => tabs.list.some((tab) => tab.path === path)).then(
           (path) => onfollow(path, source, newTab),
           (error: unknown) => (linkError = `Could not open the link. ${errorMessage(error)}`),

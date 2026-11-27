@@ -52,9 +52,9 @@ test('lists the folders to expand', () => {
   expect(foldersAbove('Plan.md')).toEqual([]);
 });
 
-test('only a note can be renamed from the menu', () => {
+test('an entry can be renamed and deleted; blank space cannot', () => {
   const ids = (entry: TreeEntry | null) => menuItems(entry).map((item) => item.id);
   expect(ids(idea)).toEqual(['new-note', 'new-folder', 'rename', 'delete']);
-  expect(ids(notes)).toEqual(['new-note', 'new-folder', 'delete']);
+  expect(ids(notes)).toEqual(['new-note', 'new-folder', 'rename', 'delete']);
   expect(ids(null)).toEqual(['new-note', 'new-folder']);
 });
