@@ -32,6 +32,21 @@ async function pickAndOpenVault(
     : dialog.showOpenDialog(options));
   const [root] = filePaths;
   if (canceled || !root) return null;
+  return openVaultAt(vault, root);
+}
+
+// Only the folder the worker remembered: the renderer cannot name one.
+async function reopenLastVault(vault: VaultClient): Promise<VaultInfo | null> {
+  const root = await vault.call('lastVault');
+  if (root === null) return null;
+  try {
+    return await openVaultAt(vault, root);
+  } catch (error) {
+    throw new Error(`${root}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
+async function openVaultAt(vault: VaultClient, root: string): Promise<VaultInfo> {
   const info = await vault.call('open', root);
   const run = ++indexRun;
   sendIndexing(true);
@@ -128,6 +143,7 @@ function start(): void {
     // The same operation: a folder without vault.json gets one, an existing vault is left as is.
     createVault: () => pickAndOpenVault(vault, 'Create a new vault', 'Create vault here'),
     openVault: () => pickAndOpenVault(vault, 'Open a vault', 'Open vault'),
+    reopenVault: () => reopenLastVault(vault),
     getTree: () => vault.call('getTree'),
     listNotes: () => vault.call('listNotes'),
     readNote: (path) => vault.call('readNote', path),

@@ -125,6 +125,7 @@ myelin/
 │   │   ├── ipc.ts             # registers the contract's handlers, sends its events
 │   │   ├── vault-worker.ts    # file I/O (atomic), watcher, parsing, index.db, FTS5, usage events, heavy path
 │   │   ├── vault-config.ts    # .myelin/vault.json (used by vault-worker)
+│   │   ├── last-vault.ts      # <userData>/last-vault.json: the vault reopened on start (used by vault-worker)
 │   │   ├── vault-path.ts      # validates note paths from the renderer (used by vault-worker)
 │   │   ├── vault-index.ts     # index.db: schema, sync and updates (used by vault-worker)
 │   │   ├── vault-watcher.ts   # chokidar watcher, loop guard, tree events, rename batch (used by vault-worker)
@@ -162,6 +163,7 @@ myelin/
 │       ├── tree-model.ts      # file tree logic: visible rows, watcher events, keyboard
 │       ├── delete-item.ts     # deleting: save the open notes, move to the Recycle Bin, close their tabs
 │       ├── move-item.ts       # moving in the tree: valid destinations (a move is a rename to another folder)
+│       ├── session-state.ts   # open tabs and expanded folders per vault (localStorage)
 │       ├── new-item.ts        # creating from the tree: target folder, name rules, context menu items
 │       ├── note-list.ts       # every note path (no content), kept current by watcher events
 │       ├── note-search.ts     # fuzzy search over note names, ignoring case and accents
@@ -177,7 +179,7 @@ myelin/
 ```
 Index outside the vault: `<userData>/vaults/<vault-id>/index.db`.
 
-Screens: launcher (create or open a vault) -> workspace. Create and Open run the same operation on the picked folder (the dialog lives in main); only the dialog labels differ.
+Screens: launcher (create or open a vault) -> workspace. On start the last vault reopens by itself (the renderer cannot name a folder); "Switch vault" saves and goes back to the launcher. Create and Open run the same operation on the picked folder (the dialog lives in main); only the dialog labels differ.
 Workspace layout: tabs (top) | tree (left) | editor | graph or Brain panel (right) | status bar (bottom) with the learning indicator.
 
 ## Workflow (GitHub)

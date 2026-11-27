@@ -27,6 +27,7 @@ function notImplemented(name: CallName): () => never {
 export const pendingHandlers: CallHandlers = {
   createVault: notImplemented('createVault'),
   openVault: notImplemented('openVault'),
+  reopenVault: notImplemented('reopenVault'),
   getTree: notImplemented('getTree'),
   listNotes: notImplemented('listNotes'),
   readNote: notImplemented('readNote'),

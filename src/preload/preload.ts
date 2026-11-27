@@ -21,6 +21,7 @@ function subscribe<C extends keyof EventPayloads>(channel: C) {
 const api: MyelinApi = {
   createVault: call('createVault'),
   openVault: call('openVault'),
+  reopenVault: call('reopenVault'),
   getTree: call('getTree'),
   listNotes: call('listNotes'),
   readNote: call('readNote'),

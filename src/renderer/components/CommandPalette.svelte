@@ -164,7 +164,7 @@
               {/if}
             {:else}
               <span class="primary">{item.command.label}</span>
-              <kbd class="secondary">{item.command.shortcut}</kbd>
+              {#if item.command.shortcut}<kbd class="secondary">{item.command.shortcut}</kbd>{/if}
             {/if}
           </li>
         {:else}

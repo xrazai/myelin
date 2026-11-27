@@ -23,6 +23,7 @@
   import { commandFor, type CommandId } from '../commands';
   import { deleteItem, type DeleteTarget } from '../delete-item';
   import { watchNoteList } from '../note-list';
+  import { loadSession, restorableTabs, saveSession } from '../session-state';
   import { learning } from '../activity';
   import { isWithin, renameNote as coordinateRename, renameFolder } from '../rename-note';
   import { applyTabEvents, closeTab, cycleTab, moveTab, NO_TABS, openTab, renameTab, replaceTab, tabName, type Tabs as TabsState } from '../tabs-model';
@@ -35,7 +36,7 @@
   import StatusBar from './StatusBar.svelte';
   import Tabs from './Tabs.svelte';
 
-  let { vault }: { vault: VaultInfo } = $props();
+  let { vault, onswitch }: { vault: VaultInfo; onswitch: () => void } = $props();
 
   let tabs = $state.raw<TabsState>(NO_TABS);
   /** The pair being renamed: its tree batch arrives before the IPC result. */
@@ -297,10 +298,47 @@
 
   let noteListRev = $state(0);
   const noteList = watchNoteList(window.myelin);
-  void noteList.ready.then(() => noteListRev++);
+  void noteList.ready.then(() => {
+    noteListRev++;
+    const found = restorableTabs(session, noteList.hasExact);
+    // A note opened while the list loaded stays the active one.
+    const asked = tabs;
+    const list = [
+      ...found.tabs.filter((path) => !asked.list.some((tab) => tab.path === path)).map((path) => ({ path, deleted: false })),
+      ...asked.list,
+    ];
+    tabs = { list, active: asked.active ?? found.active };
+    restored = true;
+  });
   $effect(() => () => noteList.stop());
 
   let paletteOpen = $state(false);
+
+  // The session of this vault: restored once the notes are known, saved from then on, so
+  // an empty start never replaces what is stored. The vault is fixed while mounted.
+  const session = untrack(() => loadSession(localStorage, vault.id));
+  let restored = $state(false);
+  let expandedFolders = $state.raw<string[]>(session.expanded);
+
+  $effect(() => {
+    if (!restored) return;
+    saveSession(localStorage, vault.id, {
+      tabs: tabs.list.filter((tab) => !tab.deleted).map((tab) => tab.path),
+      active: tabs.active,
+      expanded: expandedFolders,
+    });
+  });
+
+  /** Back to the launcher, only once every note is safe on disk. */
+  async function switchVault() {
+    if (pendingRename) return void (noteError = RENAMING);
+    if (deleting || !saver) return;
+    await saver.saveAll();
+    const [unsaved] = saver.unsaved();
+    if (unsaved === undefined) return onswitch();
+    tabs = openTab(tabs, unsaved);
+    noteError = `Not switched: ${unsaved} is not saved.`;
+  }
   let editorView = $state<ReturnType<typeof Editor>>();
   let fileTree = $state<ReturnType<typeof FileTree>>();
 
@@ -350,6 +388,9 @@
         return;
       case 'new-note':
         void newNote();
+        return;
+      case 'switch-vault':
+        void switchVault();
         return;
       case 'find':
         // Once the palette, if that is where this came from, has given the focus back.
@@ -469,6 +510,11 @@
         </svg>
         <span class="vault-name">{vault.name}</span>
       </h1>
+      <button type="button" class="switch" aria-label="Switch vault" title="Switch vault" onclick={() => void switchVault()}>
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M3 5.5h9l-2.5-2.500M13 10.500H4l2.500 2.500" />
+        </svg>
+      </button>
     </header>
     <button
       type="button"
@@ -485,7 +531,7 @@
       <kbd>Ctrl+P</kbd>
     </button>
     <div class="files">
-      <FileTree bind:this={fileTree} ondelete={requestDelete} hasTab={(path) => tabs.list.some((tab) => tab.path === path)} selected={tabs.active} onopen={openNote} onrename={requestRename} {locked} onerror={(message) => (noteError = message)} />
+      <FileTree bind:this={fileTree} ondelete={requestDelete} hasTab={(path) => tabs.list.some((tab) => tab.path === path)} selected={tabs.active} onopen={openNote} onrename={requestRename} {locked} onerror={(message) => (noteError = message)} initialExpanded={session.expanded} onexpanded={(folders) => (expandedFolders = folders)} />
     </div>
   </nav>
 
@@ -775,6 +821,26 @@
     font-size: var(--font-size-ui);
     font-weight: 600;
     letter-spacing: -0.005em;
+  }
+
+  .switch {
+    display: inline-flex;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    margin-left: auto;
+    color: var(--text-muted);
+    background: none;
+    border: 0;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  .switch:hover {
+    color: var(--text);
+    background: var(--surface-hover);
   }
 
   .vault-mark {

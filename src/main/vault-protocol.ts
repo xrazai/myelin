@@ -25,6 +25,8 @@ export interface VaultRequests {
    * Resolves without waiting for the index, which syncs in the background.
    */
   open(root: string): VaultInfo;
+  /** The folder of the vault opened last, or `null`. */
+  lastVault(): string | null;
   getTree(): TreeEntry[];
   /** `listNotes` of the contract, on the current vault. */
   listNotes(): string[];

@@ -6,6 +6,7 @@ import { basename, dirname, resolve } from 'node:path';
 import { parentPort, workerData } from 'node:worker_threads';
 import Database from 'better-sqlite3';
 import type { TrashReply, VaultRequest, VaultRequests, VaultWorkerData, WorkerMessage } from './vault-protocol';
+import { lastVault, rememberVault } from './last-vault.ts';
 import { loadVaultConfig } from './vault-config.ts';
 import { deleteIndex, indexPath, notePaths, openIndex } from './vault-index.ts';
 import { readNotePreview } from './note-preview.ts';
@@ -64,8 +65,18 @@ const handlers: Handlers = {
     const { id } = await loadVaultConfig(root);
     // The old session lets go of its database before the new one opens: it may be the same file.
     session = startSession(root, id, session?.watch.close() ?? Promise.resolve());
+    const { userData } = (workerData ?? {}) as Partial<VaultWorkerData>;
+    // Forgetting it must not keep the vault from opening.
+    if (userData) {
+      await rememberVault(userData, root).catch((error: unknown) =>
+        console.error('[vault-worker] remembering the vault failed:', error),
+      );
+    }
     // A drive root has no folder name.
     return { id, name: basename(root) || root, root };
+  },
+  async lastVault() {
+    return lastVault((workerData as VaultWorkerData).userData);
   },
   async getTree() {
     return openSession().watch.getTree();

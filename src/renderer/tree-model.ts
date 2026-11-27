@@ -176,6 +176,20 @@ export function visibleRange(
   };
 }
 
+/** The folders of `paths` that the tree has. */
+export function existingFolders(tree: TreeEntry[], paths: ReadonlySet<string>): ReadonlySet<string> {
+  const found = new Set<string>();
+  const walk = (entries: TreeEntry[]) => {
+    for (const entry of entries) {
+      if (entry.kind !== 'folder') continue;
+      if (paths.has(entry.path)) found.add(entry.path);
+      walk(entry.children);
+    }
+  };
+  walk(tree);
+  return found;
+}
+
 /**
  * Where the keyboard cursor goes when the tree changes: it stays on its row, or, if that
  * row is gone, takes the one now in its place. Never jumps to the top, where `Delete`

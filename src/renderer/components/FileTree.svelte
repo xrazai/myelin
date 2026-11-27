@@ -5,7 +5,7 @@
   import { foldersAbove, menuItems, newItem, targetFolder, type ItemKind, type MenuItem } from '../new-item';
   import { canMove, destinations, movedInto, type MoveItem } from '../move-item';
   import { movedPath, renamedFolderPath, renamedPath } from '../rename-note';
-  import { cursorAfter, flatten, keyAction, pruneExpanded, scrollToShow, visibleRange, watchTree } from '../tree-model';
+  import { cursorAfter, existingFolders, flatten, keyAction, pruneExpanded, scrollToShow, visibleRange, watchTree } from '../tree-model';
   import MoveDialog from './MoveDialog.svelte';
   import TreeMenu from './TreeMenu.svelte';
 
@@ -18,6 +18,8 @@
     ondelete,
     locked,
     onerror,
+    initialExpanded,
+    onexpanded,
   }: {
     selected: string | null;
     onopen: (path: string) => void;
@@ -30,6 +32,9 @@
     locked: () => string | null;
     /** A name the tree itself refuses. */
     onerror: (message: string) => void;
+    /** The folders left open last time; those gone since are skipped. */
+    initialExpanded: readonly string[];
+    onexpanded: (folders: string[]) => void;
   } = $props();
 
   /** The item the "Move to…" dialog is about. */
@@ -50,7 +55,7 @@
 
   // Raw state: the model replaces these, and a deep proxy over a whole vault is slow.
   let tree = $state.raw<TreeEntry[] | null>(null);
-  let expanded = $state.raw<ReadonlySet<string>>(new Set());
+  let expanded = $state.raw<ReadonlySet<string>>(new Set(untrack(() => initialExpanded)));
   /** Path under the keyboard cursor. */
   let cursor = $state.raw<string | null>(null);
   let error = $state('');
@@ -87,8 +92,10 @@
       tree(next, events) {
         // Not tracked: this effect subscribes once.
         const before = untrack(() => rows);
+        const first = untrack(() => tree) === null;
         tree = next;
-        expanded = pruneExpanded(expanded, events);
+        expanded = pruneExpanded(untrack(() => expanded), events);
+        if (first) expanded = existingFolders(next, untrack(() => expanded));
         untrack(() => {
           const moved = cursorAfter(before, cursor, rows);
           if (moved === cursor) return;
@@ -167,6 +174,12 @@
     if (asked.kind === 'note') onopen(path);
     else list?.focus();
   }
+
+  // Only once the tree is here: before that the remembered folders are not checked.
+  $effect(() => {
+    const open = [...expanded];
+    if (tree) untrack(() => onexpanded(open));
+  });
 
   function toggle(path: string) {
     const next = new Set(expanded);

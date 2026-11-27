@@ -35,6 +35,7 @@ test('preload exposes only window.myelin, with exactly the contract methods', ()
 test('each call invokes its own channel with its arguments', () => {
   void api.createVault();
   void api.openVault();
+  void api.reopenVault();
   void api.getTree();
   void api.listNotes();
   void api.readNote('a.md');
@@ -50,6 +51,7 @@ test('each call invokes its own channel with its arguments', () => {
   expect(electron.invoke.mock.calls).toEqual([
     [CALL_CHANNELS.createVault],
     [CALL_CHANNELS.openVault],
+    [CALL_CHANNELS.reopenVault],
     [CALL_CHANNELS.getTree],
     [CALL_CHANNELS.listNotes],
     [CALL_CHANNELS.readNote, 'a.md'],
