@@ -1,22 +1,9 @@
-// Workspace keyboard shortcuts (AGENTS.md, "Shortcuts"; `Ctrl+P` comes with the palette).
+// Workspace keyboard shortcuts, backed by the central command registry (`commands.ts`).
+import { commandFor, type CommandId, type KeyEventLike } from './commands';
 
-export type Shortcut = 'next-tab' | 'previous-tab' | 'close-tab' | 'toggle-right-panel' | 'save';
+export type Shortcut = Exclude<CommandId, 'open-palette'>;
 
-type Keys = Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'shiftKey' | 'altKey' | 'metaKey'>;
-
-export function shortcutFor(event: Keys): Shortcut | null {
-  // `altKey`: AltGr arrives as Ctrl+Alt on Windows and types characters.
-  if (!event.ctrlKey || event.altKey || event.metaKey) return null;
-  switch (event.key.toLowerCase()) {
-    case 'tab':
-      return event.shiftKey ? 'previous-tab' : 'next-tab';
-    case 's':
-      return event.shiftKey ? null : 'save';
-    case 'w':
-      return event.shiftKey ? null : 'close-tab';
-    case 'l':
-      return event.shiftKey ? 'toggle-right-panel' : null;
-    default:
-      return null;
-  }
+export function shortcutFor(event: KeyEventLike): Shortcut | null {
+  const id = commandFor(event);
+  return id === 'open-palette' ? null : id;
 }

@@ -10,8 +10,8 @@ export interface NoteMatch {
   duplicate: boolean;
 }
 
-/** The best matches first. An empty query lists notes in name order. */
-export type NoteSearch = (query: string, limit: number) => NoteMatch[];
+/** The best matches first. An empty query lists recent notes first, then notes in name order. */
+export type NoteSearch = (query: string, limit: number, recent?: readonly string[]) => NoteMatch[];
 
 /** Without accents and case. */
 export function fold(text: string): string {
@@ -63,7 +63,10 @@ export function createNoteSearch(paths: Iterable<string>): NoteSearch {
     };
   }).sort((a, b) => collator.compare(a.name, b.name) || collator.compare(a.path, b.path));
 
-  return (query, limit) => {
+  const byPathMap = new Map<string, (typeof notes)[number]>();
+  for (const note of notes) byPathMap.set(note.path, note);
+
+  return (query, limit, recent) => {
     const wanted = fold(query.trim());
     // A `/` asks about folders too.
     const byPath = wanted.includes('/');
@@ -71,12 +74,33 @@ export function createNoteSearch(paths: Iterable<string>): NoteSearch {
     if (wanted !== '') {
       const scored: { note: (typeof notes)[number]; score: number }[] = [];
       for (const note of notes) {
-        const result = score(byPath ? note.pathKey : note.key, wanted);
+        let result = score(byPath ? note.pathKey : note.key, wanted);
+        if (result === null && !byPath) {
+          const pathScore = score(note.pathKey, wanted);
+          if (pathScore !== null) result = pathScore + 10;
+        }
         if (result !== null) scored.push({ note, score: result });
       }
       // Stable: ties of score and length stay in name order.
       scored.sort((a, b) => a.score - b.score || a.note.name.length - b.note.name.length);
       found = scored.map((match) => match.note);
+    } else if (recent && recent.length > 0) {
+      const result: (typeof notes)[number][] = [];
+      const seen = new Set<string>();
+      for (const path of recent) {
+        if (result.length >= limit) break;
+        if (seen.has(path)) continue;
+        const note = byPathMap.get(path);
+        if (!note) continue;
+        seen.add(path);
+        result.push(note);
+      }
+      for (const note of notes) {
+        if (result.length >= limit) break;
+        if (seen.has(note.path)) continue;
+        result.push(note);
+      }
+      found = result;
     }
     return found.slice(0, limit).map(({ path, name, folder, same }) => ({
       path,
@@ -85,4 +109,11 @@ export function createNoteSearch(paths: Iterable<string>): NoteSearch {
       duplicate: names.get(same)! > 1,
     }));
   };
+}
+
+/** Normalizes a palette query into a `.md` note path, or `null` if empty. */
+export function normalizeNewNotePath(query: string): string | null {
+  const trimmed = query.trim().replace(/^\/+|\/+$/g, '');
+  if (trimmed === '') return null;
+  return /\.md$/i.test(trimmed) ? trimmed : `${trimmed}.md`;
 }

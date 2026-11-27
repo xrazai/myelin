@@ -14,8 +14,10 @@
     type Side,
     type SideWidths,
   } from '../panel-layout';
-  import { shortcutFor } from '../shortcuts';
+  import { commandFor, type CommandId } from '../commands';
+  import { watchNoteList } from '../note-list';
   import { applyTabEvents, closeTab, cycleTab, moveTab, NO_TABS, openTab, replaceTab, tabName, type Tabs as TabsState } from '../tabs-model';
+  import CommandPalette from './CommandPalette.svelte';
   import Editor from './Editor.svelte';
   import FileTree from './FileTree.svelte';
   import Splitter from './Splitter.svelte';
@@ -111,17 +113,54 @@
   let rightPanel = $state<'graph' | 'brain'>('graph');
   const toggleRightPanel = () => (rightPanel = rightPanel === 'graph' ? 'brain' : 'graph');
 
+  const noteList = watchNoteList(window.myelin);
+  $effect(() => () => noteList.stop());
+
+  let paletteOpen = $state(false);
+  let recentNotes = $state.raw<string[]>([]);
+
+  $effect(() => {
+    const active = tabs.active;
+    if (!active) return;
+    if (recentNotes[0] === active) return;
+    recentNotes = [active, ...recentNotes.filter((p) => p !== active)].slice(0, 50);
+  });
+
+  async function openFromPalette(path: string, newTab: boolean) {
+    if (path === tabs.active) return;
+    if (newTab || tabs.active === null || tabs.list.some((tab) => tab.path === path)) {
+      tabs = openTab(tabs, path);
+    } else if ((await saver?.save(tabs.active)) !== false) {
+      tabs = replaceTab(tabs, tabs.active, path);
+    }
+  }
+
+  async function createFromPalette(path: string, newTab: boolean) {
+    const existing = noteList.resolve(path.replace(/\.md$/i, ''), '');
+    if (existing?.path) {
+      await openFromPalette(existing.path, newTab);
+      return;
+    }
+    const result = await window.myelin.writeNote(path, '', null);
+    if (result.status === 'saved') await openFromPalette(path, newTab);
+  }
+
+  function runCommand(id: CommandId) {
+    if (id === 'open-palette') paletteOpen = true;
+    else if (id === 'next-tab') tabs = cycleTab(tabs, 1);
+    else if (id === 'previous-tab') tabs = cycleTab(tabs, -1);
+    else if (id === 'toggle-right-panel') toggleRightPanel();
+    else if (tabs.active === null) return;
+    else if (id === 'save') void saver?.save(tabs.active);
+    else void requestClose(tabs.active);
+  }
+
   function onkeydown(event: KeyboardEvent) {
-    const shortcut = shortcutFor(event);
-    if (!shortcut) return;
+    const command = commandFor(event);
+    if (!command) return;
     // Also keeps `Ctrl+W` from reaching the window menu, which would close the window.
     event.preventDefault();
-    if (shortcut === 'next-tab') tabs = cycleTab(tabs, 1);
-    else if (shortcut === 'previous-tab') tabs = cycleTab(tabs, -1);
-    else if (shortcut === 'toggle-right-panel') toggleRightPanel();
-    else if (tabs.active === null) return;
-    else if (shortcut === 'save') void saver?.save(tabs.active);
-    else void requestClose(tabs.active);
+    runCommand(command);
   }
 </script>
 
@@ -194,6 +233,16 @@
     <StatusBar {vault} unsaved={[...problems.keys()].map(tabName)} />
   </div>
 </div>
+
+<CommandPalette
+  open={paletteOpen}
+  notes={noteList}
+  recent={recentNotes}
+  onopen={openFromPalette}
+  oncreate={createFromPalette}
+  oncommand={runCommand}
+  onclose={() => (paletteOpen = false)}
+/>
 
 {#if unsavable}
   <dialog bind:this={quitDialog} onclose={() => (unsavable = null)} aria-labelledby="unsaved-title">

@@ -52,7 +52,7 @@ export function watchNoteList(api: Pick<MyelinApi, 'listNotes' | 'onVaultEvents'
     ready,
     isLoaded: () => early === null,
     resolve: (target, source) => (resolver ??= createLinkResolver(paths))(target, source),
-    search: (query, limit) => (search ??= createNoteSearch(paths))(query, limit),
+    search: (query, limit, recent) => (search ??= createNoteSearch(paths))(query, limit, recent),
     stop: unsubscribe,
   };
 }
