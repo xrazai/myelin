@@ -142,12 +142,15 @@ function check(phase: Phase, report: SyncReport, notes: number): void {
   }
 }
 
-/** The slowest of one broad, one exact, one folder and one unmatched query. */
+/** The slowest of a broad, an exact, a full path, a short folder and an unmatched query. */
 function paletteKeystroke(paths: string[]): number {
   const search = createNoteSearch(paths);
   const last = paths.at(-1) ?? 'none.md';
   const exact = last.slice(last.lastIndexOf('/') + 1, -'.md'.length);
-  const queries = [exact.slice(0, 1), exact, last.slice(0, -'.md'.length), 'qqzzxx'];
+  // A `/` searches whole paths: from a note in a folder, if any.
+  const nested = paths.findLast((path) => path.includes('/')) ?? last;
+  const folder = nested.slice(0, nested.indexOf('/'));
+  const queries = [exact.slice(0, 1), exact, nested.slice(0, -'.md'.length), `${folder.slice(0, 2)}/`, 'a/', 'qqzzxx'];
   const costs = queries.map((query) => {
     const times = Array.from({ length: 7 }, () => {
       const start = performance.now();

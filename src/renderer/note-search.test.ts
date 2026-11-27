@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { createNoteSearch, newNoteFor } from './note-search';
+import { createNoteSearch, createPathScorer, newNoteFor, score } from './note-search';
 
 describe('createNoteSearch', () => {
   const paths = [
@@ -39,6 +39,31 @@ describe('createNoteSearch', () => {
       'archive/Myelin.md',
     ]);
   });
+
+  test('scoring a path folder by folder is the same as scoring it whole', () => {
+    // Every folder and name made of a few characters that make matches collide.
+    const grow = (alphabet: string[], length: number): string[] =>
+      length === 0 ? [''] : ['', ...grow(alphabet, length - 1).flatMap((end) => alphabet.map((c) => c + end))];
+    const folders = ['', ...grow(['a', 'b', ' ', '/'], 4).map((text) => `${text}/`)];
+    const names = grow(['a', 'b', ' '], 3);
+    const queries = grow(['a', 'b', ' ', '/'], 4).filter((query) => query.includes('/'));
+    let different: string | null = null;
+    for (const query of new Set(queries)) {
+      const scorePath = createPathScorer(query);
+      for (const folder of new Set(folders)) {
+        for (const name of new Set(names)) {
+          if (name === '') continue;
+          const whole = score(folder + name, query);
+          const parts = scorePath(folder, name);
+          const same = scorePath.ofFolder(folder);
+          if (whole !== parts || (same !== undefined && same !== whole)) {
+            different ??= JSON.stringify({ query, folder, name, whole, parts, same });
+          }
+        }
+      }
+    }
+    expect(different).toBeNull();
+  }, 60_000);
 
   test('a short list is the start of the full ranking', () => {
     // Every mix of exact, prefix, word start, inside, scattered, accented and path-only matches.

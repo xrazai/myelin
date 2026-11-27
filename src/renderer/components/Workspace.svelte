@@ -220,23 +220,22 @@
     recentNotes = [active, ...recentNotes.filter((p) => p !== active)].slice(0, 50);
   });
 
-  async function openFromPalette(path: string, newTab: boolean) {
-    if (path === tabs.active) return;
-    if (newTab || tabs.active === null || tabs.list.some((tab) => tab.path === path)) {
-      tabs = openTab(tabs, path);
-    } else if ((await saver?.save(tabs.active)) !== false) {
-      tabs = replaceTab(tabs, tabs.active, path);
-    }
+  /** A note picked in the palette takes the tab it was picked from, like a followed link. */
+  async function openFromPalette(path: string, newTab: boolean, source = tabs.active) {
+    if (source === null) tabs = openTab(tabs, path);
+    else await follow(path, source, newTab);
   }
 
   async function createFromPalette(path: string, newTab: boolean) {
     // The tab of a deleted note may hold its text: it is shown, not written over.
     if (tabs.list.some((tab) => tab.path === path)) return void (tabs = openTab(tabs, path));
     noteError = '';
+    // Read before writing: the user may change tabs meanwhile.
+    const source = tabs.active;
     try {
       const result = await window.myelin.writeNote(path, '', null);
       if (result.status === 'saved' || (result.status === 'conflict' && result.disk !== null)) {
-        await openFromPalette(path, newTab);
+        await openFromPalette(path, newTab, source);
       }
     } catch (error) {
       noteError = `Could not create the note. ${errorMessage(error)}`;
@@ -359,6 +358,7 @@
       type="button"
       class="quick-open"
       title="Jump to note (Ctrl+P)"
+      onmousedown={(event) => event.preventDefault()}
       onclick={() => (paletteOpen = true)}
     >
       <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">

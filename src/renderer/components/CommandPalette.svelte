@@ -46,7 +46,8 @@
     }
     const matches = notes.search(query, 50, recent);
     const result: PaletteItem[] = matches.map((match) => ({ kind: 'note', match }));
-    const wanted = newNoteFor(query);
+    // Before the list is loaded, a note that exists would look missing.
+    const wanted = notes.isLoaded() ? newNoteFor(query) : null;
     if (wanted !== null && !notes.has(wanted.path)) {
       const folder = notes.folderInOtherCase(wanted.path);
       const problem = wanted.problem ?? (folder === null ? null : `the folder is named ${folder}`);
@@ -70,20 +71,23 @@
       query = '';
       selected = 0;
       void tick().then(() => inputEl?.focus());
+      return;
     }
-  });
-
-  function close(restoreFocus: boolean) {
-    onclose();
+    // However it closed (`Ctrl+P` too), the keyboard goes back where it was, unless
+    // something else, such as the editor of the note just opened, has taken it.
     const target = previousFocus;
     previousFocus = null;
-    if (restoreFocus) void tick().then(() => target?.focus());
-  }
+    if (target) {
+      void tick().then(() => {
+        if (document.activeElement === document.body) target.focus();
+      });
+    }
+  });
 
   function activate(item: PaletteItem | undefined, newTab: boolean) {
     // A refused name keeps the palette open, with the reason, to be fixed.
     if (!item || (item.kind === 'create' && item.problem !== null)) return;
-    close(false);
+    onclose();
     if (item.kind === 'command') oncommand(item.command.id);
     else if (item.kind === 'note') onopen(item.match.path, newTab);
     else void oncreate(item.path, newTab);
@@ -102,7 +106,7 @@
     if (event.key === 'Escape') {
       event.preventDefault();
       event.stopPropagation();
-      close(true);
+      onclose();
     } else if (event.key === 'ArrowDown') {
       event.preventDefault();
       if (items.length > 0) {
@@ -123,7 +127,7 @@
 </script>
 
 {#if open}
-  <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && close(true)}>
+  <div class="backdrop" role="presentation" onclick={(e) => e.target === e.currentTarget && onclose()}>
     <div class="palette" role="dialog" aria-modal="true" aria-label="Command palette">
       <input
         bind:this={inputEl}
@@ -164,7 +168,9 @@
             {/if}
           </li>
         {:else}
-          <li class="empty">No matching {isCommandMode ? 'commands' : 'notes'}</li>
+          <li class="empty">
+            {#if isCommandMode}No matching commands{:else if notes.isLoaded()}No matching notes{:else}Loading notes…{/if}
+          </li>
         {/each}
       </ul>
     </div>

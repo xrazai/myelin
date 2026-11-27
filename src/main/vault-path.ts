@@ -1,6 +1,6 @@
 // Note paths from the renderer are untrusted (see `shared/ipc.ts`). Runs inside
 // vault-worker only. Loaded by Node as-is in tests (type stripping): erasable TypeScript.
-import { lstat, stat } from 'node:fs/promises';
+import { lstat, readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 /**
@@ -59,4 +59,22 @@ export async function writableNotePath(root: string, path: unknown): Promise<str
     if (last ? !stats.isFile() : !stats.isDirectory()) throw new Error(`not a note: ${String(path)}`);
   }
   return file;
+}
+
+/**
+ * The folder on disk that a new note at `path` (already valid) writes in another case, or
+ * `null`. Windows would put the note in it, under a path the app does not know.
+ */
+export async function folderOnDiskInOtherCase(root: string, path: string): Promise<string | null> {
+  const folders = path.split('/').slice(0, -1);
+  let current = root;
+  for (const [index, segment] of folders.entries()) {
+    const names = await readdir(current);
+    if (!names.includes(segment)) {
+      const other = names.find((name) => name.toLowerCase() === segment.toLowerCase());
+      return other === undefined ? null : [...folders.slice(0, index), other].join('/');
+    }
+    current = join(current, segment);
+  }
+  return null;
 }
