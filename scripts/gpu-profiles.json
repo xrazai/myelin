@@ -1,0 +1,60 @@
+{
+  "comment": "Reference GPUs of the weak-GPU estimate of `bench --graph`. Specifications from vendor pages (read 2026-11-27); `basis` says what is listed and what is derived. Peak figures, not measured throughput.",
+  "reference": "rtx-5070-ti",
+  "profiles": [
+    {
+      "id": "rtx-5070-ti",
+      "name": "NVIDIA GeForce RTX 5070 Ti (dev machine)",
+      "rendererMatch": "RTX 5070 Ti",
+      "memoryBandwidthGBs": 896,
+      "fp32GFlops": 43904,
+      "basis": {
+        "bandwidth": "Listed: 896 GB/s.",
+        "fp32": "Derived: 8960 CUDA cores x 2.45 GHz boost x 2 (multiply-add). Both inputs listed."
+      },
+      "sources": ["https://www.nvidia.com/en-us/geforce/graphics-cards/compare/"]
+    },
+    {
+      "id": "iris-xe",
+      "name": "Intel Iris Xe, 96 EU (Core i7-1165G7)",
+      "memoryBandwidthGBs": 51.2,
+      "fp32GFlops": 1996.8,
+      "basis": {
+        "bandwidth": "Derived: dual channel DDR4-3200, 2 x 8 B x 3200 MT/s. The page lists the memory types and 2 channels, not a bandwidth; with LPDDR4x-4267 it would be 68.3 GB/s (the lower one is used). Shared with the CPU.",
+        "fp32": "Derived: 96 EU x 16 FLOP/clk (1536 FLOP/clk multiply-add for the 96 EU of Xe-LP) x 1.30 GHz max dynamic frequency."
+      },
+      "sources": [
+        "https://www.intel.com/content/www/us/en/products/sku/208921/intel-core-i71165g7-processor-12m-cache-up-to-4-70-ghz-with-ipu/specifications.html",
+        "https://www.intel.com/content/www/us/en/docs/oneapi/optimization-guide-gpu/2023-0/intel-iris-xe-gpu-architecture.html"
+      ]
+    },
+    {
+      "id": "uhd-770",
+      "name": "Intel UHD Graphics 770, 32 EU (Core i7-12700K)",
+      "memoryBandwidthGBs": 76.8,
+      "fp32GFlops": 768,
+      "basis": {
+        "bandwidth": "Listed: 76.8 GB/s max memory bandwidth. Shared with the CPU.",
+        "fp32": "Derived: 32 EU x 16 FLOP/clk x 1.50 GHz. The per EU rate is the Xe-LP one of the guide; the product page does not name the architecture."
+      },
+      "sources": [
+        "https://www.intel.com/content/www/us/en/products/sku/134594/intel-core-i712700k-processor-25m-cache-up-to-5-00-ghz/specifications.html",
+        "https://www.intel.com/content/www/us/en/docs/oneapi/optimization-guide-gpu/2023-0/intel-iris-xe-gpu-architecture.html"
+      ]
+    },
+    {
+      "id": "n100",
+      "name": "Intel N100 UHD Graphics, 24 EU",
+      "memoryBandwidthGBs": 38.4,
+      "fp32GFlops": 288,
+      "basis": {
+        "bandwidth": "Derived: one channel of DDR5/LPDDR5 4800 MT/s, 8 B x 4800 MT/s. The page lists the speed and 1 channel, not a bandwidth. Shared with the CPU.",
+        "fp32": "Derived: 24 EU x 16 FLOP/clk x 0.75 GHz. The per EU rate is the Xe-LP one of the guide; the product page does not name the architecture."
+      },
+      "sources": [
+        "https://www.intel.com/content/www/us/en/products/sku/231803/intel-processor-n100-6m-cache-up-to-3-40-ghz/specifications.html",
+        "https://www.intel.com/content/www/us/en/docs/oneapi/optimization-guide-gpu/2023-0/intel-iris-xe-gpu-architecture.html"
+      ]
+    }
+  ]
+}

@@ -7,6 +7,9 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "scripts": {
+    "demo": "vite demo"
+  },
   "files": [
     "src"
   ]

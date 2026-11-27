@@ -3,7 +3,8 @@
 //   node scripts/bench.ts [--sizes 10000,100000] [--runs 3] [--seed 1]
 //                         [--runtime node|electron] [--label <text>] [--out <file outside the repo>]
 // Prints a table and saves JSON (default: `<tmp>/myelin-bench/<timestamp>.json`).
-// `node scripts/bench.ts --editor` measures typing latency instead (see `bench-editor.ts`).
+// `node scripts/bench.ts --editor` measures typing latency instead (see `bench-editor.ts`),
+// and `--graph` the frame time of the graph (see `bench-graph.ts`; needs a GPU).
 //
 // Each run generates a new vault and measures it in a new process, in this order:
 //   scan    `scanVault` alone. File contents are not read.
@@ -321,6 +322,10 @@ async function main(): Promise<void> {
   if (process.argv[2] === '--editor') {
     const { benchEditor } = await import('./bench-editor.ts');
     return benchEditor(process.argv.slice(3));
+  }
+  if (process.argv[2] === '--graph') {
+    const { benchGraph } = await import('./bench-graph.ts');
+    return benchGraph(process.argv.slice(3));
   }
   const { values, positionals } = parseArgs({
     allowPositionals: true,
