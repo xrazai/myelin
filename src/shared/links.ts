@@ -135,12 +135,7 @@ export function folderNameProblem(path: string): string | null {
 }
 
 /**
- * Rewrites the links in `text`, the note at `source`, so that every one still leads where
- * it did once `from` is renamed to `to`: the links to `from`, and also those to another
- * note that the new name would capture. Only the target is replaced: alias, heading/block
- * subpath, table escapes and line endings stay as they were, and so does `[[#Heading]]`.
- * `oldResolve` is the resolver from before the rename, `newResolve` the one after. Returns
- * the new text and the number of links changed; throws if a link cannot be written.
+ * `rewriteLinksForMoves` for the rename of one note.
  */
 export function rewriteLinksForRename(
   text: string,
@@ -150,9 +145,29 @@ export function rewriteLinksForRename(
   oldResolve: LinkResolver,
   newResolve: LinkResolver,
 ): { text: string; count: number } {
-  const nextSource = source === from ? to : source;
+  return rewriteLinksForMoves(text, source, new Map([[from, to]]), oldResolve, newResolve);
+}
+
+/**
+ * Rewrites the links in `text`, the note at `source`, so that every one still leads where
+ * it did once the notes in `moves` (old path -> new path) have moved, all at once: the
+ * links to a moved note, and also those to another note that a new path would capture.
+ * Only the target is replaced: alias, heading/block subpath, table escapes and line endings
+ * stay as they were, and so does `[[#Heading]]`. `oldResolve` is the resolver from before
+ * the moves, `newResolve` the one after. Returns the new text and the number of links
+ * changed; throws if a link cannot be written.
+ */
+export function rewriteLinksForMoves(
+  text: string,
+  source: string,
+  moves: ReadonlyMap<string, string>,
+  oldResolve: LinkResolver,
+  newResolve: LinkResolver,
+): { text: string; count: number } {
+  const nextSource = moves.get(source) ?? source;
   const nameOf = (path: string) => stripExtension(path.slice(path.lastIndexOf('/') + 1));
-  const renamed = nameOf(from) !== nameOf(to);
+  /** The last `parts` names of a path: what a link that writes that many is about. */
+  const tailOf = (path: string, parts: number) => stripExtension(path).split('/').slice(-parts).join('/');
   const edits: { link: ParsedLink; target: string }[] = [];
 
   for (const link of parseLinks(text)) {
@@ -160,9 +175,11 @@ export function rewriteLinksForRename(
     if (link.target === '') continue;
     const before = oldResolve(link.target, source).path;
     if (before === null) continue;
-    const wanted = before === from ? to : before;
-    // A link to the renamed note also follows a new name, even one that differs in case only.
-    const follows = before === from && renamed;
+    const wanted = moves.get(before) ?? before;
+    // A link follows a new spelling of what it writes (name or folder), even one that
+    // differs in case only.
+    const parts = link.target.split('/').length;
+    const follows = tailOf(before, parts) !== tailOf(wanted, parts);
     if (!follows && newResolve(link.target, nextSource).path === wanted) continue;
     // The bare name, if the link was bare and the name still leads there; else the path.
     const name = nameOf(wanted);

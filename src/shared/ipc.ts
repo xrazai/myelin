@@ -64,6 +64,11 @@ export type VaultEvent =
  * `window.myelin`. Calls reject on failure. All calls except `createVault` and
  * `openVault` need an open vault.
  */
+export interface FolderRenameResult extends RenameResult {
+  /** The notes that moved, as `[old path, new path]`. */
+  moved: [string, string][];
+}
+
 export interface DeleteInfo {
   /** Notes that would go. */
   notes: number;
@@ -74,7 +79,7 @@ export interface DeleteInfo {
 }
 
 export interface RenameResult {
-  /** Notes whose links could not be rewritten: held by another program or changed meanwhile. */
+  /** Notes whose links could not be rewritten: held, changed meanwhile or not UTF-8. */
   notUpdated: string[];
 }
 
@@ -103,6 +108,12 @@ export interface MyelinApi {
    * untouched, if `to` is taken or cannot be a note name.
    */
   renameNote(from: string, to: string): Promise<RenameResult>;
+  /**
+   * Renames a folder with everything in it, in one batch, and rewrites the links that
+   * would stop leading where they did, with the rules of `renameNote`. Rejects, with the
+   * vault untouched, if `to` is taken, inside `from` or cannot be a folder name.
+   */
+  renameFolder(from: string, to: string): Promise<FolderRenameResult>;
   /**
    * Creates the folder at `path`, inside a folder that exists. It is reported `created`
    * before the call resolves. Rejects, with the vault untouched, if anything is there or
@@ -155,6 +166,7 @@ export const CALL_CHANNELS = {
   getPreviews: 'note:previews',
   writeNote: 'note:write',
   renameNote: 'note:rename',
+  renameFolder: 'folder:rename',
   createFolder: 'folder:create',
   deleteInfo: 'item:delete-info',
   deleteItem: 'item:delete',

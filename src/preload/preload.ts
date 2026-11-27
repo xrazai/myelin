@@ -27,6 +27,7 @@ const api: MyelinApi = {
   getPreviews: call('getPreviews'),
   writeNote: call('writeNote'),
   renameNote: call('renameNote'),
+  renameFolder: call('renameFolder'),
   createFolder: call('createFolder'),
   deleteInfo: call('deleteInfo'),
   deleteItem: call('deleteItem'),

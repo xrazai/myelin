@@ -23,7 +23,8 @@
   import { commandFor, type CommandId } from '../commands';
   import { deleteItem, type DeleteTarget } from '../delete-item';
   import { watchNoteList } from '../note-list';
-  import { renameNote as coordinateRename } from '../rename-note';
+  import { learning } from '../activity';
+  import { isWithin, renameNote as coordinateRename, renameFolder } from '../rename-note';
   import { applyTabEvents, closeTab, cycleTab, moveTab, NO_TABS, openTab, renameTab, replaceTab, tabName, type Tabs as TabsState } from '../tabs-model';
   import { errorMessage } from '../error-message';
   import CommandPalette from './CommandPalette.svelte';
@@ -39,6 +40,8 @@
   let tabs = $state.raw<TabsState>(NO_TABS);
   /** The pair being renamed: its tree batch arrives before the IPC result. */
   let pendingRename: { from: string; to: string } | null = null;
+  /** Settles when that rename ends, however it ends: the window waits for it to close. */
+  let renameEnds: Promise<void> | null = null;
 
   // Marks the tabs of notes deleted outside the app. A pending rename's tree batch
   // must not mark the old tab deleted: its editor state is about to be rekeyed.
@@ -48,8 +51,8 @@
         ? events.filter(
             (event) =>
               !(
-                (event.type === 'deleted' && event.path === pendingRename!.from) ||
-                (event.type === 'created' && event.path === pendingRename!.to)
+                (event.type === 'deleted' && isWithin(event.path, pendingRename!.from)) ||
+                (event.type === 'created' && isWithin(event.path, pendingRename!.to))
               ),
           )
         : events;
@@ -63,50 +66,99 @@
   let metrics = $state.raw<NoteMetrics | null>(null);
   let noteError = $state('');
 
-  /** Renames a note; its tab and editor state move with it, without reopening. */
-  async function requestRename(from: string, to: string) {
+  const RENAMING = 'A rename is still running. Try again in a moment.';
+  /** Nothing may be created or opened mid-rename: it could land on a path about to move. */
+  const locked = () => (pendingRename ? RENAMING : null);
+
+  /**
+   * Renames a note or a folder; tabs and editor states move with it, without reopening.
+   * `true` once renamed.
+   */
+  async function requestRename(from: string, to: string, kind: 'note' | 'folder' = 'note'): Promise<boolean> {
     const notes = saver;
-    if (!notes) return;
+    if (!notes) return false;
     if (pendingRename) {
-      noteError = 'Another rename is still running. Try again in a moment.';
-      return;
+      noteError = RENAMING;
+      return false;
     }
     noteError = '';
     const isOpen = (path: string) => tabs.list.some((tab) => tab.path === path);
+    const move = (oldPath: string, newPath: string) => {
+      void notes.rename(oldPath, newPath);
+      tabs = renameTab(tabs, oldPath, newPath);
+      recentNotes = recentNotes.map((path) => (path === oldPath ? newPath : path));
+    };
+    const shared = { saveAll: () => notes.saveAll(), save: (path: string) => notes.save(path) };
     pendingRename = { from, to };
+    let ended!: () => void;
+    renameEnds = new Promise((resolve) => (ended = resolve));
+    // Saves wait for a rename, long on a large vault: say so.
+    const done = learning.begin(`Renaming ${tabName(from)}… saves wait`);
     try {
-      const result = await coordinateRename(
-        window.myelin,
-        {
-          hasDeletedTab: (path) => tabs.list.some((tab) => tab.path === path && tab.deleted),
-          saveAll: () => notes.saveAll(),
-          save: (path) => notes.save(path),
-          move: (oldPath, newPath) => {
-            void notes.rename(oldPath, newPath);
-            tabs = renameTab(tabs, oldPath, newPath);
+      let notUpdated: string[];
+      if (kind === 'note') {
+        const result = await coordinateRename(
+          window.myelin,
+          { ...shared, hasDeletedTab: (path) => tabs.list.some((tab) => tab.path === path && tab.deleted), move },
+          from,
+          to,
+        );
+        if (!result) {
+          // Not saved: its tab says why.
+          if (isOpen(from)) tabs = openTab(tabs, from);
+          return false;
+        }
+        notUpdated = result.notUpdated;
+      } else {
+        const outcome = await renameFolder(
+          window.myelin,
+          {
+            ...shared,
+            openPaths: () => tabs.list.map((tab) => tab.path),
+            move: (moves) => {
+              for (const { from: oldPath, to: newPath, gone } of moves) {
+                move(oldPath, newPath);
+                if (gone) tabs = applyTabEvents(tabs, [{ type: 'deleted', kind: 'note', path: newPath }]);
+              }
+            },
           },
-        },
-        from,
-        to,
-      );
-      // Not saved: its tab says why.
-      if (!result) {
-        if (isOpen(from)) tabs = openTab(tabs, from);
-      } else if (result.notUpdated.length > 0) {
-        noteError = `Renamed, but the links in these notes were not updated: ${result.notUpdated.join(', ')}`;
+          from,
+          to,
+        );
+        if (outcome.status === 'unsaved') {
+          if (isOpen(outcome.path)) tabs = openTab(tabs, outcome.path);
+          noteError = `Not renamed: ${outcome.path} is not saved.`;
+          return false;
+        }
+        notUpdated = outcome.result.notUpdated;
       }
+      if (notUpdated.length > 0) {
+        noteError = `Renamed, but the links in these notes were not updated: ${notUpdated.join(', ')}`;
+      }
+      return true;
     } catch (error) {
-      noteError = `Could not rename the note. ${errorMessage(error)}`;
+      noteError = `Could not rename the ${kind}. ${errorMessage(error)}`;
+      return false;
     } finally {
       pendingRename = null;
+      renameEnds = null;
+      ended();
+      done();
     }
+  }
+
+  /** A note of the tree, the palette or a link takes a tab, unless it is mid-rename. */
+  function openNote(path: string) {
+    if (pendingRename && (isWithin(path, pendingRename.to) || isWithin(path, pendingRename.from))) {
+      noteError = RENAMING;
+    } else tabs = openTab(tabs, path);
   }
 
   /** What the confirmation is about, while it is open. */
   let deleting = $state.raw<DeleteTarget | null>(null);
 
   function requestDelete(target: DeleteTarget) {
-    if (pendingRename) noteError = 'A rename is still running. Try again in a moment.';
+    if (pendingRename) noteError = RENAMING;
     else deleting ??= target;
   }
 
@@ -142,6 +194,10 @@
   /** A followed link takes the tab of its note only once that note is safe to leave. */
   async function follow(path: string, source: string, newTab: boolean) {
     if (path === tabs.active) return;
+    if (pendingRename && (isWithin(path, pendingRename.to) || isWithin(path, pendingRename.from))) {
+      noteError = RENAMING;
+      return;
+    }
     if (newTab || tabs.list.some((tab) => tab.path === path)) tabs = openTab(tabs, path);
     else if ((await saver?.save(source)) !== false) {
       tabs = tabs.active === source ? replaceTab(tabs, source, path) : openTab(tabs, path);
@@ -157,12 +213,13 @@
   let quitDialog = $state<HTMLDialogElement>();
 
   function onbeforeunload(event: BeforeUnloadEvent) {
-    if (abandon || !saver || saver.unsaved().length === 0) return;
+    if (abandon || !saver || (renameEnds === null && saver.unsaved().length === 0)) return;
     event.preventDefault();
     if (flushing) return;
     flushing = true;
     const notes = saver;
-    void notes.saveAll().then((saved) => {
+    // A window closed mid-rename would end the worker with links half rewritten.
+    void Promise.resolve(renameEnds).then(() => notes.saveAll()).then((saved) => {
       flushing = false;
       // Checked again on the way out: more may have been typed meanwhile.
       if (saved) return void window.myelin.resumeUnload();
@@ -269,6 +326,7 @@
   }
 
   async function createFromPalette(path: string, newTab: boolean) {
+    if (pendingRename) return void (noteError = RENAMING);
     // The tab of a deleted note may hold its text: it is shown, not written over.
     if (tabs.list.some((tab) => tab.path === path)) return void (tabs = openTab(tabs, path));
     noteError = '';
@@ -422,7 +480,7 @@
       <kbd>Ctrl+P</kbd>
     </button>
     <div class="files">
-      <FileTree bind:this={fileTree} ondelete={requestDelete} hasTab={(path) => tabs.list.some((tab) => tab.path === path)} selected={tabs.active} onopen={(path) => (tabs = openTab(tabs, path))} onrename={requestRename} />
+      <FileTree bind:this={fileTree} ondelete={requestDelete} hasTab={(path) => tabs.list.some((tab) => tab.path === path)} selected={tabs.active} onopen={openNote} onrename={requestRename} {locked} />
     </div>
   </nav>
 
@@ -451,6 +509,8 @@
       onfollow={follow}
       onmetrics={(next) => (metrics = next)}
       onfocusmode={toggleFocus}
+      {locked}
+      moving={(path) => pendingRename !== null && isWithin(path, pendingRename.from)}
     />
   </main>
 

@@ -10,7 +10,7 @@ import { loadVaultConfig } from './vault-config.ts';
 import { deleteIndex, indexPath, notePaths, openIndex } from './vault-index.ts';
 import { readNotePreview } from './note-preview.ts';
 import { existingNotePath, folderOnDiskInOtherCase, writableNotePath } from './vault-path.ts';
-import { appendUsageEvent } from './vault-usage.ts';
+import { appendUsageEvent, appendUsageEvents } from './vault-usage.ts';
 import { watchVault, type VaultWatch } from './vault-watcher.ts';
 
 // Startup check: the native module loads in this thread and its SQLite has FTS5.
@@ -113,6 +113,17 @@ const handlers: Handlers = {
         (error: unknown) => console.error('[vault-worker] logging a rename failed:', error),
       );
     }
+    return result;
+  },
+  async renameFolder(from, to) {
+    if (typeof from !== 'string' || typeof to !== 'string') throw new Error('both paths must be strings');
+    const { root, watch } = openSession();
+    const result = await watch.renameFolder(from, to);
+    const at = new Date().toISOString();
+    // The folder has moved by now: failing to log it must not report the rename as failed.
+    await appendUsageEvents(root, result.moved.map(([old, next]) => ({ type: 'renamed', from: old, to: next, at }))).catch(
+      (error: unknown) => console.error('[vault-worker] logging a rename failed:', error),
+    );
     return result;
   },
   async createFolder(path) {

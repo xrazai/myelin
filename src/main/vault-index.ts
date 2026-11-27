@@ -167,11 +167,12 @@ export function renameCandidates(
   db: Database.Database,
   root: string,
   paths: string[],
-  from: string,
-  to: string,
+  moves: ReadonlyMap<string, string>,
 ): string[] {
   const linking = db.prepare('SELECT DISTINCT source FROM links WHERE key = ?').pluck();
-  const sources = new Set([from, to].flatMap(affectedKeys).flatMap((key) => linking.all(key) as string[]));
+  const keys = new Set([...moves].flat().flatMap(affectedKeys));
+  const sources = new Set<string>();
+  for (const key of keys) for (const source of linking.all(key) as string[]) sources.add(source);
   const stamps = db.prepare('SELECT path, mtime_ms AS mtimeMs, size FROM notes WHERE hash IS NOT NULL').all();
   const indexed = new Map((stamps as (Row & { path: string })[]).map((row) => [row.path, row]));
   return paths.filter((path) => {

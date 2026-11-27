@@ -244,7 +244,7 @@ export function keyAction(
     case 'Delete':
       return { type: 'delete', path: entry.path };
     case 'F2':
-      return entry.kind === 'note' ? { type: 'rename', path: entry.path } : null;
+      return { type: 'rename', path: entry.path };
     default:
       return null;
   }

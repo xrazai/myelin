@@ -134,6 +134,7 @@ function start(): void {
     getPreviews: (paths) => vault.call('getPreviews', paths),
     writeNote: (path, content, base) => vault.call('writeNote', path, content, base),
     renameNote: (from, to) => vault.call('renameNote', from, to),
+    renameFolder: (from, to) => vault.call('renameFolder', from, to),
     createFolder: (path) => vault.call('createFolder', path),
     deleteInfo: (path, kind) => vault.call('deleteInfo', path, kind),
     deleteItem: (path, kind) => vault.call('deleteItem', path, kind),
