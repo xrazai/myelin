@@ -1,6 +1,7 @@
 // Messages between main and vault-worker (worker thread, not Electron IPC).
 // A new request is a line here and a handler in `vault-worker.ts`.
 import type {
+  Backlink,
   DeleteInfo,
   FolderRenameResult,
   NotePreview,
@@ -32,6 +33,7 @@ export interface VaultRequests {
   listNotes(): string[];
   /** Full text of a note of the current vault. Rejects a path outside the contract. */
   readNote(path: string): string;
+  getBacklinks(path: string): Backlink[] | null;
   /** Short previews for a batch of note paths; `null` for missing or unreadable notes. */
   getPreviews(paths: string[]): (NotePreview | null)[];
   /** `writeNote` of the contract, on the current vault. */

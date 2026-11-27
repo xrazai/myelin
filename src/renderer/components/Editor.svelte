@@ -28,6 +28,7 @@
     onfocusmode,
     locked,
     moving,
+    onsaved,
   }: {
     vault: VaultInfo;
     tabs: Tabs;
@@ -44,6 +45,8 @@
     locked: () => string | null;
     /** The app is moving this path right now: its report as deleted is not news. */
     moving: (path: string) => boolean;
+    /** A note was written. */
+    onsaved: (path: string) => void;
     /** Debounced reading metrics for the active note, or `null` when none is shown. */
     onmetrics?: (metrics: NoteMetrics | null) => void;
     /** Toggles Focus Mode from the quiet editor chrome. */
@@ -64,6 +67,11 @@
 
   let container = $state<HTMLDivElement>();
   let status = $state.raw<EditorStatus>({ kind: 'empty' });
+
+  /** Takes the cursor to a position of a note, now or once it shows. */
+  export function reveal(path: string, line: number, column: number) {
+    editorApi?.reveal(path, line, column);
+  }
 
   /** `Ctrl+F`: find in the note on screen. */
   export function find() {
@@ -135,6 +143,7 @@
       scroller?.addEventListener('scroll', onScroll, { passive: true });
       const notes = createNoteSaver(editor, window.myelin, (path, before, after) => {
         cache.invalidate(path);
+        onsaved(path);
         if (activePath === path) scheduleMetrics(path);
         const pulse = list.isLoaded() ? linkPulse(path, before, after, list.resolve) : null;
         if (pulse) window.dispatchEvent(new CustomEvent(LINK_PULSE_EVENT, { detail: pulse }));

@@ -624,6 +624,40 @@ describe('renaming a folder', () => {
   });
 });
 
+describe('backlinks', () => {
+  beforeEach(async () => {
+    await mkdir(at('x'));
+    await write('Target.md', '[[Target]] to itself');
+    await write('x/Target.md', 'a namesake');
+    await writeFile(at('A.md'), '\uFEFFfirst\r\nsee [[Target]] and\r\n\r\n| t |\r\n[[Target|again]]\r\n', 'utf8');
+    await write('B.md', 'the other one: [[x/Target]]');
+    watching = start();
+    await watching.indexed;
+    tree = await watching.getTree();
+  });
+
+  test('lists each linking line, not namesakes nor the note itself, through BOM and CRLF', async () => {
+    expect(await watching.backlinks('Target.md')).toEqual([
+      { path: 'A.md', line: 2, column: 4, text: 'see [[Target]] and' },
+      { path: 'A.md', line: 5, column: 0, text: '[[Target|again]]' },
+    ]);
+    expect(await watching.backlinks('x/Target.md')).toEqual([
+      { path: 'B.md', line: 1, column: 15, text: 'the other one: [[x/Target]]' },
+    ]);
+    expect(await watching.backlinks('A.md')).toEqual([]);
+  });
+
+  test('follows app writes, outside changes, renames and deletions', async () => {
+    await watching.write('B.md', '[[Target]]', 'the other one: [[x/Target]]');
+    expect((await watching.backlinks('Target.md'))!.map((link) => link.path)).toEqual(['A.md', 'A.md', 'B.md']);
+    await watching.rename('Target.md', 'Goal.md');
+    expect((await watching.backlinks('Goal.md'))!.length).toBe(3);
+    await rm(at('A.md'));
+    await until(() => expect(notes()).not.toContain('A.md'));
+    expect((await watching.backlinks('Goal.md'))!.map((link) => link.path)).toEqual(['B.md']);
+  });
+});
+
 describe('during the first sync', () => {
   test('the count of linking notes is unknown, never 0', async () => {
     await write('A.md', 'a');

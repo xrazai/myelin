@@ -1,6 +1,6 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte';
-  import type { VaultInfo } from '../../shared/ipc';
+  import type { Backlink, VaultInfo } from '../../shared/ipc';
   import type { NoteMetrics } from '../editor/note-metrics';
   import type { NoteProblems, NoteSaver } from '../editor/note-saver';
   import {
@@ -28,6 +28,7 @@
   import { isWithin, renameNote as coordinateRename, renameFolder } from '../rename-note';
   import { applyTabEvents, closeTab, cycleTab, moveTab, NO_TABS, openTab, renameTab, replaceTab, tabName, type Tabs as TabsState } from '../tabs-model';
   import { errorMessage } from '../error-message';
+  import BacklinksPanel from './BacklinksPanel.svelte';
   import CommandPalette from './CommandPalette.svelte';
   import DeleteDialog from './DeleteDialog.svelte';
   import Editor from './Editor.svelte';
@@ -58,6 +59,7 @@
           )
         : events;
       tabs = applyTabEvents(tabs, visible);
+      linksRevision++;
       noteListRev++;
     }),
   );
@@ -314,6 +316,15 @@
 
   let paletteOpen = $state(false);
 
+  /** Moves on whenever links may have changed. */
+  let linksRevision = $state(0);
+  $effect(() => window.myelin.onIndexing((active) => !active && linksRevision++));
+
+  function openBacklink(link: Backlink) {
+    openNote(link.path);
+    editorView?.reveal(link.path, link.line, link.column);
+  }
+
   // The session of this vault: restored once the notes are known, saved from then on, so
   // an empty start never replaces what is stored. The vault is fixed while mounted.
   const session = untrack(() => loadSession(localStorage, vault.id));
@@ -562,6 +573,10 @@
       onmetrics={(next) => (metrics = next)}
       onfocusmode={toggleFocus}
       {locked}
+      onsaved={(path) => {
+        // A note's own links are not its backlinks: typing in it reloads nothing.
+        if (path !== tabs.active) linksRevision++;
+      }}
       moving={(path) => pendingRename !== null && isWithin(path, pendingRename.from)}
     />
   </main>
@@ -604,6 +619,7 @@
     </header>
     <!-- Placeholder: `@myelin/graph` or the Brain panel mounts here later. -->
     <p>{rightPanel === 'graph' ? 'The graph is not here yet.' : 'The Brain panel is not here yet.'}</p>
+    <BacklinksPanel path={tabs.active} revision={linksRevision} onopen={openBacklink} />
   </aside>
 
   <div class="status">

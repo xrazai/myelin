@@ -10,7 +10,7 @@ import { lastVault, rememberVault } from './last-vault.ts';
 import { loadVaultConfig } from './vault-config.ts';
 import { deleteIndex, indexPath, notePaths, openIndex } from './vault-index.ts';
 import { readNotePreview } from './note-preview.ts';
-import { existingNotePath, folderOnDiskInOtherCase, writableNotePath } from './vault-path.ts';
+import { existingNotePath, folderOnDiskInOtherCase, resolveNotePath, writableNotePath } from './vault-path.ts';
 import { appendUsageEvent, appendUsageEvents } from './vault-usage.ts';
 import { watchVault, type VaultWatch } from './vault-watcher.ts';
 
@@ -86,6 +86,12 @@ const handlers: Handlers = {
   },
   async readNote(path) {
     return readFile(await existingNotePath(openSession().root, path), 'utf8');
+  },
+  async getBacklinks(path) {
+    const { root, watch } = openSession();
+    // The path of a note: it is only matched against the index.
+    resolveNotePath(root, path);
+    return watch.backlinks(path);
   },
   async getPreviews(paths) {
     if (!Array.isArray(paths)) throw new Error('paths must be an array');

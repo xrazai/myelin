@@ -69,6 +69,16 @@ export interface FolderRenameResult extends RenameResult {
   moved: [string, string][];
 }
 
+export interface Backlink {
+  /** The note holding the link. */
+  path: string;
+  /** Line of the link, from 1, and its offset in that line (UTF-16 units). */
+  line: number;
+  column: number;
+  /** That line, cut around the link if long. Plain text. */
+  text: string;
+}
+
 export interface DeleteInfo {
   /** Notes that would go. */
   notes: number;
@@ -99,6 +109,11 @@ export interface MyelinApi {
   listNotes(): Promise<string[]>;
   /** Full text of a note. */
   readNote(path: string): Promise<string>;
+  /**
+   * The links of other notes that lead to the note at `path`, in path then text order.
+   * `null` while the vault is first being indexed.
+   */
+  getBacklinks(path: string): Promise<Backlink[] | null>;
   /** Short previews for a batch of note paths; `null` for missing or unreadable notes. */
   getPreviews(paths: string[]): Promise<(NotePreview | null)[]>;
   /**
@@ -170,6 +185,7 @@ export const CALL_CHANNELS = {
   listNotes: 'note:list',
   readNote: 'note:read',
   getPreviews: 'note:previews',
+  getBacklinks: 'note:backlinks',
   writeNote: 'note:write',
   renameNote: 'note:rename',
   renameFolder: 'folder:rename',
