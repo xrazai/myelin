@@ -5,7 +5,7 @@ A desktop app for a vault of Markdown notes that learns from how you write and n
 > Status: early development. For now the app only creates and opens vaults. Follow progress on the [project board](https://github.com/users/xrazai/projects/7).
 
 ## Development
-Needs Node.js 22.12 or newer.
+Needs Node.js 22.22 or newer.
 
 ```
 npm install

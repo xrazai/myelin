@@ -125,9 +125,15 @@ function affectedKeys(path: string): string[] {
   return parts.map((_, i) => parts.slice(i).join('/'));
 }
 
+/** The resolver for the paths now in `notes`; building it is slow on a large vault. */
+const resolvers = new WeakMap<Database.Database, LinkResolver>();
+
+const allPaths = (db: Database.Database) => db.prepare('SELECT path FROM notes').pluck().all() as string[];
+
 /** Makes `notes` match the scanned paths and re-resolves the links this affects. */
 function applyPaths(db: Database.Database, paths: string[], resolve: LinkResolver): number {
-  const known = new Set(db.prepare('SELECT path FROM notes').pluck().all() as string[]);
+  resolvers.set(db, resolve);
+  const known = new Set(allPaths(db));
   const found = new Set(paths);
   const added = paths.filter((path) => !known.has(path));
   const removed = [...known].filter((path) => !found.has(path));
@@ -174,19 +180,19 @@ interface Row {
 /** How long the sync holds the thread before letting queued requests run. */
 const SLICE_MS = 15;
 
-/**
- * Brings the index up to date with the vault: everything on a new index, otherwise only
- * notes added, removed or modified (by mtime and size, then content hash). Reads with
- * sync calls in short slices, one transaction each, yielding in between. Rejects with
- * `signal`'s reason if aborted; the caller may close `db` once this settles.
- */
-export async function syncIndex(db: Database.Database, root: string, signal: AbortSignal): Promise<SyncReport> {
-  const started = performance.now();
-  const paths = notePaths(await scanVault(root));
-  signal.throwIfAborted();
-  const resolve = createLinkResolver(paths);
-  const removed = applyPaths(db, paths, resolve);
+/** `previous` is the hash the index had; equal to `hash` if the content did not change. */
+interface Indexed {
+  hash: string;
+  previous: string | null;
+  mtimeMs: number;
+}
 
+/**
+ * Returns the function that brings one note listed in `notes` up to date. With
+ * `trustStamp`, a note whose mtime and size did not move is not read and counts as
+ * unchanged.
+ */
+function noteIndexer(db: Database.Database, root: string, resolve: LinkResolver) {
   const select = db.prepare('SELECT id, hash, mtime_ms AS mtimeMs, size FROM notes WHERE path = ?');
   const stamp = db.prepare('UPDATE notes SET mtime_ms = ?, size = ? WHERE id = ?');
   const save = db.prepare('UPDATE notes SET hash = ?, mtime_ms = ?, size = ? WHERE id = ?');
@@ -197,18 +203,19 @@ export async function syncIndex(db: Database.Database, root: string, signal: Abo
     INSERT INTO links (source, from_pos, to_pos, target_from, target_to, target, key, target_path, name, subpath, alias)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 
-  let indexed = 0;
-  let failed = 0;
-
-  const indexNote = (path: string) => {
+  return (path: string, trustStamp: boolean): Indexed | 'failed' => {
     const row = select.get(path) as Row;
     let bytes: Buffer;
     let mtimeMs: number;
     let size: number;
     try {
       const file = join(root, path);
-      const stats = statSync(file);
-      if (row.hash !== null && stats.mtimeMs === row.mtimeMs && stats.size === row.size) return;
+      if (trustStamp && row.hash !== null) {
+        const stats = statSync(file);
+        if (stats.mtimeMs === row.mtimeMs && stats.size === row.size) {
+          return { hash: row.hash, previous: row.hash, mtimeMs: stats.mtimeMs };
+        }
+      }
       // Stamp and bytes come from one handle. A write during the read changes the stamp
       // again, so the next sync reads the note once more.
       const handle = openSync(file, 'r');
@@ -219,14 +226,14 @@ export async function syncIndex(db: Database.Database, root: string, signal: Abo
         closeSync(handle);
       }
     } catch {
-      // Deleted since the scan, held by another program, no permission...
-      failed++;
-      return;
+      // Deleted since it was listed, held by another program, no permission...
+      return 'failed';
     }
     const hash = contentHash(bytes);
+    const result = { hash, previous: row.hash, mtimeMs };
     if (hash === row.hash) {
       stamp.run(mtimeMs, size, row.id);
-      return;
+      return result;
     }
     const text = bytes.toString('utf8').replace(/^﻿/, '');
     save.run(hash, mtimeMs, size, row.id);
@@ -242,19 +249,116 @@ export async function syncIndex(db: Database.Database, root: string, signal: Abo
         link.path, link.path === null ? link.name : null, link.subpath, link.alias,
       );
     }
-    indexed++;
+    return result;
   };
+}
 
+/** Runs `step` over the items in short slices, one transaction each, yielding in between. */
+async function inSlices<T>(
+  db: Database.Database,
+  items: T[],
+  signal: AbortSignal,
+  step: (item: T) => void,
+): Promise<void> {
   let next = 0;
   const slice = db.transaction(() => {
     const deadline = performance.now() + SLICE_MS;
-    while (next < paths.length && performance.now() < deadline) indexNote(paths[next++]!);
+    while (next < items.length && performance.now() < deadline) step(items[next++]!);
   });
-  while (next < paths.length) {
+  while (next < items.length) {
     slice();
     await nextTurn();
     signal.throwIfAborted();
   }
+}
+
+export interface SyncOptions {
+  /** A scan made just now, to not scan again. */
+  tree?: TreeEntry[];
+  /** A note's content was (re)indexed. */
+  onIndexed?: (path: string) => void;
+}
+
+/**
+ * Brings the index up to date with the vault: everything on a new index, otherwise only
+ * notes added, removed or modified (by mtime and size, then content hash). Reads with
+ * sync calls in short slices. Rejects with `signal`'s reason if aborted; the caller may
+ * close `db` once this settles.
+ */
+export async function syncIndex(
+  db: Database.Database,
+  root: string,
+  signal: AbortSignal,
+  { tree, onIndexed }: SyncOptions = {},
+): Promise<SyncReport> {
+  const started = performance.now();
+  const paths = notePaths(tree ?? (await scanVault(root)));
+  signal.throwIfAborted();
+  const resolve = createLinkResolver(paths);
+  const removed = applyPaths(db, paths, resolve);
+  const indexNote = noteIndexer(db, root, resolve);
+
+  let indexed = 0;
+  let failed = 0;
+  await inSlices(db, paths, signal, (path) => {
+    const result = indexNote(path, true);
+    if (result === 'failed') failed++;
+    else if (result.hash !== result.previous) {
+      indexed++;
+      onIndexed?.(path);
+    }
+  });
 
   return { notes: paths.length, indexed, removed, failed, ms: Math.round(performance.now() - started) };
+}
+
+export interface NoteUpdate {
+  path: string;
+  hash: string;
+  /** The hash the index had: `null` for a note whose content it did not have. */
+  previous: string | null;
+  mtimeMs: number;
+}
+
+/**
+ * Applies changes to a synced index. Each of `paths` may have been created, changed or
+ * deleted; `exists` says which are notes now. Notes are added and removed, and links
+ * re-resolved, in one transaction; contents are then read and hashed in slices, and
+ * `onNote` gets each one. `trustStamp` skips reading those whose mtime and size did not
+ * move, as the sync does. Returns the notes that could not be read. Never run it
+ * while `syncIndex` or another update runs on `db`.
+ */
+export async function updateIndex(
+  db: Database.Database,
+  root: string,
+  paths: string[],
+  exists: (path: string) => boolean,
+  signal: AbortSignal,
+  onNote: (update: NoteUpdate) => void,
+  { trustStamp = false } = {},
+): Promise<string[]> {
+  signal.throwIfAborted();
+  const row = db.prepare('SELECT 1 FROM notes WHERE path = ?');
+  const present = paths.filter(exists);
+  const added = present.filter((path) => row.get(path) === undefined);
+  const kept = new Set(present);
+  const removed = new Set(paths.filter((path) => !kept.has(path) && row.get(path) !== undefined));
+
+  let resolve = resolvers.get(db);
+  if (!resolve || added.length > 0 || removed.size > 0) {
+    const next = allPaths(db)
+      .filter((path) => !removed.has(path))
+      .concat(added);
+    resolve = createLinkResolver(next);
+    applyPaths(db, next, resolve);
+  }
+
+  const indexNote = noteIndexer(db, root, resolve);
+  const failed: string[] = [];
+  await inSlices(db, present, signal, (path) => {
+    const result = indexNote(path, trustStamp);
+    if (result === 'failed') failed.push(path);
+    else onNote({ path, ...result });
+  });
+  return failed;
 }

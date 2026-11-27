@@ -99,11 +99,31 @@ test('an index that cannot be opened still lets the vault open', async () => {
   }
 });
 
+test('external changes arrive as events from the current vault only', async () => {
+  const [first, second] = await Promise.all(['a', 'b'].map((name) => mkdtemp(join(tmpdir(), `myelin-events-${name}-`))));
+  const events: unknown[] = [];
+  const own = new Worker(new URL('./vault-worker.ts', import.meta.url), { workerData: { userData } });
+  try {
+    const client = createVaultClient(own, (batch) => events.push(...batch));
+    await client.call('open', first!);
+    await client.call('whenIndexed');
+    await client.call('open', second!);
+    await client.call('whenIndexed');
+    await writeFile(join(first!, 'Old.md'), 'old', 'utf8');
+    await writeFile(join(second!, 'New.md'), 'new', 'utf8');
+    await vi.waitFor(() => expect(events).toContainEqual({ type: 'created', kind: 'note', path: 'New.md' }), 10_000);
+    expect(events).toEqual([{ type: 'created', kind: 'note', path: 'New.md' }]);
+  } finally {
+    await own.terminate();
+    for (const folder of [first!, second!]) await rm(folder, { recursive: true, force: true });
+  }
+});
+
 // Rule 3: main only routes. Scanning and indexing code reaches it through no import.
 test('main and its vault client do no file I/O', () => {
   for (const name of ['main.ts', 'vault-client.ts']) {
     const source = readFileSync(join(import.meta.dirname, name), 'utf8');
-    expect(source).not.toMatch(/['"](node:)?fs(\/promises)?['"]|\.\/vault-(scan|config)|\.\/vault-worker['"]/);
+    expect(source).not.toMatch(/['"](node:)?fs(\/promises)?['"]|['"]chokidar['"]|\.\/vault-(scan|config|watcher)|\.\/vault-worker['"]/);
     // Types are fine; anything else would load SQLite and the index in the main thread.
     expect(source).not.toMatch(/^import (?!type ).*(vault-index|better-sqlite3)/m);
   }

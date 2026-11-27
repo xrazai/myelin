@@ -1,5 +1,6 @@
 // Main side of vault-worker: sends requests and settles them with its replies. No file I/O.
 import type { Worker } from 'node:worker_threads';
+import type { VaultEvent } from '../shared/ipc';
 import type { VaultRequests, WorkerMessage } from './vault-protocol';
 
 export interface VaultClient {
@@ -14,7 +15,7 @@ interface Pending {
   reject(error: Error): void;
 }
 
-export function createVaultClient(worker: Worker): VaultClient {
+export function createVaultClient(worker: Worker, onEvents?: (events: VaultEvent[]) => void): VaultClient {
   const pending = new Map<number, Pending>();
   let lastId = 0;
   let dead: Error | null = null;
@@ -28,6 +29,10 @@ export function createVaultClient(worker: Worker): VaultClient {
   worker.on('message', (message: WorkerMessage) => {
     if (message.type === 'ready') {
       console.log(`[vault-worker] ready, SQLite ${message.sqliteVersion} with FTS5`);
+      return;
+    }
+    if (message.type === 'events') {
+      onEvents?.(message.events);
       return;
     }
     const request = pending.get(message.id);
