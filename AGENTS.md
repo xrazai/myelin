@@ -70,6 +70,10 @@ Do not create tables, dependencies, queues or files for AI before the decision. 
 
 ## Targets (app)
 - Graph: 100k nodes at 60 FPS, glow included, on an integrated GPU at high DPI. Bloom/glow cost scales with pixels, not nodes.
+  - The dev machine has no integrated GPU (i7-12700KF + RTX 5070 Ti, ~10x the memory bandwidth of an Intel Iris Xe), so FPS measured here proves nothing. Validation has three layers:
+  - Proxy, every run: `bench` renders offscreen at a fixed 2880x1800 (high-DPI laptop), 100k nodes, glow on, and measures GPU time per frame (`EXT_disjoint_timer_query_webgl2`; fallback: N frames with `gl.finish()` and wall time). Budget on this machine: <= 1.5 ms GPU and <= 4 ms CPU per frame. It guards against regressions; it is not proof.
+  - Ground truth, before stage 4 closes: the same bench on a real Intel integrated GPU (any office PC or laptop with Intel UHD/Iris Xe). The bench must run from the built app (`--bench-graph`) so Rafa only double-clicks it there. The result is recorded in the issue.
+  - Safety net in the library: adaptive quality. Below ~50 FPS it lowers bloom resolution, then turns glow off; it never drops nodes.
 - Link hover preview `< 1ms` for links visible in the editor: `note-cache.ts` is an LRU of short previews (title + first ~500 chars), prefetched for the `[[links]]` in the editor viewport. A cold hover (not prefetched) may take one IPC round-trip. Never hold full note texts for the whole vault in the renderer.
 
 ## Benchmark (`scripts/bench.ts`)
