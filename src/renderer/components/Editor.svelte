@@ -5,9 +5,11 @@
   import { connectEditor, type EditorStatus } from '../editor/editor-tabs';
   import { linkCompletion } from '../editor/link-complete';
   import { linkDestination, linkFollowing, type FollowLink } from '../editor/link-follow';
+  import { linkHover } from '../editor/link-hover';
   import { LINK_PULSE_EVENT, linkPulse } from '../editor/link-pulse';
   import { createNoteSaver, type NoteProblems, type NoteSaver } from '../editor/note-saver';
   import { errorMessage } from '../error-message';
+  import { createNoteCache } from '../note-cache';
   import { watchNoteList } from '../note-list';
   import { tabName, type Tabs } from '../tabs-model';
 
@@ -49,6 +51,7 @@
     if (!parent) return;
     return untrack(() => {
       const list = watchNoteList(window.myelin);
+      const cache = createNoteCache(window.myelin);
       const follow: FollowLink = (link, source, newTab) => {
         linkError = '';
         linkDestination(list, window.myelin, link.target, source).then(
@@ -62,6 +65,7 @@
           notes: list,
           readText: async (path) => (editor.has(path) ? editor.text(path) : window.myelin.readNote(path)),
         }),
+        linkHover({ notes: list, cache }),
       ];
       const editor = createNoteEditor(parent, links, (path) => notes.edited(path));
       const notes = createNoteSaver(editor, window.myelin, (path, before, after) => {
@@ -81,6 +85,7 @@
         onsaver(null);
         for (const stop of unsubscribe) stop();
         connected.stop();
+        cache.stop();
         list.stop();
         notes.stop();
         editor.destroy();

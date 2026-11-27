@@ -74,6 +74,24 @@ const handlers: Handlers = {
   async readNote(path) {
     return readFile(await existingNotePath(openSession().root, path), 'utf8');
   },
+  async getPreviews(paths) {
+    const { root } = openSession();
+    return Promise.all(
+      paths.map(async (path) => {
+        try {
+          const text = await readFile(await existingNotePath(root, path), 'utf8');
+          const clean = (text.startsWith('\uFEFF') ? text.slice(1) : text).replace(/\r\n?/g, '\n');
+          return {
+            path,
+            title: basename(path, '.md'),
+            excerpt: clean.slice(0, 500).trimEnd(),
+          };
+        } catch {
+          return null;
+        }
+      }),
+    );
+  },
   async writeNote(path, content, base) {
     if (typeof content !== 'string' || (base !== null && typeof base !== 'string')) {
       throw new Error('the note text must be a string');

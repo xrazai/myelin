@@ -67,6 +67,33 @@ export const theme = EditorView.theme(
       fontStyle: 'normal',
       color: 'var(--text-muted)',
     },
+
+    // `[[link]]` hover preview.
+    '.cm-tooltip:has(> .cm-hover-preview)': {
+      backgroundColor: 'var(--bg-panel)',
+      border: '1px solid var(--divider)',
+      borderRadius: '6px',
+      padding: '8px 12px',
+      maxWidth: '360px',
+    },
+    '.cm-hover-preview-title': {
+      fontFamily: 'var(--font-ui)',
+      fontSize: 'var(--font-size-ui)',
+      fontWeight: '600',
+      color: 'var(--text)',
+      marginBottom: '4px',
+    },
+    '.cm-hover-preview-excerpt': {
+      fontFamily: 'var(--font-body)',
+      fontSize: 'var(--font-size-ui)',
+      lineHeight: '1.45',
+      color: 'var(--text-muted)',
+      whiteSpace: 'pre-wrap',
+      overflow: 'hidden',
+      display: '-webkit-box',
+      WebkitLineClamp: '6',
+      WebkitBoxOrient: 'vertical',
+    },
   },
   { dark: true },
 );

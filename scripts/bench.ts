@@ -21,7 +21,7 @@
 // Run directly by Node (type stripping): erasable TypeScript only.
 
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { cpus, release, tmpdir, totalmem, version as osVersion } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -31,6 +31,7 @@ import { parseArgs, promisify } from 'node:util';
 import Database from 'better-sqlite3';
 import { indexPath, openIndex, SCHEMA_VERSION, syncIndex, type SyncReport } from '../src/main/vault-index.ts';
 import { scanVault } from '../src/main/vault-scan.ts';
+import { createNoteCache } from '../src/renderer/note-cache.ts';
 import { generateVault } from './gen-vault.ts';
 
 /** Bump when the JSON changes in a way that breaks comparing two files. */
@@ -39,7 +40,7 @@ export const FORMAT = 1;
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
 const PHASES = ['cold', 'warm', 'reopen'] as const;
-export const METRICS = ['scanMs', 'coldMs', 'warmMs', 'reopenMs'] as const;
+export const METRICS = ['scanMs', 'coldMs', 'warmMs', 'reopenMs', 'hoverColdMs', 'hoverWarmMs'] as const;
 
 /** What each metric measured, saved with the numbers. */
 const CONDITIONS: Record<Metric, string> = {
@@ -49,6 +50,8 @@ const CONDITIONS: Record<Metric, string> = {
     '(system Node) and not read since by the benchmark; not a cold disk: the OS may cache them.',
   warmMs: 'Another new index (scan included) over notes the measuring process has already read.',
   reopenMs: 'The warm index again with nothing changed (scan and mtime + size check).',
+  hoverColdMs: 'Cold hover preview fetch from disk into NoteCache.',
+  hoverWarmMs: 'Warm hover preview lookup from NoteCache.',
 };
 
 type Phase = (typeof PHASES)[number];
@@ -60,6 +63,8 @@ interface Measurement {
   coldMs: number;
   warmMs: number;
   reopenMs: number;
+  hoverColdMs: number;
+  hoverWarmMs: number;
   /** What `syncIndex` reported in each phase. */
   sync: Record<Phase, SyncReport>;
   /** Size of the closed index. */
@@ -134,7 +139,33 @@ function check(phase: Phase, report: SyncReport, notes: number): void {
 
 /** Runs in its own process. `vault` must be freshly generated; `userData` must be empty. */
 async function measure(vault: string, userData: string, notes: number): Promise<Measurement> {
-  const [scanMs] = await timed(() => scanVault(vault));
+  const [scanMs, tree] = await timed(() => scanVault(vault));
+  const firstNote = (function findFirst(entries: typeof tree): string | null {
+    for (const entry of entries) {
+      if (entry.kind === 'note') return entry.path;
+      const nested = findFirst(entry.children);
+      if (nested) return nested;
+    }
+    return null;
+  })(tree);
+
+  const cache = createNoteCache({
+    getPreviews: async (paths) =>
+      Promise.all(
+        paths.map(async (p) => {
+          const text = await readFile(join(vault, p), 'utf8');
+          return { path: p, title: p, excerpt: text.slice(0, 500) };
+        }),
+      ),
+    onVaultEvents: () => () => {},
+  });
+  const [hoverColdMs] = firstNote ? await timed(() => cache.fetch(firstNote)) : [0];
+  const warmStart = performance.now();
+  if (firstNote) {
+    for (let i = 0; i < 1000; i++) cache.peek(firstNote);
+  }
+  const hoverWarmMs = Math.max(0.001, Math.round((performance.now() - warmStart) * 1000) / 1000);
+  cache.stop();
 
   const index = async (phase: Phase, file: string) => {
     const [ms, report] = await timed(async () => {
@@ -163,6 +194,8 @@ async function measure(vault: string, userData: string, notes: number): Promise<
     coldMs: cold.ms,
     warmMs: warm.ms,
     reopenMs: reopen.ms,
+    hoverColdMs,
+    hoverWarmMs,
     sync: { cold: cold.report, warm: warm.report, reopen: reopen.report },
     dbBytes: (await stat(warmFile)).size,
     versions: { node: process.versions.node, electron: process.versions.electron ?? null, sqlite, betterSqlite3 },

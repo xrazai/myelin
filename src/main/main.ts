@@ -124,6 +124,7 @@ function start(): void {
     getTree: () => vault.call('getTree'),
     listNotes: () => vault.call('listNotes'),
     readNote: (path) => vault.call('readNote', path),
+    getPreviews: (paths) => vault.call('getPreviews', paths),
     writeNote: (path, content, base) => vault.call('writeNote', path, content, base),
     resumeUnload: () => {
       heldUnload?.();
