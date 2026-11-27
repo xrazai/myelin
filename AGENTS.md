@@ -9,7 +9,7 @@ Goal priority:
 Status: stage 1 in progress (app scaffold in place). Repo: https://github.com/xrazai/myelin (branch `main`).
 
 ## Commands
-`npm install`, `npm run dev`, `npm run typecheck`, `npm test`, `npm run build`, `npm run preview`.
+`npm install`, `npm run dev`, `npm run typecheck`, `npm test`, `npm run build`, `npm run preview`, `npm run gen-vault -- --notes 10000 --seed 1` (synthetic vault outside the repo; options in `scripts/gen-vault.ts`).
 
 ## Language rule
 - Everything in the project is in English: code, identifiers, comments, file and folder names, UI text, docs.
