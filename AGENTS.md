@@ -71,6 +71,7 @@ Do not create tables, dependencies, queues or files for AI before the decision. 
 ## Targets (app)
 - Graph: 100k nodes at 60 FPS with glow, with headroom for weaker GPUs. Bloom/glow cost scales with pixels, not nodes.
   - Dev machine: i7-12700KF + RTX 5070 Ti (no integrated GPU). Plain FPS here proves little, so `bench` measures GPU time per frame instead: offscreen 2880x1800, 100k nodes, glow on (`EXT_disjoint_timer_query_webgl2`; fallback: N frames with `gl.finish()` and wall time). Budget: <= 1.5 ms GPU and <= 4 ms CPU per frame. This is a regression guard, not proof for other hardware.
+  - Weak-GPU estimate (simulation, no extra hardware): `bench` measures cost per pixel and per node/edge here, then scales them by memory bandwidth and FP32 throughput of reference profiles (`scripts/gpu-profiles.json`: Intel Iris Xe, UHD 770, N100) and prints estimated FPS per glow quality. Expected error up to ~2x; used to choose the adaptive-quality defaults (#35).
   - Weaker hardware is covered by adaptive quality in the library: below ~50 FPS it lowers bloom resolution, then turns glow off; it never drops nodes.
   - No dedicated integrated-GPU testing. If a user reports slowness on weak hardware, that report becomes an issue.
 - Link hover preview `< 1ms` for links visible in the editor: `note-cache.ts` is an LRU of short previews (title + first ~500 chars), prefetched for the `[[links]]` in the editor viewport. A cold hover (not prefetched) may take one IPC round-trip. Never hold full note texts for the whole vault in the renderer.
