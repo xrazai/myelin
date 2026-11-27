@@ -2,6 +2,7 @@
 
 import { checkGraph, type LayoutGraph, type LayoutOptions } from './forceatlas2.ts';
 import type { FromWorker, Port, ToWorker } from './protocol.ts';
+import type { RelaxGraph } from './relax.ts';
 
 export interface LayoutWorker extends Port<ToWorker> {
   onerror?: ((event: any) => void) | null;
@@ -79,6 +80,18 @@ export class GraphLayout {
     this.send({ type: 'start', run: ++this.run, graph: copy, options: this.options }, transfer);
   }
 
+  /**
+   * Moves only `graph.movable`, in the worker; one `layoutChange` brings every position.
+   * Takes the place of a running layout. The arrays are transferred: give copies.
+   */
+  relax(graph: RelaxGraph): void {
+    this.worker ??= this.connect();
+    this.front = null;
+    const transfer = [graph.alive, graph.edges, graph.weights, graph.positions, graph.movable, graph.temperatures]
+      .flatMap((array) => (array ? [array.buffer as ArrayBuffer] : []));
+    this.send({ type: 'relax', run: ++this.run, graph, options: this.options }, transfer);
+  }
+
   /** Stops the current layout; no more events come from it. */
   stop(): void {
     this.run++;
@@ -122,7 +135,7 @@ export class GraphLayout {
       this.fail(message.message);
       return;
     }
-    const previous = this.front;
+    const previous = message.done && this.front === null ? null : this.front;
     const positions = new Float32Array(message.buffer);
     this.front = positions;
     const { iteration, done, converged } = message;

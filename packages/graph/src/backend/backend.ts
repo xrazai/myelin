@@ -22,8 +22,13 @@ export interface Style {
   edgeAlpha: readonly [number, number];
 }
 
+/**
+ * The arrays may be longer than the counts need (room to grow): only the first
+ * `nodeCount` nodes and `edgeCount` edges are drawn. A node of radius 0 is not.
+ */
 export interface Scene {
   nodeCount: number;
+  edgeCount: number;
   /** `[source0, target0, source1, target1, ...]` */
   edges: Uint32Array;
   /** One per edge, 0 to 1. */
@@ -46,6 +51,11 @@ export interface Frame {
 export interface Backend {
   /** Replaces the graph. Nothing is drawn until `setPositions`. The arrays may be reused. */
   setGraph(scene: Scene): void;
+  /**
+   * Uploads what changed in a scene whose arrays are the ones of the last `setGraph`:
+   * `[from, to)` of nodes and of edges, and the new counts.
+   */
+  updateGraph(scene: Scene, nodes: [number, number] | null, edges: [number, number] | null): void;
   /** `[x0, y0, ...]` for every node of the graph, all finite. The array may be reused. */
   setPositions(positions: Float32Array): void;
   render(frame: Frame): void;

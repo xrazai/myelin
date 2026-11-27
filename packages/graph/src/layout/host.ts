@@ -2,6 +2,7 @@
 // publishes positions through two buffers that go back and forth (double buffering).
 
 import { ForceAtlas2 } from './forceatlas2.ts';
+import { relax } from './relax.ts';
 import type { FromWorker, Port, ToWorker } from './protocol.ts';
 
 export interface HostOptions {
@@ -73,6 +74,15 @@ export function createLayoutHost(port: Port<FromWorker>, options: HostOptions = 
       if (run?.id !== message.run) return;
       run.free.push(message.buffer);
       if (run.layout.done) report(run, performance.now());
+    } else if (message.type === 'relax') {
+      run = null;
+      try {
+        relax(message.graph, message.options);
+        const buffer = message.graph.positions.buffer as ArrayBuffer;
+        port.postMessage({ type: 'positions', run: message.run, buffer, iteration: 0, done: true, converged: true }, [buffer]);
+      } catch (error) {
+        fail(message.run, error);
+      }
     } else {
       try {
         const layout = new ForceAtlas2(message.graph, message.options);
