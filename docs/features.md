@@ -48,7 +48,7 @@ Built as the standalone library `@myelin/graph` (`docs/graph-lib.md`). App targe
 - Layout inside the library in a Web Worker: own ForceAtlas2 (LinLog) + Barnes-Hut solver, stops on its own when the system settles. Positions are persisted in `index.db` (by note path) so reopening is instant. Notes created/deleted while the app runs go through the library's incremental API.
 - Stable mental map: a new note is born near its neighbors and only its neighborhood relaxes; the rest of the graph does not move.
 - Labels: at most ~50-100 visible at once, by priority (connections, weight), overlapping ones skipped. Drawn on a transparent Canvas 2D layer over the WebGL2 canvas.
-- Constellations = subjects: groups of notes that link (and are used) together, found by community detection on the link graph weighted by usage. Not decoration: every level is clickable and leads to notes.
+- Constellations = subjects: groups of notes that link together, found by community detection on the link graph (weighted by usage once learning resumes, #34). Not decoration: every level is clickable and leads to notes.
 - Semantic zoom (each level is a level of the constellation hierarchy):
   - Far: top-level constellations glowing, each with its name (title of its most central note) and note count.
   - Mid: sub-constellations and hub titles.
@@ -57,8 +57,8 @@ Built as the standalone library `@myelin/graph` (`docs/graph-lib.md`). App targe
   - Hover: name, note count, top 3 notes.
   - Click: constellation card in the right column: its main notes (click opens the note), related constellations (strongest links between groups, click to go there), recently edited notes in it. Double-click: camera fits the constellation.
   - Opening a note from the editor, `Ctrl+P` or the Brain panel focuses it in the graph, inside its constellation.
-- Constellations follow use: usage weights (Pillar D) shape them, so subjects you work on together become one constellation over time (myelination you can see).
-- Myelination: edge thickness/brightness follows its usage weight (Pillar D).
+- Paused (#34): constellations will follow use. Usage weights (Pillar D) will shape them, so subjects you work on together become one constellation over time (myelination you can see). Until then every link weighs the same.
+- Paused (#34): edge thickness/brightness will follow its usage weight (Pillar D).
 - GPU micro-animations:
   - Bioluminescent breathing: soft glow waves on recently edited nodes (fragment shader).
   - Synaptic impulse: creating a `[[link]]` in the editor sends an ivory (`#F3E9D2`) beam along the edge to the target node, which pulses.
@@ -71,7 +71,7 @@ Built as the standalone library `@myelin/graph` (`docs/graph-lib.md`). App targe
 
 ## Pillar D: learning (`brain-adapter.ts`)
 Now (stage 3, no AI):
-- Myelination: usage events strengthen edges: following a link, opening two notes together, two notes retrieved together. Events are appended to `.myelin/usage.jsonl`; weights are computed into `index.db` and feed the graph.
+- Paused (#34), not working yet. Myelination: usage events will strengthen edges: following a link, opening two notes together, two notes retrieved together. Events are appended to `.myelin/usage.jsonl`; weights are computed into `index.db` and feed the graph.
 - No AI queue is written now: future processors catch up through content hashes (`AGENTS.md`, rule 2).
 
 Later (AI, decided after stage 4): semantic search, suggested links, syntheses of changed notes. They plug into the slots in `AGENTS.md`, "AI: prepared, not decided".
