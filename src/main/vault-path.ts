@@ -62,7 +62,27 @@ export async function writableNotePath(root: string, path: unknown): Promise<str
 }
 
 /**
- * The folder on disk that a new note at `path` (already valid) writes in another case, or
+ * The OS path of a folder about to be created at `path`, or a throw: the form of a note
+ * path without the `.md`, and everything above it a real folder that exists (no symlink or
+ * junction). Says nothing about the name (`folderNameProblem`) or what is at `path`.
+ */
+export async function newFolderPath(root: string, path: unknown): Promise<string> {
+  if (typeof path !== 'string' || /[\\:\0]/.test(path)) throw new Error(`not a folder path: ${String(path)}`);
+  const segments = path.split('/');
+  if (segments.some((segment) => segment === '' || segment.startsWith('.'))) {
+    throw new Error(`not a folder path: ${path}`);
+  }
+  let current = root;
+  for (const segment of segments.slice(0, -1)) {
+    current = join(current, segment);
+    // `lstat` calls a symlink or junction neither a file nor a folder.
+    if (!(await lstat(current)).isDirectory()) throw new Error(`not a folder: ${path}`);
+  }
+  return join(root, ...segments);
+}
+
+/**
+ * The folder on disk that a new note or folder at `path` (already valid) writes in another case, or
  * `null`. Windows would put the note in it, under a path the app does not know.
  */
 export async function folderOnDiskInOtherCase(root: string, path: string): Promise<string | null> {

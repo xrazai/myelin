@@ -94,14 +94,44 @@ export function noteNameProblem(path: string): string | null {
   const segments = stripExtension(path).split('/');
   const name = segments[segments.length - 1]!;
   if (/[[\]#|]/.test(name)) return 'a note name cannot contain [ ] # |';
+  const problem = segmentsProblem(segments);
+  if (problem) return problem;
+  if (/\.md$/i.test(name)) return 'a note name cannot end with .md';
+  return null;
+}
+
+const RESERVED = /^(?:con|prn|aux|nul|com[0-9\u00b9\u00b2\u00b3]|lpt[0-9\u00b9\u00b2\u00b3]|conin\$|conout\$) *(?:\.|$)/i;
+
+/** A device name of Windows, with any extension. Git and most Windows tools refuse it. */
+export function isReservedName(segment: string): boolean {
+  return RESERVED.test(segment);
+}
+
+/** What no name on the way to a note, its own included, can be. */
+function segmentsProblem(segments: string[]): string | null {
+  if (segments.some(isReservedName)) return 'Windows reserves that name';
   if (segments.some((segment) => /[<>:"?*\\\x00-\x1f]/.test(segment))) {
     return 'a name cannot contain < > : " ? * \\';
   }
   if (segments.some((segment) => segment !== segment.trim() || segment.endsWith('.'))) {
     return 'a name cannot start or end with a space, or end with a dot';
   }
-  if (/\.md$/i.test(name)) return 'a note name cannot end with .md';
   return null;
+}
+
+/**
+ * Why a folder cannot be created at `path`, or `null`. As strict as a note name: a link
+ * by path (`[[folder/Note]]`) must be able to hold every folder on the way.
+ */
+export function folderNameProblem(path: string): string | null {
+  const segments = path.split('/');
+  if (segments.includes('')) return 'a folder name cannot be empty';
+  // Hidden: neither the tree nor the index would show it.
+  if (segments.some((segment) => segment.startsWith('.'))) return 'a name cannot start with a dot';
+  if (segments.some((segment) => /[[\]#|]/.test(segment))) return 'a folder name cannot contain [ ] # |';
+  // The watcher would take it for a note.
+  if (segments.some((segment) => /\.md$/i.test(segment))) return 'a folder name cannot end with .md';
+  return segmentsProblem(segments);
 }
 
 /**

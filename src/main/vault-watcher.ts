@@ -12,7 +12,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { watch } from 'chokidar';
 import type Database from 'better-sqlite3';
 import type { RenameResult, TreeEntry, VaultEvent, WriteResult } from '../shared/ipc';
-import { createLinkResolver, noteNameProblem, rewriteLinksForRename } from '../shared/links.ts';
+import { createLinkResolver, folderNameProblem, noteNameProblem, rewriteLinksForRename } from '../shared/links.ts';
 import { renameWithRetry, writeFileAtomic, type AtomicWriteDeps } from './atomic-write.ts';
 import {
   contentHash,
@@ -24,7 +24,7 @@ import {
   type NoteUpdate,
   type SyncReport,
 } from './vault-index.ts';
-import { existingNotePath, writableNotePath } from './vault-path.ts';
+import { existingNotePath, folderOnDiskInOtherCase, newFolderPath, writableNotePath } from './vault-path.ts';
 import { listFolder, scanFolder, scanVault } from './vault-scan.ts';
 
 /** Hints are handled in one batch: after a quiet moment, or this long after the first. */
@@ -65,6 +65,8 @@ export interface VaultWatch {
    * Callers must have saved their own edits first.
    */
   rename(from: string, to: string): Promise<RenameResult>;
+  /** `createFolder` of the contract: its `created` event is sent before it resolves. */
+  createFolder(path: string): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -600,6 +602,24 @@ export function watchVault(root: string, { openDb, emit, sync = syncIndex }: Vau
         stale.add(path);
         scheduleUpdate();
         return { status: 'saved' };
+      }),
+    createFolder: (path) =>
+      serial(async () => {
+        const folder = await newFolderPath(root, path);
+        // Only the new name: the folders above it exist, however they are named.
+        const problem = folderNameProblem(path.slice(path.lastIndexOf('/') + 1));
+        if (problem) throw new Error(problem);
+        const other = await folderOnDiskInOtherCase(root, path);
+        if (other !== null) throw new Error(`the folder is named ${other}`);
+        // Not recursive: anything already there, in any case, refuses it.
+        await mkdir(folder).catch((error: NodeJS.ErrnoException) => {
+          if (error.code !== 'EEXIST') throw error;
+          throw new Error(`something is already named ${path}`);
+        });
+        if (!known) return;
+        const events: VaultEvent[] = [];
+        await compareFolder(parentOf(path), events);
+        send(events);
       }),
     async rename(from, to) {
       // Waits outside the queue: the first sync itself needs a turn in it, and saves must

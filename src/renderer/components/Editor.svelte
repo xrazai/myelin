@@ -69,7 +69,7 @@
       const cache = createNoteCache(window.myelin);
       const follow: FollowLink = (link, source, newTab) => {
         linkError = '';
-        linkDestination(list, window.myelin, link.target, source).then(
+        linkDestination(list, window.myelin, link.target, source, (path) => tabs.list.some((tab) => tab.path === path)).then(
           (path) => onfollow(path, source, newTab),
           (error: unknown) => (linkError = `Could not open the link. ${errorMessage(error)}`),
         );

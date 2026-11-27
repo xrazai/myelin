@@ -14,7 +14,9 @@ Extremely fluid, easy to navigate: tactile graph interactions, links, command pa
 
 Layout: tabs (top) | tree (left) | editor | right column (graph or Brain panel) | status bar (bottom) with the learning indicator.
 
-Shortcuts: `Ctrl+P` single palette (notes by default, `>` for commands). `Ctrl+Shift+L` toggles graph / Brain panel. `Ctrl+\` toggles Focus Mode (collapsing both side panels and restoring them on exit). `Ctrl+Shift+B` toggles the file tree.
+Shortcuts: `Ctrl+P` single palette (notes by default, `>` for commands). `Ctrl+Shift+L` toggles graph / Brain panel. `Ctrl+\` toggles Focus Mode (collapsing both side panels and restoring them on exit). `Ctrl+Shift+B` toggles the file tree. `Ctrl+N` creates a note.
+
+File tree: "New note" and "New folder" buttons (also in an empty vault) create at the root. Right click, the Menu key or `Shift+F10` opens a menu: New note and New folder in the chosen folder (or the folder of the chosen note; blank space: the root), and Rename on a note. The name is typed above the tree; a refused name says why, and nothing existing is replaced. A new note opens ready to type. `Ctrl+N` creates at the root and shows the tree if it is hidden. `F2` renames.
 
 ## Brain panel (vault query)
 Opened by the synapse/chat icon (top right) or `Ctrl+Shift+L`. The graph slides away and the panel takes its place.

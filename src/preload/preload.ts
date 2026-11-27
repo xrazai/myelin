@@ -27,6 +27,7 @@ const api: MyelinApi = {
   getPreviews: call('getPreviews'),
   writeNote: call('writeNote'),
   renameNote: call('renameNote'),
+  createFolder: call('createFolder'),
   search: call('search'),
   resumeUnload: call('resumeUnload'),
   onVaultEvents: subscribe(EVENT_CHANNELS.vaultEvents),

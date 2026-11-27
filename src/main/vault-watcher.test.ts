@@ -1,6 +1,6 @@
 // The real watcher on a real folder. Events are followed through the renderer's own tree
 // logic, so each test also checks that the reported tree matches a fresh scan.
-import { appendFile, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type Database from 'better-sqlite3';
@@ -346,6 +346,48 @@ describe('after the first sync', () => {
     await new Promise((resolve) => setTimeout(resolve, 700));
     expect(seen).toEqual([]);
     expect(notes()).toEqual(['Home.md']);
+  });
+});
+
+describe('createFolder', () => {
+  beforeEach(async () => {
+    await mkdir(at('Notes'));
+    await write('Notes/A.md', 'a');
+    watching = start();
+    await watching.indexed;
+    tree = await watching.getTree();
+    seen = [];
+  });
+
+  test('creates the folder and reports it before resolving', async () => {
+    await watching.createFolder('Notes/New folder');
+    expect(seen).toEqual([event('created', 'Notes/New folder', 'folder')]);
+    expect(await readdir(at('Notes/New folder'))).toEqual([]);
+    await watching.createFolder('Top');
+    expect(tree.map((entry) => entry.path)).toEqual(['Notes', 'Top']);
+  });
+
+  test('never replaces a folder or a file, in any case', async () => {
+    await write('plain', 'a file, not a note');
+    for (const path of ['Notes', 'notes', 'plain', 'Plain']) {
+      await expect(watching.createFolder(path), path).rejects.toThrow('already named');
+    }
+    await expect(watching.createFolder('notes/Sub')).rejects.toThrow('the folder is named Notes');
+    expect(await readFile(at('plain'), 'utf8')).toBe('a file, not a note');
+    expect(await readdir(at('Notes'))).toEqual(['A.md']);
+    expect(seen).toEqual([]);
+  });
+
+  test('refuses names it cannot use, paths outside the vault and a missing parent', async () => {
+    for (const path of ['C#', 'x.md', 'end.', 'why?']) await expect(watching.createFolder(path), path).rejects.toThrow();
+    for (const path of ['../out', '.myelin/x', 'a//b', 'C:/x', 'a\\b']) {
+      await expect(watching.createFolder(path), path).rejects.toThrow('not a folder path');
+    }
+    await expect(watching.createFolder('missing/Sub')).rejects.toThrow('ENOENT');
+    await symlink(outside, at('Link'), 'junction');
+    await expect(watching.createFolder('Link/Sub')).rejects.toThrow('not a folder');
+    expect(await readdir(outside)).toEqual([]);
+    expect((await readdir(root)).filter((name) => name !== '.myelin').sort()).toEqual(['Link', 'Notes']);
   });
 });
 

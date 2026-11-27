@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createLinkResolver, linkKey, noteLinks, noteNameProblem, parseLinks, rewriteLinksForRename } from './links';
+import { createLinkResolver, linkKey, noteLinks, folderNameProblem, isReservedName, noteNameProblem, parseLinks, rewriteLinksForRename } from './links';
 
 const targets = (text: string) => parseLinks(text).map((l) => l.target);
 
@@ -249,5 +249,32 @@ describe('rewriteLinksForRename', () => {
     expect(rename('[[Old]]', 'Link.md', 'a/Old.md', 'b/New.md', ['a/Old.md', 'b/New.md', 'New.md', 'Link.md']).text).toBe(
       '[[b/New]]',
     );
+  });
+});
+
+describe('folderNameProblem', () => {
+  it('accepts ordinary folder names, accents and spaces included', () => {
+    for (const path of ['Notes', 'Anotações/2026 plans', 'a.b', 'readme.mdx']) expect(folderNameProblem(path), path).toBeNull();
+  });
+
+  it('refuses names that links, the watcher or Windows cannot hold', () => {
+    const refused = ['', 'a//b', '.hidden', 'a/..', 'C#', '[x]', 'a|b', 'x.md', 'X.MD/y', 'a:b', 'why?', 'a\\b', 'end.', 'space ', ' space', 'a\0'];
+    for (const path of refused) expect(folderNameProblem(path), JSON.stringify(path)).toEqual(expect.any(String));
+  });
+});
+
+describe('reserved Windows names', () => {
+  it('are refused for notes and folders, with or without an extension', () => {
+    for (const name of ['CON', 'aux', 'Nul', 'prn', 'com1', 'LPT9', 'COM¹', 'conin$', 'CONOUT$', 'aux.notes', 'con .x']) {
+      expect(isReservedName(name), name).toBe(true);
+      expect(folderNameProblem(name), name).toBe('Windows reserves that name');
+      expect(noteNameProblem(`${name}.md`), name).toBe('Windows reserves that name');
+    }
+  });
+
+  it('leave names that only start like them', () => {
+    for (const name of ['console', 'auxiliary', 'com10', 'nullable', 'my con', 'icon']) {
+      expect(isReservedName(name), name).toBe(false);
+    }
   });
 });

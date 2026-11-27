@@ -41,6 +41,7 @@ test('each call invokes its own channel with its arguments', () => {
   void api.getPreviews(['a.md']);
   void api.writeNote('a.md', 'text', 'before');
   void api.renameNote('a.md', 'b.md');
+  void api.createFolder('folder');
   void api.search('query');
   void api.resumeUnload();
   expect(electron.invoke.mock.calls).toEqual([
@@ -52,6 +53,7 @@ test('each call invokes its own channel with its arguments', () => {
     [CALL_CHANNELS.getPreviews, ['a.md']],
     [CALL_CHANNELS.writeNote, 'a.md', 'text', 'before'],
     [CALL_CHANNELS.renameNote, 'a.md', 'b.md'],
+    [CALL_CHANNELS.createFolder, 'folder'],
     [CALL_CHANNELS.search, 'query'],
     [CALL_CHANNELS.resumeUnload],
   ]);

@@ -115,6 +115,9 @@ const handlers: Handlers = {
     }
     return result;
   },
+  async createFolder(path) {
+    return openSession().watch.createFolder(path);
+  },
   async whenIndexed() {
     return openSession().watch.indexed;
   },

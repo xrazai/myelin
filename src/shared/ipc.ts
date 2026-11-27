@@ -94,6 +94,12 @@ export interface MyelinApi {
    */
   renameNote(from: string, to: string): Promise<RenameResult>;
   /**
+   * Creates the folder at `path`, inside a folder that exists. It is reported `created`
+   * before the call resolves. Rejects, with the vault untouched, if anything is there or
+   * the name cannot be used.
+   */
+  createFolder(path: string): Promise<void>;
+  /**
    * Does the close or reload that the page held back (`beforeunload`) to save first. The
    * page cannot tell which one it was.
    */
@@ -130,6 +136,7 @@ export const CALL_CHANNELS = {
   getPreviews: 'note:previews',
   writeNote: 'note:write',
   renameNote: 'note:rename',
+  createFolder: 'folder:create',
   search: 'brain:search',
   resumeUnload: 'window:resume-unload',
 } as const satisfies Record<CallName, string>;
