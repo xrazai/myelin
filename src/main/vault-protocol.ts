@@ -27,6 +27,8 @@ export interface VaultRequests {
   writeNote(path: string, content: string, base: string | null): WriteResult;
   /** `renameNote` of the contract: one batch, including link rewrites and one reindex. */
   renameNote(from: string, to: string): RenameResult;
+  /** `createFolder` of the contract, on the current vault. */
+  createFolder(path: string): void;
   /**
    * Settles when the current vault's index sync ends. Rejects if the index cannot be
    * opened or synced, or if another `open` cancels it.
