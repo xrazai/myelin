@@ -2,6 +2,8 @@
 
 Decisions, rules and targets: `AGENTS.md`. Colors: `docs/identity.md`.
 
+Product rule: beauty is never alone. Every visual element (glow, constellation, animation) must mean something and lead somewhere: click opens a note, hover explains, a group shows related subjects. If it is only pretty, it is not done.
+
 ## Launcher
 First screen. Two choices:
 - Create a new vault: pick the folder where it will be saved.
