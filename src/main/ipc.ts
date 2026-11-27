@@ -28,6 +28,7 @@ export const pendingHandlers: CallHandlers = {
   createVault: notImplemented('createVault'),
   openVault: notImplemented('openVault'),
   getTree: notImplemented('getTree'),
+  listNotes: notImplemented('listNotes'),
   readNote: notImplemented('readNote'),
   writeNote: notImplemented('writeNote'),
   search: notImplemented('search'),

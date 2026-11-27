@@ -3,7 +3,12 @@
   import type { VaultInfo } from '../../shared/ipc';
   import { createNoteEditor } from '../editor/cm-editor';
   import { connectEditor, type EditorStatus } from '../editor/editor-tabs';
+  import { linkCompletion } from '../editor/link-complete';
+  import { linkDestination, linkFollowing, type FollowLink } from '../editor/link-follow';
+  import { LINK_PULSE_EVENT, linkPulse } from '../editor/link-pulse';
   import { createNoteSaver, type NoteProblems, type NoteSaver } from '../editor/note-saver';
+  import { errorMessage } from '../error-message';
+  import { watchNoteList } from '../note-list';
   import { tabName, type Tabs } from '../tabs-model';
 
   let {
@@ -13,6 +18,7 @@
     onsaver,
     onproblems,
     ondiscard,
+    onfollow,
   }: {
     vault: VaultInfo;
     tabs: Tabs;
@@ -22,7 +28,12 @@
     onproblems: (problems: NoteProblems) => void;
     /** Close the note's tab and give up its unsaved text. */
     ondiscard: (path: string) => void;
+    /** Open the note a link of `source` leads to, in its place or in a new tab. */
+    onfollow: (path: string, source: string, newTab: boolean) => void;
   } = $props();
+
+  /** Why the last link followed could not be opened. */
+  let linkError = $state('');
 
   const active = $derived(tabs.list.find((tab) => tab.path === tabs.active) ?? null);
   const problem = $derived((active && problems.get(active.path)) || null);
@@ -37,8 +48,26 @@
     const parent = container;
     if (!parent) return;
     return untrack(() => {
-      const editor = createNoteEditor(parent, [], (path) => notes.edited(path));
-      const notes = createNoteSaver(editor, window.myelin);
+      const list = watchNoteList(window.myelin);
+      const follow: FollowLink = (link, source, newTab) => {
+        linkError = '';
+        linkDestination(list, window.myelin, link.target, source).then(
+          (path) => onfollow(path, source, newTab),
+          (error: unknown) => (linkError = `Could not open the link. ${errorMessage(error)}`),
+        );
+      };
+      const links = [
+        linkFollowing(follow),
+        linkCompletion({
+          notes: list,
+          readText: async (path) => (editor.has(path) ? editor.text(path) : window.myelin.readNote(path)),
+        }),
+      ];
+      const editor = createNoteEditor(parent, links, (path) => notes.edited(path));
+      const notes = createNoteSaver(editor, window.myelin, (path, before, after) => {
+        const pulse = list.isLoaded() ? linkPulse(path, before, after, list.resolve) : null;
+        if (pulse) window.dispatchEvent(new CustomEvent(LINK_PULSE_EVENT, { detail: pulse }));
+      });
       const unsubscribe = [window.myelin.onVaultEvents(notes.external), notes.subscribe(onproblems)];
       const connected = connectEditor(editor, notes, (next) => {
         status = next;
@@ -52,10 +81,17 @@
         onsaver(null);
         for (const stop of unsubscribe) stop();
         connected.stop();
+        list.stop();
         notes.stop();
         editor.destroy();
       };
     });
+  });
+
+  // The message is about the note the link is in.
+  $effect(() => {
+    void tabs.active;
+    untrack(() => (linkError = ''));
   });
 
   $effect(() => {
@@ -88,6 +124,12 @@
     </div>
   {:else if active?.deleted && status.kind === 'ready'}
     <p class="notice" role="status">This note was deleted.</p>
+  {/if}
+  {#if linkError}
+    <div class="notice problem" role="alert">
+      <p>{linkError}</p>
+      <button type="button" onclick={() => (linkError = '')}>Dismiss</button>
+    </div>
   {/if}
   <div class="host" bind:this={container}></div>
   {#if !active}

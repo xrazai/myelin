@@ -34,7 +34,8 @@ function setup(files: Record<string, string> = { 'a.md': 'one' }) {
       return { status: 'saved' };
     },
   };
-  const saver = createNoteSaver(editor, api);
+  const saved: [string, string, string][] = [];
+  const saver = createNoteSaver(editor, api, (...args) => void saved.push(args));
   let problems: NoteProblems = new Map();
   saver.subscribe((next) => (problems = next));
 
@@ -42,6 +43,7 @@ function setup(files: Record<string, string> = { 'a.md': 'one' }) {
     disk,
     texts,
     writes,
+    saved,
     faults,
     undoable,
     saver,
@@ -70,6 +72,22 @@ beforeEach(() => void vi.useFakeTimers());
 afterEach(() => void vi.useRealTimers());
 
 describe('auto-save', () => {
+  test('tells what each write replaced, and nothing for a write that did not happen', async () => {
+    const t = setup({ 'a.md': '\uFEFFone\r\n' });
+    await t.open();
+    t.type('two\n');
+    await pause();
+    t.type('three\n');
+    t.faults.fail = 'disk full';
+    await pause();
+    t.faults.fail = null;
+    await t.saver.save('a.md');
+    expect(t.saved).toEqual([
+      ['a.md', 'one\n', 'two\n'],
+      ['a.md', 'two\n', 'three\n'],
+    ]);
+  });
+
   test('writes once typing stops', async () => {
     const t = setup();
     await t.open();

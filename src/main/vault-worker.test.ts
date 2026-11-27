@@ -36,6 +36,7 @@ test('opens a folder and serves its tree from the worker thread', async () => {
   expect(worker.threadId).toBeGreaterThan(0);
   expect(await vault.call('open', root)).toMatchObject({ name: basename(root), root });
   expect(await vault.call('getTree')).toEqual([{ kind: 'note', name: 'Home', path: 'Home.md' }]);
+  expect(await vault.call('listNotes')).toEqual(['Home.md']);
 });
 
 test('reads a note of the open vault, and nothing outside it', async () => {

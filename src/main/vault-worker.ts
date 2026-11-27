@@ -7,7 +7,7 @@ import { parentPort, workerData } from 'node:worker_threads';
 import Database from 'better-sqlite3';
 import type { VaultRequest, VaultRequests, VaultWorkerData, WorkerMessage } from './vault-protocol';
 import { loadVaultConfig } from './vault-config.ts';
-import { indexPath, openIndex } from './vault-index.ts';
+import { indexPath, notePaths, openIndex } from './vault-index.ts';
 import { existingNotePath, writableNotePath } from './vault-path.ts';
 import { watchVault, type VaultWatch } from './vault-watcher.ts';
 
@@ -65,6 +65,9 @@ const handlers: Handlers = {
   },
   async getTree() {
     return openSession().watch.getTree();
+  },
+  async listNotes() {
+    return notePaths(await openSession().watch.getTree());
   },
   async readNote(path) {
     return readFile(await existingNotePath(openSession().root, path), 'utf8');

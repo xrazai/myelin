@@ -22,6 +22,7 @@ const api: MyelinApi = {
   createVault: call('createVault'),
   openVault: call('openVault'),
   getTree: call('getTree'),
+  listNotes: call('listNotes'),
   readNote: call('readNote'),
   writeNote: call('writeNote'),
   search: call('search'),

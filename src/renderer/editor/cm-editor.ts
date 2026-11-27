@@ -6,6 +6,7 @@ import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { Annotation, EditorState, Transaction, type Extension, type StateEffect } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
 import { livePreview } from './live-preview';
+import { notePath } from './note-path';
 import type { SaverEditor } from './note-saver';
 import { textChanges } from './text-changes';
 import { theme } from './theme';
@@ -46,7 +47,7 @@ interface Note {
   scroll: StateEffect<unknown> | null;
 }
 
-/** `extra` is for the benchmark's probe; `onEdit` hears the user change a note's text. */
+/** `extra` adds the links (and the benchmark's probe); `onEdit` hears the user change a note's text. */
 export function createNoteEditor(
   parent: HTMLElement,
   extra: Extension = [],
@@ -76,7 +77,7 @@ export function createNoteEditor(
   return {
     has: (path) => notes.has(path),
     load(path, text) {
-      const state = EditorState.create({ doc: text, extensions: [extensions, edits, extra] });
+      const state = EditorState.create({ doc: text, extensions: [extensions, notePath.of(path), edits, extra] });
       notes.set(path, { state, scroll: null });
     },
     text: (path) => stateOf(path).doc.toString(),

@@ -109,7 +109,8 @@ function removeSidecars(file: string): void {
   for (const suffix of ['-wal', '-shm']) rmSync(file + suffix, { force: true });
 }
 
-function notePaths(entries: TreeEntry[], into: string[] = []): string[] {
+/** The path of every note in the tree, in tree order. */
+export function notePaths(entries: TreeEntry[], into: string[] = []): string[] {
   for (const entry of entries) {
     if (entry.kind === 'note') into.push(entry.path);
     else notePaths(entry.children, into);

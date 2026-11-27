@@ -84,7 +84,7 @@ Do not create tables, dependencies, queues or files for AI before the decision. 
 - Link hover preview `< 1ms` for links visible in the editor: `note-cache.ts` is an LRU of short previews (title + first ~500 chars), prefetched for the `[[links]]` in the editor viewport. A cold hover (not prefetched) may take one IPC round-trip. Never hold full note texts for the whole vault in the renderer.
 
 ## Benchmark (`scripts/bench.ts`)
-On `gen-vault` output (10k / 100k notes): graph FPS with glow, hover latency (warm and cold), FTS5 indexing time, first layout time.
+On `gen-vault` output (10k / 100k notes): graph FPS with glow, hover latency (warm and cold), FTS5 indexing time. First layout time is measured by `node scripts/bench-layout.ts`.
 `--editor` (`scripts/bench-editor.ts`): typing latency of the editor, with real key events in the repo's Electron (needs a desktop session). Budget on a 10k-line note: p95 <= 16 ms from keydown to the DOM updated and laid out.
 
 ## Learning (what "Myelin" means in code)
@@ -140,8 +140,16 @@ myelin/
 │       │   ├── text-changes.ts # minimal changes for a reload that keeps cursor and scroll
 │       │   ├── live-preview.ts # hides Markdown syntax away from the cursor (visible ranges only)
 │       │   ├── wiki-link.ts   # [[link]] in the Lezer parser, same grammar as shared/links.ts
+│       │   ├── link-syntax.ts # the link at a position (tables included), never in code
+│       │   ├── link-complete.ts # [[ completion: note names, then headings after Note#
+│       │   ├── headings.ts    # a note's headings, for that completion
+│       │   ├── link-follow.ts # Ctrl+Click / Ctrl+Enter (+Shift: new tab); creates a missing note
+│       │   ├── link-pulse.ts  # a save that adds a link -> `myelin:link-pulse` window event
+│       │   ├── note-path.ts   # which note an editor state holds
 │       │   └── theme.ts       # editor look, from the identity tokens
 │       ├── tree-model.ts      # file tree logic: visible rows, watcher events, keyboard
+│       ├── note-list.ts       # every note path (no content), kept current by watcher events
+│       ├── note-search.ts     # fuzzy search over note names, ignoring case and accents
 │       ├── note-cache.ts      # LRU of short previews, viewport prefetch
 │       └── graph-view.ts      # glue: note path <-> node id, feeds @myelin/graph, wires events
 └── vault-dev/                 # local test vault
@@ -163,6 +171,7 @@ Workspace layout: tabs (top) | tree (left) | editor | graph or Brain panel (righ
 - Solo flow (Rafa): commit straight to `main` (ruleset bypass); the commit that finishes an issue ends its message with `Closes #N` (partial work: `Refs #N`). Closing moves the card to Done. Rafa's agents follow `CLAUDE.local.md` (local, git-ignored) for when to commit, push and open PRs; if it is missing, ask before any push.
 - Commit messages: Conventional Commits, `type(scope): subject` in English, imperative, lower case, no period. Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `ci`, `build`, `perf`. Scope = area (`vault`, `editor`, `graph`, `ui`, `tooling`) when it fits. Breaking change: `type(scope)!: subject`. PR titles use the same format (the squash commit takes the PR title).
 - Contributors: fork, branch `<issue>-short-slug`, PR with `Closes #N`. Ruleset "Protect main": PR required, review threads resolved, no force push, no deletion; no required approval (only maintainers can merge anyway; CODEOWNERS still requests review). Rafa (admin) bypasses for direct pushes. Merge: squash only (PR title = commit), branch deleted after merge. CI (`.github/workflows/ci.yml`) runs on PRs and pushes to `main`; every CI job goes in the `needs` of the `all-checks` job. Every `uses:` is pinned to a full commit SHA with the full version as a comment (`# v7.0.1`; Dependabot updates both). The `actionlint` job lints all workflows on every PR. `all-checks` is a required check, not strict (a PR behind `main` can merge if its own CI passed, as in NousResearch/hermes-agent; strict mode left PRs stuck behind every merge). Auto-merge is on: PRs are created with `gh pr merge --auto --squash` and merge themselves when `all-checks` passes. CI also runs on every push to `main`; a red `main` is fixed before anything else.
+- `bench.yml` compares the benchmark of each PR with its base; not required, kept out of `ci.yml` so it is not in `all-checks`.
 - Security: private vulnerability reporting on; Dependabot alerts and security updates on; secret scanning with push protection on; CodeQL default setup on (JS/TS and Actions, weekly + PRs, not a required check).
 - Automations: new issues/PRs are auto-added to the board in Backlog; closed/merged -> Done; card moved to Done -> issue closed; PR linked -> In progress.
 - Change status: `gh project item-edit 7 --owner xrazai --url <issue-url> --field Status --value "In progress"` (values: Backlog, Todo, In progress, Done).
