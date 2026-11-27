@@ -4,6 +4,17 @@ name: Benchmark
 # it is outside CI so that it stays out of `all-checks`. Shared runners are noisy.
 on:
   pull_request:
+    # Only the code the benchmark runs: add here whatever `bench.ts` starts to import
+    # (`packages/graph/**` when graph FPS joins). Safe to filter because the check is not required.
+    paths:
+      - src/main/**
+      - src/shared/**
+      - scripts/bench.ts
+      - scripts/bench-compare.ts
+      - scripts/gen-vault.ts
+      - package.json
+      - package-lock.json
+      - .github/workflows/bench.yml
 
 permissions:
   contents: read
@@ -24,7 +35,9 @@ jobs:
         shell: bash
     env:
       SIZES: '10000'
-      # Invocations per side, one run each. About 70 s per invocation at 10k notes; 100k does not fit.
+      # Invocations per side, one run each. About 60 s per invocation at 10k notes, mostly the
+      # cold and warm index; 100k does not fit. Do not go below 3: with 3, one outlier run does
+      # not move a median, so by itself it cannot raise a warning.
       ROUNDS: 3
     steps:
       # The PR merged into its base (`HEAD`); `HEAD^1` is that base.
