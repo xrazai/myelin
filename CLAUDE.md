@@ -53,7 +53,7 @@ Do not create tables, dependencies, queues or files for AI before the decision. 
    - Main process <-> renderer over IPC is a copy, and so is every GPU upload. Both are cheap (100k nodes x/y = 800 KB).
    - Graph node ids are session-local dense indices assigned by `graph-view.ts`. Persisted data (positions, weights) is keyed by note path, never by node id.
 6. Performance claims are proven by the benchmark in `scripts/`, never assumed.
-7. Single stack: everything in Electron/Node. No Python, no external services, no HTTP servers.
+7. Single stack: everything in Electron/Node. No Python, no external services, no HTTP servers. Only outbound connection: the update check (see Releases and updates).
 8. Text encoding and line endings (enforced by `.editorconfig` and `.gitattributes`):
    - Every text file is UTF-8 without BOM, LF.
    - Shell: use `pwsh` (PowerShell 7) or Git Bash. In Windows PowerShell 5.1, never write project files with `Out-File` or `>` (UTF-16 by default); prefer the agent's file tools.
@@ -118,9 +118,26 @@ Index outside the vault: `<userData>/vaults/<vault-id>/index.db`.
 Screens: launcher (create or open a vault) -> workspace.
 Workspace layout: tabs (top) | tree (left) | editor | graph or Brain panel (right) | status bar (bottom) with the learning indicator.
 
+## Workflow (GitHub)
+- Board: GitHub Project "Myelin", https://github.com/users/xrazai/projects/7. Status: Backlog -> Todo -> In progress -> Done.
+- Every piece of work is an issue, in English. ID = issue number (`#12`). Labels: type (`task`, `bug`, `enhancement`, `documentation`) + `area: vault|editor|graph|ui|tooling`. Milestone = roadmap stage.
+- Templates in `.github/` (bug, feature, task, PR). Contributors: fork + PR with `Closes #N`.
+- Solo flow: commit straight to `main`; the commit that finishes an issue ends its message with `Closes #N` (partial work: `Refs #N`). Closing moves the card to Done.
+- Starting an issue: move it to In progress:
+  `gh project item-edit --project-id PVT_kwHODk2s-84BtdwQ --field-id PVTSSF_lAHODk2s-84BtdwQzhrnHsE --id <item-id> --single-select-option-id <option>`
+  Options: Backlog `be9d4ac3`, Todo `b4b903af`, In progress `8dcd1b3a`, Done `61e2d1b2`. Item id: `gh project item-list 7 --owner xrazai --format json`.
+- New issues: `gh issue create` with labels + milestone, then `gh project item-add 7 --owner xrazai --url <issue-url>` and set Status.
+
+## Releases and updates
+- Packaging: `electron-builder` (NSIS on Windows). Updates: `electron-updater`, GitHub provider.
+- Release = push a SemVer tag `vX.Y.Z` (`0.x` until stable); GitHub Actions builds and publishes the installer + `latest.yml` to GitHub Releases. Release notes are the release body and show in the app's "What's new".
+- Network rule: the update check to GitHub Releases is the app's only outbound connection. It sends no vault data and can be turned off in settings. Everything else stays offline.
+- Windows first. macOS (signing + notarization) and Linux later. Code signing: decide later (unsigned = SmartScreen warning on first install).
+- Tracked in #12.
+
 ## Roadmap
 1. Skeleton, I/O and proof tools: themed window, launcher, file tree, `vault-worker` (atomic writes, watcher loop guard, `index.db` + FTS5), `gen-vault` and `bench`.
-2. Fluid editor: CodeMirror 6, live preview, `Ctrl+P` palette, `[[link]]` autocomplete, rename updates links, hover preview with viewport prefetch. Daily use starts here.
+2. Fluid editor: CodeMirror 6, live preview, `Ctrl+P` palette, `[[link]]` autocomplete, rename updates links, hover preview with viewport prefetch. Daily use starts here: first release `v0.1.0` with auto-update (#12).
 3. Search and Brain panel: `brain-adapter` with FTS5, excerpt cards with sources, usage events in `usage.jsonl` and edge weights.
 4. Graph: `@myelin/graph` on WebGL2, layout worker, incremental API, semantic zoom, micro-animations, edge weights as thickness/glow.
 
@@ -129,6 +146,7 @@ Decide only when the stage that needs it starts.
 - AI (after stage 4): semantic search (embedding model, must be multilingual; vector store), local model and runtime, syntheses and suggested links, how answers stay confined to the vault (retrieval + citations), where model files live (not bundled in the installer), and how to measure answer quality.
   - Quality set: 30-50 real questions with expected notes, covering: purely semantic (no shared words), literal terms/acronyms/names (hybrid must not lose what FTS5 gets right), mixed PT-BR + EN technical terms, and answers spread over 2-3 linked notes. Multi-note questions need "all expected notes in top k" (e.g. recall@5), not recall@3. With ~40 questions one miss is ~2.5 pts: only trust large differences.
 - Body serif (stage 1 theme): Literata or Newsreader, by visual test (`docs/identity.md`).
+- Code signing (before sharing installers widely): Windows certificate or Azure Trusted Signing; macOS needs an Apple Developer account.
 - npm scope `@myelin` (before publishing the library): no public packages under it (checked 2026-11-27), but whether a user/org already owns the name is unknown. Reserving means Rafa creating an npm org named `myelin`.
 
 ## Later
