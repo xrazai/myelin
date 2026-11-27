@@ -381,7 +381,7 @@
       <kbd>Ctrl+P</kbd>
     </button>
     <div class="files">
-      <FileTree bind:this={fileTree} selected={tabs.active} onopen={(path) => (tabs = openTab(tabs, path))} onrename={requestRename} />
+      <FileTree bind:this={fileTree} hasTab={(path) => tabs.list.some((tab) => tab.path === path)} selected={tabs.active} onopen={(path) => (tabs = openTab(tabs, path))} onrename={requestRename} />
     </div>
   </nav>
 

@@ -12,10 +12,13 @@
     selected,
     onopen,
     onrename,
+    hasTab,
   }: {
     selected: string | null;
     onopen: (path: string) => void;
     onrename: (from: string, to: string) => void;
+    /** A note with no file but a tab was deleted: its tab may hold its text. */
+    hasTab: (path: string) => boolean;
   } = $props();
 
   /** Fixed, so only the rows in view need to be in the DOM. */
@@ -99,6 +102,13 @@
     const asked = creating;
     if (!asked || !item || item.problem !== null || submitting) return;
     const { path } = item;
+    if (asked.kind === 'note' && hasTab(path)) {
+      // Shown, not written over. If it is the active tab already, nothing else takes the focus.
+      creating = null;
+      list?.focus();
+      onopen(path);
+      return;
+    }
     submitting = true;
     try {
       if (asked.kind === 'folder') await window.myelin.createFolder(path);
@@ -356,6 +366,7 @@
 
 <style>
   .file-tree {
+    position: relative;
     display: flex;
     flex-direction: column;
     height: 100%;
@@ -392,12 +403,19 @@
     background: var(--surface-hover);
   }
 
+  /* Over the rows, never pushing them: it closes on blur, in the middle of a click. */
   .create {
+    position: absolute;
+    top: 28px;
+    right: 0;
+    left: 0;
+    z-index: 2;
     display: flex;
-    flex: none;
     flex-direction: column;
     gap: 4px;
     padding: 0 10px 8px;
+    background: var(--bg-panel);
+    border-bottom: 1px solid var(--divider);
   }
 
   .create label {
