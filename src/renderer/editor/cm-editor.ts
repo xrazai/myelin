@@ -3,7 +3,7 @@
 // scroll position. Saving is `note-saver.ts`'s job.
 import { defaultKeymap, history, historyKeymap, isolateHistory } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
-import { Annotation, Compartment, EditorState, Transaction, type Extension, type StateEffect } from '@codemirror/state';
+import { Annotation, Compartment, EditorState, Transaction, type Extension, type StateEffect, type Text } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
 import { findInNote, openFind } from './find';
 import { focusDim, setFocusDimEffect } from './focus-dim';
@@ -35,6 +35,9 @@ const extensions: Extension = [
   theme,
 ];
 
+/** The offset to go to in a note's text. */
+export type Locate = (doc: Text) => number;
+
 /** `load` adds a note read from disk, without showing it. */
 export interface NoteEditor extends SaverEditor {
   /** `true` if the editor holds this note's text. */
@@ -43,8 +46,8 @@ export interface NoteEditor extends SaverEditor {
   show(path: string | null): void;
   /** Toggles paragraph focus dimming on the active view. */
   setFocusDim(enabled: boolean): void;
-  /** Puts the cursor at `line` (from 1) and `column` of a note, now or once it shows. */
-  reveal(path: string, line: number, column: number): void;
+  /** Puts the cursor where `locate` says in a note's text, now or once it shows. */
+  reveal(path: string, locate: Locate): void;
   /** Opens find over the note on screen, if there is one. */
   find(): void;
   /** Forgets every note not in `paths`. */
@@ -72,7 +75,7 @@ export function createNoteEditor(
   let shown: string | null = null;
   let focusDimOn = false;
   /** A position to go to once its note is on screen. */
-  let wanted: { path: string; line: number; column: number } | null = null;
+  let wanted: { path: string; locate: Locate } | null = null;
   view.dom.hidden = true;
 
   const edits = EditorView.updateListener.of((update) => {
@@ -94,8 +97,7 @@ export function createNoteEditor(
   function goToWanted() {
     if (!wanted || wanted.path !== shown) return;
     const { doc } = view.state;
-    const line = doc.line(Math.min(Math.max(1, wanted.line), doc.lines));
-    const position = Math.min(line.from + wanted.column, line.to);
+    const position = Math.min(Math.max(0, wanted.locate(doc)), doc.length);
     wanted = null;
     view.dispatch({ selection: { anchor: position }, effects: EditorView.scrollIntoView(position, { y: 'center' }) });
     view.focus();
@@ -147,8 +149,8 @@ export function createNoteEditor(
       if (focus) view.focus();
       goToWanted();
     },
-    reveal(path, line, column) {
-      wanted = { path, line, column };
+    reveal(path, locate) {
+      wanted = { path, locate };
       goToWanted();
     },
     setFocusDim(enabled) {

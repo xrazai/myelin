@@ -165,6 +165,8 @@ myelin/
 │       ├── delete-item.ts     # deleting: save the open notes, move to the Recycle Bin, close their tabs
 │       ├── move-item.ts       # moving in the tree: valid destinations (a move is a rename to another folder)
 │       ├── session-state.ts   # open tabs and expanded folders per vault (localStorage)
+│       ├── highlight.ts       # an excerpt cut at its match ranges
+│       ├── locate-excerpt.ts  # where a search card's excerpt is in the note
 │       ├── new-item.ts        # creating from the tree: target folder, name rules, context menu items
 │       ├── note-list.ts       # every note path (no content), kept current by watcher events
 │       ├── note-search.ts     # fuzzy search over note names, ignoring case and accents
