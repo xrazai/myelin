@@ -3,16 +3,8 @@ import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { app, BrowserWindow } from 'electron';
 import { pendingHandlers, registerIpc } from './ipc';
-import type { WorkerMessage } from './vault-worker';
+import { createVaultClient } from './vault-client';
 import vaultWorkerPath from './vault-worker?modulePath';
-
-function startVaultWorker(): void {
-  const worker = new Worker(vaultWorkerPath);
-  worker.on('message', (message: WorkerMessage) => {
-    console.log(`[vault-worker] ready, SQLite ${message.sqliteVersion} with FTS5`);
-  });
-  worker.on('error', (error) => console.error('[vault-worker] error:', error));
-}
 
 function createWindow(): void {
   const window = new BrowserWindow({
@@ -45,8 +37,8 @@ function createWindow(): void {
 }
 
 void app.whenReady().then(() => {
-  startVaultWorker();
-  registerIpc(pendingHandlers);
+  const vault = createVaultClient(new Worker(vaultWorkerPath));
+  registerIpc({ ...pendingHandlers, getTree: () => vault.call('getTree') });
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
