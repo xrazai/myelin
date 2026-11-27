@@ -139,7 +139,29 @@
   </div>
 
   <nav aria-label="Files">
-    <h1 title={vault.root}>{vault.name}</h1>
+    <header class="sidebar-header">
+      <h1 title={vault.root}>
+        <svg class="vault-mark" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M5 19c4-1 8-5 14-14-9 6-13 10-14 14Z" />
+          <path d="M9.5 14.5 15 9" />
+          <circle cx="17.5" cy="6.5" r="2" fill="currentColor" stroke="none" />
+        </svg>
+        <span class="vault-name">{vault.name}</span>
+      </h1>
+    </header>
+    <button
+      type="button"
+      class="quick-open"
+      title="Jump to note (Ctrl+P)"
+      onclick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', ctrlKey: true, bubbles: true }))}
+    >
+      <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+        <circle cx="7.2" cy="7.2" r="4.5" />
+        <path d="M10.8 10.8 14 14" stroke-linecap="round" />
+      </svg>
+      <span class="quick-open-label">Jump to note…</span>
+      <kbd>Ctrl+P</kbd>
+    </button>
     <div class="files">
       <FileTree selected={tabs.active} onopen={(path) => (tabs = openTab(tabs, path))} />
     </div>
@@ -278,7 +300,75 @@
     background: var(--bg-panel);
   }
 
-  h1,
+  .sidebar-header {
+    display: flex;
+    flex: none;
+    align-items: center;
+    height: 40px;
+    padding: 0 12px 0 14px;
+  }
+
+  .sidebar-header h1 {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    min-width: 0;
+    margin: 0;
+    font-size: var(--font-size-ui);
+    font-weight: 600;
+    letter-spacing: -0.005em;
+  }
+
+  .vault-mark {
+    flex: none;
+    color: var(--accent);
+  }
+
+  .vault-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .quick-open {
+    display: flex;
+    flex: none;
+    gap: 7px;
+    align-items: center;
+    height: 30px;
+    margin: 0 10px 8px;
+    padding: 0 9px;
+    color: var(--text-muted);
+    background: var(--bg-editor);
+    border: 1px solid var(--divider);
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .quick-open:hover {
+    border-color: var(--accent-ring);
+    color: var(--text);
+  }
+
+  .quick-open-label {
+    flex: 1;
+    overflow: hidden;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .quick-open kbd {
+    flex: none;
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 10.5px;
+    color: var(--text-muted);
+    background: var(--surface-hover);
+    border: 1px solid var(--hairline);
+  }
+
   aside h2 {
     flex: none;
     margin: 0;
