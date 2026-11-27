@@ -1,0 +1,125 @@
+name: Benchmark
+
+# Compares `scripts/bench.ts` on a PR with its base, on the same machine. Not a required check:
+# it is outside CI so that it stays out of `all-checks`. Shared runners are noisy.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: bench-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  # Runs the PR's code, so it only gets read access.
+  bench:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    outputs:
+      comment: ${{ steps.compare.outputs.comment }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      SIZES: '10000'
+      # Invocations per side, one run each. About 70 s per invocation at 10k notes; 100k does not fit.
+      ROUNDS: 3
+    steps:
+      # The PR merged into its base (`HEAD`); `HEAD^1` is that base.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          # Same major as the Node bundled in Electron.
+          node-version: 24
+          cache: npm
+      # `--ignore-scripts` skips the Electron download: only the Node runtime is measured,
+      # and `better-sqlite3` ships prebuilt binaries.
+      - name: Install the PR
+        run: npm ci --ignore-scripts
+
+      # A base that cannot be installed or measured is reported as not comparable.
+      - name: Install the base
+        id: base
+        continue-on-error: true
+        run: |
+          git worktree add --detach "$RUNNER_TEMP/base" HEAD^1
+          cd "$RUNNER_TEMP/base"
+          test -f scripts/bench.ts
+          npm ci --ignore-scripts
+
+      # Each side runs its own benchmark code. The order alternates (base PR, PR base, ...)
+      # so that a runner that speeds up or slows down does not favor one side.
+      - name: Measure
+        env:
+          BASE_READY: ${{ steps.base.outcome == 'success' }}
+        run: |
+          measure() {
+            (cd "$2" && node scripts/bench.ts --sizes "$SIZES" --runs 1 --label "$1" \
+              --out "$RUNNER_TEMP/results/$1/$3.json")
+          }
+          pr_failed=0
+          for round in $(seq 1 "$ROUNDS"); do
+            order="base pr"
+            if (( round % 2 == 0 )); then order="pr base"; fi
+            for side in $order; do
+              if [[ $side == pr ]]; then
+                measure pr "$GITHUB_WORKSPACE" "$round" || pr_failed=1
+              elif [[ $BASE_READY == true ]]; then
+                measure base "$RUNNER_TEMP/base" "$round" || echo "::warning::The base benchmark failed (round $round)."
+              fi
+            done
+          done
+          exit "$pr_failed"
+
+      - name: Compare
+        id: compare
+        if: ${{ !cancelled() }}
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          node scripts/bench-compare.ts --base "$RUNNER_TEMP/results/base" --pr "$RUNNER_TEMP/results/pr" \
+            --note "Head ${HEAD_SHA:0:7} · [run]($RUN_URL)" --out "$RUNNER_TEMP/comment.md"
+          cat "$RUNNER_TEMP/comment.md" >> "$GITHUB_STEP_SUMMARY"
+          delimiter="bench-$(node -e 'process.stdout.write(crypto.randomUUID())')"
+          {
+            echo "comment<<$delimiter"
+            cat "$RUNNER_TEMP/comment.md"
+            echo "$delimiter"
+          } >> "$GITHUB_OUTPUT"
+
+  # Runs no code from the PR. The token of a fork or Dependabot PR cannot write: for those,
+  # the table is only in the job summary of the run.
+  comment:
+    needs: bench
+    if: >-
+      !cancelled() && needs.bench.outputs.comment != '' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    steps:
+      # One comment per PR, updated on every run.
+      - name: Post the table
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BODY: ${{ needs.bench.outputs.comment }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          printf '%s\n' "$BODY" > comment.md
+          id=$(gh api --paginate "repos/$REPO/issues/$PR/comments" \
+            --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | startswith("<!-- myelin-bench -->"))) | .id' |
+            sed -n 1p)
+          if [[ -n $id ]]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$id" -F body=@comment.md --silent
+          else
+            gh api -X POST "repos/$REPO/issues/$PR/comments" -F body=@comment.md --silent
+          fi
