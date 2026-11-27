@@ -6,6 +6,7 @@ import type {
   FolderRenameResult,
   NotePreview,
   RenameResult,
+  SearchCard,
   TreeEntry,
   VaultEvent,
   VaultInfo,
@@ -33,6 +34,7 @@ export interface VaultRequests {
   listNotes(): string[];
   /** Full text of a note of the current vault. Rejects a path outside the contract. */
   readNote(path: string): string;
+  search(query: string): SearchCard[];
   getBacklinks(path: string): Backlink[] | null;
   /** Short previews for a batch of note paths; `null` for missing or unreadable notes. */
   getPreviews(paths: string[]): (NotePreview | null)[];

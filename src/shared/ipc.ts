@@ -32,6 +32,8 @@ export interface SearchCard {
   title: string;
   /** Plain text, never HTML. */
   excerpt: string;
+  /** The `[from, to)` ranges of `excerpt` that matched, for highlighting. */
+  matches: [number, number][];
   /** Higher is more relevant. Only comparable within one result list. */
   score: number;
 }

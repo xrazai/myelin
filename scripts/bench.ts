@@ -32,6 +32,7 @@ import Database from 'better-sqlite3';
 import { indexPath, openIndex, SCHEMA_VERSION, syncIndex, type SyncReport } from '../src/main/vault-index.ts';
 import { readNotePreview } from '../src/main/note-preview.ts';
 import { scanVault } from '../src/main/vault-scan.ts';
+import { search } from '../src/main/brain-adapter.ts';
 import { createNoteCache } from '../src/renderer/note-cache.ts';
 import { createNoteSearch } from '../src/renderer/note-search.ts';
 import { generateVault } from './gen-vault.ts';
@@ -42,7 +43,7 @@ export const FORMAT = 1;
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
 const PHASES = ['cold', 'warm', 'reopen'] as const;
-export const METRICS = ['scanMs', 'coldMs', 'warmMs', 'reopenMs', 'hoverColdMs', 'hoverWarmMs', 'paletteMs'] as const;
+export const METRICS = ['scanMs', 'coldMs', 'warmMs', 'reopenMs', 'hoverColdMs', 'hoverWarmMs', 'paletteMs', 'searchMs'] as const;
 
 /** What each metric measured, saved with the numbers. */
 const CONDITIONS: Record<Metric, string> = {
@@ -54,6 +55,7 @@ const CONDITIONS: Record<Metric, string> = {
   reopenMs: 'The warm index again with nothing changed (scan and mtime + size check).',
   hoverColdMs: 'Cold hover preview fetch from disk into NoteCache.',
   hoverWarmMs: 'Warm hover preview lookup from NoteCache.',
+  searchMs: 'One vault search on the warm index: the slowest of a few queries (median of 5 each).',
   paletteMs: 'One keystroke of the `Ctrl+P` search over every note path: the slowest of a few queries (median of 7 each).',
 };
 
@@ -69,6 +71,7 @@ interface Measurement {
   hoverColdMs: number;
   hoverWarmMs: number;
   paletteMs: number;
+  searchMs: number;
   /** What `syncIndex` reported in each phase. */
   sync: Record<Phase, SyncReport>;
   /** Size of the closed index. */
@@ -162,6 +165,24 @@ function paletteKeystroke(paths: string[]): number {
   return Math.max(0.0001, round(Math.max(...costs)));
 }
 
+/** A word, two words, a short unfinished one and one that is nowhere. */
+function searchLatency(file: string): number {
+  const db = openIndex(file);
+  try {
+    const costs = ['memória', 'mapa de', 'a', 'qqzzxx'].map((query) => {
+      const times = Array.from({ length: 5 }, () => {
+        const start = performance.now();
+        search(db, query);
+        return performance.now() - start;
+      });
+      return stats(times).median;
+    });
+    return Math.max(0.0001, round(Math.max(...costs)));
+  } finally {
+    db.close();
+  }
+}
+
 /** Runs in its own process. `vault` must be freshly generated; `userData` must be empty. */
 async function measure(vault: string, userData: string, notes: number): Promise<Measurement> {
   const [scanMs, tree] = await timed(() => scanVault(vault));
@@ -191,6 +212,7 @@ async function measure(vault: string, userData: string, notes: number): Promise<
   const warm = await index('warm', warmFile);
   const reopen = await index('reopen', warmFile);
 
+  const searchMs = searchLatency(warmFile);
   const paths: string[] = [];
   (function collect(entries: typeof tree): void {
     for (const entry of entries) {
@@ -226,6 +248,7 @@ async function measure(vault: string, userData: string, notes: number): Promise<
     hoverColdMs,
     hoverWarmMs,
     paletteMs,
+    searchMs,
     sync: { cold: cold.report, warm: warm.report, reopen: reopen.report },
     dbBytes: (await stat(warmFile)).size,
     versions: { node: process.versions.node, electron: process.versions.electron ?? null, sqlite, betterSqlite3 },

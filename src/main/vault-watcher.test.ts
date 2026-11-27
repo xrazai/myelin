@@ -658,6 +658,20 @@ describe('backlinks', () => {
   });
 });
 
+describe('search', () => {
+  test('finds what the app just wrote and what changed outside', async () => {
+    await write('A.md', 'alpha');
+    watching = start();
+    await watching.indexed;
+    expect((await watching.search('alph')).map((card) => card.path)).toEqual(['A.md']);
+    await watching.write('B.md', 'alpha too', null);
+    expect(await watching.search('alpha')).toHaveLength(2);
+    await rm(at('A.md'));
+    await until(() => expect(notes()).toEqual(['B.md']));
+    expect((await watching.search('alpha')).map((card) => card.path)).toEqual(['B.md']);
+  });
+});
+
 describe('during the first sync', () => {
   test('the count of linking notes is unknown, never 0', async () => {
     await write('A.md', 'a');

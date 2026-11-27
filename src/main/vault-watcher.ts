@@ -11,8 +11,9 @@ import { dirname, join, relative, sep } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { watch } from 'chokidar';
 import type Database from 'better-sqlite3';
-import type { Backlink, DeleteInfo, FolderRenameResult, RenameResult, TreeEntry, VaultEvent, WriteResult } from '../shared/ipc';
+import type { Backlink, DeleteInfo, SearchCard, FolderRenameResult, RenameResult, TreeEntry, VaultEvent, WriteResult } from '../shared/ipc';
 import { createLinkResolver, folderNameProblem, noteNameProblem, rewriteLinksForMoves } from '../shared/links.ts';
+import { search as searchIndex } from './brain-adapter.ts';
 import { backlinkRows, readBacklinks } from './vault-backlinks.ts';
 import { renameWithRetry, writeFileAtomic, type AtomicWriteDeps } from './atomic-write.ts';
 import {
@@ -78,6 +79,8 @@ export interface VaultWatch {
   renameFolder(from: string, to: string): Promise<FolderRenameResult>;
   /** `createFolder` of the contract: its `created` event is sent before it resolves. */
   createFolder(path: string): Promise<void>;
+  /** `search` of the contract. While the vault is first indexed it finds what is in so far. */
+  search(query: string): Promise<SearchCard[]>;
   /** `getBacklinks` of the contract; the caller validates `path`. */
   backlinks(path: string): Promise<Backlink[] | null>;
   /** `deleteInfo` of the contract. */
@@ -712,6 +715,13 @@ export function watchVault(root: string, { openDb, emit, sync = syncIndex }: Vau
         scheduleUpdate();
         return { status: 'saved' };
       }),
+    async search(query) {
+      signal.throwIfAborted();
+      // Not behind `updates`: during the first sync that would wait for the whole vault.
+      if (synced) await updates;
+      if (!db) throw new Error('the index is not available');
+      return searchIndex(db, query);
+    },
     async backlinks(path) {
       // Before the first sync ends the list would be too short: unknown, never empty.
       if (!synced) return null;
