@@ -449,6 +449,19 @@ describe('rename', () => {
     expect(t.writes).toEqual([]);
   });
 
+  test('text typed while the rename ran is saved at the new path', async () => {
+    const t = setup({ 'a.md': 'one' });
+    await t.open();
+    // The file has moved, the page has not heard yet.
+    t.disk.delete('a.md');
+    t.disk.set('b.md', 'one');
+    t.type('one two');
+    await t.saver.rename('a.md', 'b.md');
+    await pause(SAVE_DELAY_MS + 100);
+    expect(t.disk.get('b.md')).toBe('one two');
+    expect(t.disk.has('a.md')).toBe(false);
+  });
+
   test('a genuinely changed disk keeps the user text and never recreates the old path', async () => {
     const t = setup({ 'a.md': 'one' });
     await t.open();

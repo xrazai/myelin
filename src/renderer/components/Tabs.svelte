@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick } from 'svelte';
   import type { NoteProblems } from '../editor/note-saver';
+  import { renamedPath } from '../rename-note';
   import { dropIndex, tabName, type Tabs } from '../tabs-model';
 
   let {
@@ -48,12 +49,9 @@
   function commitRename() {
     const from = renaming;
     if (!from) return;
-    const name = renameText.trim();
     renaming = null;
-    if (!name) return;
-    const dir = from.slice(0, Math.max(0, from.lastIndexOf('/')));
-    const to = dir ? `${dir}/${name}.md` : `${name}.md`;
-    if (to !== from) onrename(from, to);
+    const to = renamedPath(from, renameText);
+    if (to) onrename(from, to);
   }
 
   function reveal() {
@@ -155,7 +153,6 @@
       onmousedown={(event) => event.button === 1 && event.preventDefault()}
     >
       {#if renaming === tab.path}
-        <!-- svelte-ignore a11y_autofocus -->
         <input
           class="rename"
           bind:this={input}

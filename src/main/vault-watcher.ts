@@ -11,11 +11,20 @@ import { dirname, join, relative, sep } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { watch } from 'chokidar';
 import type Database from 'better-sqlite3';
-import type { TreeEntry, VaultEvent, WriteResult } from '../shared/ipc';
-import { createLinkResolver, rewriteLinksForRename } from '../shared/links.ts';
+import type { RenameResult, TreeEntry, VaultEvent, WriteResult } from '../shared/ipc';
+import { createLinkResolver, noteNameProblem, rewriteLinksForRename } from '../shared/links.ts';
 import { renameWithRetry, writeFileAtomic, type AtomicWriteDeps } from './atomic-write.ts';
-import { contentHash, isDamaged, notePaths, syncIndex, updateIndex, type NoteUpdate, type SyncReport } from './vault-index.ts';
-import { resolveNotePath } from './vault-path.ts';
+import {
+  contentHash,
+  isDamaged,
+  notePaths,
+  renameCandidates,
+  syncIndex,
+  updateIndex,
+  type NoteUpdate,
+  type SyncReport,
+} from './vault-index.ts';
+import { existingNotePath, writableNotePath } from './vault-path.ts';
 import { listFolder, scanFolder, scanVault } from './vault-scan.ts';
 
 /** Hints are handled in one batch: after a quiet moment, or this long after the first. */
@@ -51,11 +60,11 @@ export interface VaultWatch {
    */
   write(path: string, content: string, base: string | null): Promise<WriteResult>;
   /**
-   * Renames a note in one batch: moves the file, rewrites links to it (including self
-   * links), emits one tree batch and reindexes once. Rewrites are link-only. Rejects if
-   * the destination exists. Callers must have saved their own edits first.
+   * `renameNote` of the contract, in one batch: moves the file, rewrites links, emits the
+   * events and updates the index once. Rewrites are link-only. Validates both paths.
+   * Callers must have saved their own edits first.
    */
-  rename(from: string, to: string): Promise<void>;
+  rename(from: string, to: string): Promise<RenameResult>;
   close(): Promise<void>;
 }
 
@@ -94,6 +103,42 @@ async function checkBase(file: string, content: string, base: string | null): Pr
   return false;
 }
 
+/** Write deps that replace `file` only while the disk holds `base`. */
+function onlyOver(file: string, content: string, base: string | null): AtomicWriteDeps {
+  return {
+    // Checked again right before each rename attempt: another program may write while
+    // the temp file is flushed, or while the note is held.
+    async rename(from, to) {
+      if (await checkBase(file, content, base)) return rm(from);
+      await rename(from, to);
+    },
+    sleep,
+  };
+}
+
+/** `true` if something other than the file at `from` is at `to`. A change of case is not. */
+async function isTaken(from: string, to: string): Promise<boolean> {
+  const target = await stat(to, { bigint: true }).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  });
+  if (!target) return false;
+  const source = await stat(from, { bigint: true });
+  return source.ino !== target.ino || source.dev !== target.dev;
+}
+
+/** A folder on the way to `path` that exists spelled in another case, as the disk spells it. */
+function folderInOtherCase(tree: TreeEntry[], path: string): string | null {
+  let entries = tree;
+  for (const segment of path.split('/').slice(0, -1)) {
+    const folders = entries.filter((entry) => entry.kind === 'folder');
+    const exact = folders.find((entry) => entry.name === segment);
+    if (!exact) return folders.find((entry) => entry.name.toLowerCase() === segment.toLowerCase())?.path ?? null;
+    entries = exact.children;
+  }
+  return null;
+}
+
 const parentOf = (path: string) => path.slice(0, Math.max(0, path.lastIndexOf('/')));
 const nameOf = (path: string) => path.slice(path.lastIndexOf('/') + 1);
 const join2 = (dir: string, name: string) => (dir ? `${dir}/${name}` : name);
@@ -122,7 +167,7 @@ export function watchVault(root: string, { openDb, emit, sync = syncIndex }: Vau
   /** Hashes of the app's own writes not seen back yet, oldest first. */
   const expected = new Map<string, string[]>();
   /** Paths whose next index update is a rename's link-only rewrite. */
-  let linkOnly = new Set<string>();
+  const linkOnly = new Set<string>();
   /** Notes hinted during the first sync, and notes it indexed. */
   let hintedInSync: Set<string> | null = new Set();
   const syncRead = new Set<string>();
@@ -370,7 +415,8 @@ export function watchVault(root: string, { openDb, emit, sync = syncIndex }: Vau
       return;
     }
     const events: VaultEvent[] = [];
-    const onNote = ({ path, hash, previous, mtimeMs, linkOnly: wasLinkOnly }: NoteUpdate) => {
+    const onNote = ({ path, hash, previous, mtimeMs }: NoteUpdate) => {
+      linkOnly.delete(path);
       failures.delete(path);
       const differs = hash !== previous;
       // The first sync may have read a change before this could compare it.
@@ -378,9 +424,6 @@ export function watchVault(root: string, { openDb, emit, sync = syncIndex }: Vau
         hintedInSync?.has(path) === true && syncRead.has(path) && mtimeMs >= started - CLOCK_SLACK_MS;
       if (isOwnWrite(path, hash)) return;
       if (differs) expected.delete(path);
-      // A rename's link-only rewrite is not a content change: no `changed` event,
-      // and nothing for the heavy path to pick up.
-      if (wasLinkOnly) return;
       // A note new to the index was reported as `created`.
       if ((differs && previous !== null) || readBySync) events.push({ type: 'changed', path });
     };
@@ -396,7 +439,6 @@ export function watchVault(root: string, { openDb, emit, sync = syncIndex }: Vau
       return;
     }
     for (const path of failed) retry(path);
-    linkOnly = new Set();
     send(events);
   }
 
@@ -437,6 +479,98 @@ export function watchVault(root: string, { openDb, emit, sync = syncIndex }: Vau
   // Changes seen during the sync, even if no more arrive.
   scheduleUpdate();
 
+  async function renameNow(from: string, to: string): Promise<RenameResult> {
+    const fromFile = await existingNotePath(root, from).catch((error: NodeJS.ErrnoException) => {
+      throw error.code === 'ENOENT' ? new Error(`no such note: ${from}`) : error;
+    });
+    const toFile = await writableNotePath(root, to);
+    if (from === to) return { notUpdated: [] };
+    const problem = noteNameProblem(to);
+    if (problem) throw new Error(problem);
+
+    const tree = await scanVault(root);
+    signal.throwIfAborted();
+    const paths = notePaths(tree);
+    if (!paths.includes(from)) throw new Error(`no such note: ${from}`);
+    const taken = `a note already exists at ${to}`;
+    if (paths.includes(to) || (await isTaken(fromFile, toFile))) throw new Error(taken);
+    // Windows would put the note in that folder, under a path the app does not know.
+    const folder = folderInOtherCase(tree, to);
+    if (folder !== null) throw new Error(`the folder is named ${folder}`);
+
+    const oldResolve = createLinkResolver(paths);
+    const newResolve = createLinkResolver(paths.map((path) => (path === from ? to : path)));
+
+    // Without a usable index, every note is read.
+    await updates;
+    let candidates = paths;
+    if (ready) {
+      try {
+        candidates = renameCandidates(db!, root, paths, from, to);
+      } catch (error) {
+        console.error('[vault-watcher] the index cannot tell which notes to read:', error);
+      }
+    }
+
+    // Every rewrite is computed before the disk is touched. Files that are not UTF-8 are
+    // never overwritten.
+    const rewrites: { path: string; base: string; content: string }[] = [];
+    for (const path of candidates) {
+      const bytes = await readFile(join(root, path));
+      if (!bytes.includes('[[') || !isUtf8(bytes)) continue;
+      const base = bytes.toString('utf8');
+      const bom = base.startsWith('\uFEFF') ? '\uFEFF' : '';
+      const { text, count } = rewriteLinksForRename(base.slice(bom.length), path, from, to, oldResolve, newResolve);
+      if (count > 0) rewrites.push({ path: path === from ? to : path, base, content: bom + text });
+    }
+    signal.throwIfAborted();
+
+    await mkdir(dirname(toFile), { recursive: true });
+    await renameWithRetry(fromFile, toFile, {
+      // Checked right before moving: a note another program just made is not replaced.
+      async rename(source, target) {
+        if (await isTaken(source, target)) throw new Error(taken);
+        await rename(source, target);
+      },
+      sleep,
+    });
+
+    // From here on the note has moved: a link that cannot be rewritten is reported, not thrown.
+    const notUpdated: string[] = [];
+    const rewritten: string[] = [];
+    for (const { path, base, content } of rewrites) {
+      const file = join(root, path);
+      const hashes = expected.get(path) ?? [];
+      expected.set(path, [...hashes, contentHash(content)]);
+      try {
+        await writeFileAtomic(file, content, onlyOver(file, content, base));
+        rewritten.push(path);
+      } catch (error) {
+        expected.set(path, hashes);
+        notUpdated.push(path);
+        console.error(`[vault-watcher] updating the links in ${path} failed:`, error);
+      }
+    }
+
+    // One batch, sent before the result: the tree, then the notes whose text changed. The
+    // renderer reads the renamed note itself.
+    const events: VaultEvent[] = [];
+    if (known) {
+      await compareFolder(parentOf(from), events);
+      await compareFolder(parentOf(to), events);
+    }
+    for (const path of rewritten) if (path !== to) events.push({ type: 'changed', path });
+    send(events);
+
+    // One index update, in the same chain as every other. Link-only rewrites are not
+    // content changes for the heavy path.
+    for (const path of rewritten) linkOnly.add(path);
+    for (const path of [from, to, ...rewritten, ...notUpdated]) stale.add(path);
+    scheduleUpdate();
+    await updates;
+    return { notUpdated };
+  }
+
   return {
     indexed,
     getTree: () => serial(async () => {
@@ -451,16 +585,7 @@ export function watchVault(root: string, { openDb, emit, sync = syncIndex }: Vau
         try {
           if (await checkBase(file, content, base)) return { status: 'saved' };
           expected.set(path, [...hashes, contentHash(content)]);
-          // Checked again right before each rename attempt: another program may write
-          // while the temp file is flushed, or while the note is held.
-          const deps: AtomicWriteDeps = {
-            async rename(from, to) {
-              if (await checkBase(file, content, base)) return rm(from);
-              await rename(from, to);
-            },
-            sleep,
-          };
-          await writeFileAtomic(file, content, deps);
+          await writeFileAtomic(file, content, onlyOver(file, content, base));
         } catch (error) {
           expected.set(path, hashes);
           if (error instanceof Conflict) return { status: 'conflict', disk: error.disk };
@@ -476,67 +601,12 @@ export function watchVault(root: string, { openDb, emit, sync = syncIndex }: Vau
         scheduleUpdate();
         return { status: 'saved' };
       }),
-    rename: (from, to) =>
-      serial(async () => {
-        const fromFile = resolveNotePath(root, from);
-        const toFile = resolveNotePath(root, to);
-        if (from === to) return;
-        // updateIndex must never run alongside syncIndex, and the resolver must see the
-        // current vault: wait for the first sync and any queued updates.
-        await indexed.catch(() => {});
-        await updates;
-
-        const tree = await scanVault(root);
-        signal.throwIfAborted();
-        const paths = notePaths(tree);
-        if (!paths.includes(from)) throw new Error(`no such note: ${from}`);
-        if (paths.includes(to) || (await stat(toFile).catch(() => null)) !== null) {
-          throw new Error(`a note already exists at ${to}`);
-        }
-        const oldResolve = createLinkResolver(paths);
-        const nextPaths = paths.map((path) => (path === from ? to : path));
-        const newResolve = createLinkResolver(nextPaths);
-
-        // Read and rewrite every candidate before touching the disk. Non-UTF-8 files
-        // are never overwritten.
-        const rewrites: { path: string; content: string; hash: string }[] = [];
-        for (const path of paths) {
-          const bytes = await readFile(join(root, path));
-          if (!isUtf8(bytes)) continue;
-          const raw = bytes.toString('utf8');
-          const bom = raw.startsWith('\uFEFF');
-          const text = bom ? raw.slice(1) : raw;
-          const { text: rewritten, count } = rewriteLinksForRename(text, path, from, to, oldResolve, newResolve);
-          if (count === 0) continue;
-          const content = bom ? `\uFEFF${rewritten}` : rewritten;
-          rewrites.push({ path, content, hash: contentHash(content) });
-        }
-
-        await mkdir(dirname(toFile), { recursive: true });
-        await renameWithRetry(fromFile, toFile);
-        for (const rewrite of rewrites) {
-          // A self-link rewrite belongs to the moved note; all others stay put.
-          const writtenPath = rewrite.path === from ? to : rewrite.path;
-          expected.set(writtenPath, [...(expected.get(writtenPath) ?? []), rewrite.hash]);
-          await writeFileAtomic(join(root, writtenPath), rewrite.content);
-        }
-
-        // One tree batch, emitted before the result reaches main.
-        const events: VaultEvent[] = [];
-        if (known) {
-          await compareFolder(parentOf(from), events);
-          await compareFolder(parentOf(to), events);
-        }
-        send(events);
-
-        // One index update for every affected path; re-resolves links in one transaction.
-        stale.clear();
-        for (const path of paths) if (path !== from) stale.add(path);
-        stale.add(to);
-        // Link-only rewrites are not content changes for the heavy path.
-        linkOnly = new Set(rewrites.filter((r) => r.path !== from).map((r) => r.path));
-        await update(ready);
-      }),
+    async rename(from, to) {
+      // Waits outside the queue: the first sync itself needs a turn in it, and saves must
+      // not wait for the whole sync.
+      await indexed.catch(() => {});
+      return serial(() => renameNow(from, to));
+    },
     async close() {
       cancel.abort(new Error('indexing was cancelled'));
       stopBatchTimers();

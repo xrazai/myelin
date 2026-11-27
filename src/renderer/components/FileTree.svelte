@@ -2,6 +2,7 @@
   import { tick } from 'svelte';
   import type { TreeEntry } from '../../shared/ipc';
   import { errorMessage } from '../error-message';
+  import { renamedPath } from '../rename-note';
   import { flatten, keyAction, pruneExpanded, scrollToShow, visibleRange, watchTree } from '../tree-model';
 
   /** `selected`: path of the open note. `onopen`: a note was clicked or chosen by keyboard. */
@@ -72,12 +73,9 @@
   function commitRename() {
     const from = renaming;
     if (!from) return;
-    const name = renameText.trim();
     renaming = null;
-    if (!name) return;
-    const dir = from.slice(0, Math.max(0, from.lastIndexOf('/')));
-    const to = dir ? `${dir}/${name}.md` : `${name}.md`;
-    if (to !== from) onrename(from, to);
+    const to = renamedPath(from, renameText);
+    if (to) onrename(from, to);
   }
 
   function onclick(event: MouseEvent) {
@@ -90,6 +88,8 @@
   }
 
   function oncontextmenu(event: MouseEvent) {
+    // The rename input keeps its own menu.
+    if (event.target instanceof HTMLInputElement) return;
     const element = (event.target as Element).closest<HTMLElement>('[data-index]');
     const entry = element && rows[Number(element.dataset['index'])]?.entry;
     if (!entry || entry.kind !== 'note') return;
@@ -170,7 +170,6 @@
               </svg>
             {/if}
             {#if renaming === row.entry.path}
-              <!-- svelte-ignore a11y_autofocus -->
               <input
                 class="rename"
                 bind:this={input}
@@ -178,13 +177,13 @@
                 aria-label="Rename note"
                 onclick={(event) => event.stopPropagation()}
                 onkeydown={(event) => {
-                  if (event.key === 'Enter') {
-                    event.preventDefault();
-                    commitRename();
-                  } else if (event.key === 'Escape') {
-                    event.preventDefault();
-                    renaming = null;
-                  }
+                  // The tree would take space, arrows and Enter. Shortcuts still reach the window.
+                  if (!event.ctrlKey && !event.metaKey) event.stopPropagation();
+                  if (event.key !== 'Enter' && event.key !== 'Escape') return;
+                  event.preventDefault();
+                  if (event.key === 'Enter') commitRename();
+                  else renaming = null;
+                  list?.focus();
                 }}
                 onblur={commitRename}
               />

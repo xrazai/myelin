@@ -197,7 +197,7 @@ test('rename rewrites links and self links, moves the file and logs one usage ev
   const folder = await mkdtemp(join(tmpdir(), 'myelin-rename-'));
   try {
     await mkdir(join(folder, 'from'));
-    await writeFile(join(folder, 'from', 'Old.md'), '\uFEFF# Old\r\n[[#Heading]]\r\n', 'utf8');
+    await writeFile(join(folder, 'from', 'Old.md'), '\uFEFF# Old\r\n[[#Heading]] [[Old]]\r\n', 'utf8');
     await writeFile(join(folder, 'Link.md'), '[[from/Old|apelido#Heading]] [[Other]]', 'utf8');
     await writeFile(join(folder, 'Other.md'), 'other', 'utf8');
     const events: unknown[] = [];
@@ -209,7 +209,7 @@ test('rename rewrites links and self links, moves the file and logs one usage ev
       await client.call('renameNote', 'from/Old.md', 'to/New.md');
 
       expect(existsSync(join(folder, 'from', 'Old.md'))).toBe(false);
-      expect(readFileSync(join(folder, 'to', 'New.md'), 'utf8')).toBe('\uFEFF# Old\r\n[[to/New#Heading]]\r\n');
+      expect(readFileSync(join(folder, 'to', 'New.md'), 'utf8')).toBe('\uFEFF# Old\r\n[[#Heading]] [[New]]\r\n');
       expect(readFileSync(join(folder, 'Link.md'), 'utf8')).toBe('[[to/New|apelido#Heading]] [[Other]]');
       expect((await client.call('listNotes')).sort()).toEqual(['Link.md', 'Other.md', 'to/New.md']);
       expect(events).toContainEqual({ type: 'deleted', kind: 'note', path: 'from/Old.md' });

@@ -2,7 +2,6 @@
 // Tests start this file directly in Node (type stripping): erasable TypeScript only, and
 // project imports other than `import type` carry the `.ts` extension.
 import { mkdir, readFile, stat } from 'node:fs/promises';
-import { appendUsageEvent } from './vault-usage.ts';
 import { basename, dirname, resolve } from 'node:path';
 import { parentPort, workerData } from 'node:worker_threads';
 import Database from 'better-sqlite3';
@@ -10,7 +9,8 @@ import type { VaultRequest, VaultRequests, VaultWorkerData, WorkerMessage } from
 import { loadVaultConfig } from './vault-config.ts';
 import { deleteIndex, indexPath, notePaths, openIndex } from './vault-index.ts';
 import { readNotePreview } from './note-preview.ts';
-import { existingNotePath, resolveNotePath, writableNotePath } from './vault-path.ts';
+import { existingNotePath, writableNotePath } from './vault-path.ts';
+import { appendUsageEvent } from './vault-usage.ts';
 import { watchVault, type VaultWatch } from './vault-watcher.ts';
 
 // Startup check: the native module loads in this thread and its SQLite has FTS5.
@@ -102,11 +102,14 @@ const handlers: Handlers = {
   async renameNote(from, to) {
     if (typeof from !== 'string' || typeof to !== 'string') throw new Error('both paths must be strings');
     const { root, watch } = openSession();
-    // Validate both paths before touching anything; watch.rename rechecks existence.
-    resolveNotePath(root, from);
-    resolveNotePath(root, to);
-    await watch.rename(from, to);
-    await appendUsageEvent(root, { type: 'renamed', from, to, at: new Date().toISOString() });
+    const result = await watch.rename(from, to);
+    // The note has moved by now: failing to log it must not report the rename as failed.
+    if (from !== to) {
+      await appendUsageEvent(root, { type: 'renamed', from, to, at: new Date().toISOString() }).catch(
+        (error: unknown) => console.error('[vault-worker] logging a rename failed:', error),
+      );
+    }
+    return result;
   },
   async whenIndexed() {
     return openSession().watch.indexed;

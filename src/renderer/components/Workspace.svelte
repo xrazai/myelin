@@ -58,28 +58,40 @@
   let metrics = $state.raw<NoteMetrics | null>(null);
   let renameError = $state('');
 
-  /** Save, rename on disk, then rekey the open state without reopening the tab. */
+  /** Renames a note; its tab and editor state move with it, without reopening. */
   async function requestRename(from: string, to: string) {
-    renameError = '';
     const notes = saver;
     if (!notes) return;
+    if (pendingRename) {
+      renameError = 'Another rename is still running. Try again in a moment.';
+      return;
+    }
+    renameError = '';
+    const isOpen = (path: string) => tabs.list.some((tab) => tab.path === path);
     pendingRename = { from, to };
     try {
       const result = await coordinateRename(
         window.myelin,
         {
+          hasDeletedTab: (path) => tabs.list.some((tab) => tab.path === path && tab.deleted),
+          saveAll: () => notes.saveAll(),
           save: (path) => notes.save(path),
-          move: (oldPath, newPath) => notes.rename(oldPath, newPath),
+          move: (oldPath, newPath) => {
+            void notes.rename(oldPath, newPath);
+            tabs = renameTab(tabs, oldPath, newPath);
+          },
         },
-        tabs,
         from,
         to,
       );
-      if (result) tabs = result.tabs;
-      else if (tabs.list.some((tab) => tab.path === from)) tabs = openTab(tabs, from);
+      // Not saved: its tab says why.
+      if (!result) {
+        if (isOpen(from)) tabs = openTab(tabs, from);
+      } else if (result.notUpdated.length > 0) {
+        renameError = `Renamed, but the links in these notes were not updated: ${result.notUpdated.join(', ')}`;
+      }
     } catch (error) {
       renameError = `Could not rename the note. ${errorMessage(error)}`;
-      tabs = openTab(tabs, from);
     } finally {
       pendingRename = null;
     }

@@ -135,6 +135,30 @@ function affectedKeys(path: string): string[] {
   return parts.map((_, i) => parts.slice(i).join('/'));
 }
 
+/**
+ * The notes a rename of `from` to `to` may have to rewrite, so that it need not read the
+ * whole vault: those with a link either name can affect, and those the index is behind on
+ * (by mtime and size, as the sync decides). `paths` are the notes on disk.
+ */
+export function renameCandidates(
+  db: Database.Database,
+  root: string,
+  paths: string[],
+  from: string,
+  to: string,
+): string[] {
+  const linking = db.prepare('SELECT DISTINCT source FROM links WHERE key = ?').pluck();
+  const sources = new Set([from, to].flatMap(affectedKeys).flatMap((key) => linking.all(key) as string[]));
+  const stamps = db.prepare('SELECT path, mtime_ms AS mtimeMs, size FROM notes WHERE hash IS NOT NULL').all();
+  const indexed = new Map((stamps as (Row & { path: string })[]).map((row) => [row.path, row]));
+  return paths.filter((path) => {
+    if (sources.has(path)) return true;
+    const row = indexed.get(path);
+    const stats = row && statSync(join(root, path), { throwIfNoEntry: false });
+    return !stats || stats.mtimeMs !== row.mtimeMs || stats.size !== row.size;
+  });
+}
+
 /** The resolver for the paths now in `notes`; building it is slow on a large vault. */
 const resolvers = new WeakMap<Database.Database, LinkResolver>();
 

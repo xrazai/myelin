@@ -1,6 +1,6 @@
 // Messages between main and vault-worker (worker thread, not Electron IPC).
 // A new request is a line here and a handler in `vault-worker.ts`.
-import type { NotePreview, TreeEntry, VaultEvent, VaultInfo, WriteResult } from '../shared/ipc';
+import type { NotePreview, RenameResult, TreeEntry, VaultEvent, VaultInfo, WriteResult } from '../shared/ipc';
 import type { SyncReport } from './vault-index';
 
 /** `workerData` of the worker. */
@@ -26,7 +26,7 @@ export interface VaultRequests {
   /** `writeNote` of the contract, on the current vault. */
   writeNote(path: string, content: string, base: string | null): WriteResult;
   /** `renameNote` of the contract: one batch, including link rewrites and one reindex. */
-  renameNote(from: string, to: string): void;
+  renameNote(from: string, to: string): RenameResult;
   /**
    * Settles when the current vault's index sync ends. Rejects if the index cannot be
    * opened or synced, or if another `open` cancels it.

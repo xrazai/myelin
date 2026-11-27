@@ -1,63 +1,66 @@
-import { expect, test, vi } from 'vitest';
-import { NO_TABS, openTab, type Tabs } from './tabs-model';
-import { renameNote, type RenameDisk, type RenameState } from './rename-note';
-
-const tabs: Tabs = openTab(openTab(NO_TABS, 'Old.md'), 'Other.md');
+import { expect, test } from 'vitest';
+import { renamedPath, renameNote, type RenameDisk, type RenameState } from './rename-note';
 
 function setup(overrides: Partial<RenameDisk & RenameState> = {}) {
   const calls: string[] = [];
   const disk: RenameDisk = {
     async renameNote(from, to) {
       calls.push(`worker:${from}->${to}`);
+      return { notUpdated: [] };
     },
   };
   const state: RenameState = {
+    hasDeletedTab: () => false,
+    async saveAll() {
+      calls.push('saveAll');
+    },
     async save(from) {
       calls.push(`save:${from}`);
       return true;
     },
-    async move(from, to) {
+    move(from, to) {
       calls.push(`move:${from}->${to}`);
     },
   };
   return { disk: { ...disk, ...overrides }, state: { ...state, ...overrides }, calls };
 }
 
-test('saves first, renames in the worker, then rekeys the open tab', async () => {
+test('saves every open note, renames in the worker, then moves the open state', async () => {
   const { disk, state, calls } = setup();
-  const result = await renameNote(disk, state, tabs, 'Old.md', 'New.md');
-  expect(calls).toEqual(['save:Old.md', 'worker:Old.md->New.md', 'move:Old.md->New.md']);
-  expect(result?.tabs.active).toBe('Other.md');
-  expect(result?.tabs.list.map((tab) => tab.path)).toEqual(['New.md', 'Other.md']);
+  expect(await renameNote(disk, state, 'Old.md', 'New.md')).toEqual({ notUpdated: [] });
+  expect(calls).toEqual(['saveAll', 'save:Old.md', 'worker:Old.md->New.md', 'move:Old.md->New.md']);
 });
 
 test('stops when the note cannot be saved', async () => {
   const { disk, state, calls } = setup({
     async save() {
-      calls.push('save:Old.md');
       return false;
     },
   });
-  expect(await renameNote(disk, state, tabs, 'Old.md', 'New.md')).toBeNull();
-  expect(calls).toEqual(['save:Old.md']);
+  expect(await renameNote(disk, state, 'Old.md', 'New.md')).toBeNull();
+  expect(calls).toEqual(['saveAll']);
 });
 
-test('does not rekey when the worker rejects', async () => {
+test('moves nothing when the worker rejects', async () => {
   const { disk, state, calls } = setup({
     async renameNote() {
-      calls.push('worker:reject');
       throw new Error('destination exists');
     },
   });
-  await expect(renameNote(disk, state, tabs, 'Old.md', 'New.md')).rejects.toThrow('destination exists');
-  expect(calls).toEqual(['save:Old.md', 'worker:reject']);
+  await expect(renameNote(disk, state, 'Old.md', 'New.md')).rejects.toThrow('destination exists');
+  expect(calls).toEqual(['saveAll', 'save:Old.md']);
 });
 
-test('rejects an invalid destination', async () => {
-  const { disk, state } = setup();
-  await expect(renameNote(disk, state, tabs, 'Old.md', '../New.md')).rejects.toThrow('not a note path');
-  await expect(renameNote(disk, state, tabs, 'Old.md', 'New.txt')).rejects.toThrow('not a note path');
-  const spy = vi.fn();
-  expect(await renameNote(disk, state, tabs, 'Old.md', 'Old.md')).toBeNull();
-  expect(spy).not.toHaveBeenCalled();
+test('refuses to move onto the tab of a deleted note', async () => {
+  const { disk, state, calls } = setup({ hasDeletedTab: (path) => path === 'New.md' });
+  await expect(renameNote(disk, state, 'Old.md', 'New.md')).rejects.toThrow('close the tab');
+  expect(calls).toEqual([]);
+});
+
+test('renamedPath keeps the folder and takes only a new name', () => {
+  expect(renamedPath('Old.md', ' New ')).toBe('New.md');
+  expect(renamedPath('a/Old.md', 'New.md')).toBe('a/New.md');
+  expect(renamedPath('a/Old.md', 'sub/New')).toBe('a/sub/New.md');
+  expect(renamedPath('a/Old.md', 'Old')).toBeNull();
+  expect(renamedPath('a/Old.md', '   ')).toBeNull();
 });

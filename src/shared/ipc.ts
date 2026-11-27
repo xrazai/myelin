@@ -63,6 +63,11 @@ export type VaultEvent =
  * `window.myelin`. Calls reject on failure. All calls except `createVault` and
  * `openVault` need an open vault.
  */
+export interface RenameResult {
+  /** Notes whose links could not be rewritten: held by another program or changed meanwhile. */
+  notUpdated: string[];
+}
+
 export interface MyelinApi {
   /** Shows the folder dialog and creates a vault there. `null` if canceled. */
   createVault(): Promise<VaultInfo | null>;
@@ -82,8 +87,12 @@ export interface MyelinApi {
    * only if there is none. `content` is written as is, BOM and line endings included.
    */
   writeNote(path: string, content: string, base: string | null): Promise<WriteResult>;
-  /** Renames a note, rewriting every link to it. Rejects if `to` already exists. */
-  renameNote(from: string, to: string): Promise<void>;
+  /**
+   * Renames a note and rewrites the links that would stop leading where they did. Each
+   * rewritten note, the renamed one apart, is reported `changed`. Rejects, with the vault
+   * untouched, if `to` is taken or cannot be a note name.
+   */
+  renameNote(from: string, to: string): Promise<RenameResult>;
   /**
    * Does the close or reload that the page held back (`beforeunload`) to save first. The
    * page cannot tell which one it was.
