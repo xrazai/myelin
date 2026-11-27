@@ -1,0 +1,13 @@
+{
+  "name": "@myelin/graph",
+  "version": "0.0.0",
+  "description": "WebGL2 graph with its own layout solver.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src"
+  ]
+}

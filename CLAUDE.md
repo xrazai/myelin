@@ -6,7 +6,10 @@ Goal priority:
 1. The personal vault that learns (Rafa's daily use). Scale and scope decisions serve this.
 2. `@myelin/graph` as an open-source library. Library-only ambitions go to "Later".
 
-Status: docs only, no code yet. Repo: https://github.com/xrazai/myelin (branch `main`).
+Status: stage 1 in progress (app scaffold in place). Repo: https://github.com/xrazai/myelin (branch `main`).
+
+## Commands
+`npm install`, `npm run dev`, `npm run typecheck`, `npm test`, `npm run build`, `npm run preview`.
 
 ## Language rule
 - Everything in the project is in English: code, identifiers, comments, file and folder names, UI text, docs.
@@ -15,11 +18,14 @@ Status: docs only, no code yet. Repo: https://github.com/xrazai/myelin (branch `
 ## Decisions
 - Runtime: Electron. Language: TypeScript everywhere (ESM).
 - Build: `electron-vite`. Vite dev server on localhost is allowed in development only; the shipped app opens no ports and runs no HTTP server.
+- Tests: vitest, `*.test.ts` next to the code. TypeScript stays on 6.x until `svelte-check` accepts 7; `@types/node` follows the Node bundled in Electron.
+- Svelte components always use `<script lang="ts">` (without it `svelte-check` treats them as untyped JS).
+- Renderer runs sandboxed, so the preload is built as CommonJS (`preload.cjs`).
 - UI shell: Svelte 5 (runes).
 - Internal communication: IPC only (`contextBridge`, `contextIsolation: true`).
 - Storage:
   - Inside the vault, `.myelin/` holds only text files: `vault.json` (vault id, format version) and `usage.jsonl` (learning events). Safe to sync with Git, Syncthing or cloud folders.
-  - Index: `better-sqlite3` (WAL, FTS5) at `<userData>/vaults/<vault-id>/index.db`, outside the vault. 100% rebuildable; never synced (SQLite + WAL in a synced folder risks corruption and binary conflicts). Native module: rebuild for Electron (`@electron/rebuild`).
+  - Index: `better-sqlite3` (WAL, FTS5) at `<userData>/vaults/<vault-id>/index.db`, outside the vault. 100% rebuildable; never synced (SQLite + WAL in a synced folder risks corruption and binary conflicts). Native module: `better-sqlite3` >= 13 ships Node-API prebuilds, so one binary serves Node (tests) and Electron: no `@electron/rebuild`, and its install script stays denied (`allowScripts`).
 - Search: FTS5, tokenizer `unicode61 remove_diacritics 2` (Portuguese-friendly; `porter` is English-only).
 - Editor: CodeMirror 6.
 - Graph: `@myelin/graph`, WebGL2 only (GLSL ES 3.0), graphics backend behind an internal interface. Layout: own ForceAtlas2 (LinLog) + Barnes-Hut solver inside the library, no dependency (`docs/graph-lib.md`).
@@ -97,8 +103,10 @@ myelin/
 │   │   ├── vault-worker.ts    # file I/O (atomic), watcher, parsing, index.db, FTS5, usage events, heavy path
 │   │   └── brain-adapter.ts   # AI slot: search(query), process(changedNote); FTS5 now
 │   ├── preload/preload.ts     # contextBridge, exposes window.myelin
+│   ├── shared/ipc.ts          # types of the window.myelin contract
 │   └── renderer/              # Nocturnal Botany UI (Svelte 5 shell)
 │       ├── index.html
+│       ├── index.ts           # mounts App.svelte
 │       ├── App.svelte         # launcher -> workspace
 │       ├── styles.css         # palette and font variables (docs/identity.md)
 │       ├── fonts/             # body serif, Inter, JetBrains Mono (variable, OFL)
