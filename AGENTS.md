@@ -139,7 +139,7 @@ myelin/
 │       ├── styles.css         # palette and font variables (docs/identity.md)
 │       ├── fonts/             # Literata, Inter, JetBrains Mono (variable, OFL) + fonts.css
 │       ├── public/licenses/   # font licenses, copied into the build
-│       ├── components/        # Launcher, Workspace, FileTree, Tabs, Editor, TreeMenu, DeleteDialog, CommandPalette, StatusBar, BrainPanel (.svelte)
+│       ├── components/        # Launcher, Workspace, FileTree, Tabs, Editor, TreeMenu, DeleteDialog, MoveDialog, CommandPalette, StatusBar, BrainPanel (.svelte)
 │       ├── editor/
 │       │   ├── cm-editor.ts   # CodeMirror 6 (one view, a state per tab); [[link]] autocomplete and hover plug in here
 │       │   ├── editor-tabs.ts # tabs -> editor: opens a note when its tab is first shown, saves the one left
@@ -161,6 +161,7 @@ myelin/
 │       │   └── theme.ts       # editor look, from the identity tokens
 │       ├── tree-model.ts      # file tree logic: visible rows, watcher events, keyboard
 │       ├── delete-item.ts     # deleting: save the open notes, move to the Recycle Bin, close their tabs
+│       ├── move-item.ts       # moving in the tree: valid destinations (a move is a rename to another folder)
 │       ├── new-item.ts        # creating from the tree: target folder, name rules, context menu items
 │       ├── note-list.ts       # every note path (no content), kept current by watcher events
 │       ├── note-search.ts     # fuzzy search over note names, ignoring case and accents

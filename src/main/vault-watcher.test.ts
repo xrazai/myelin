@@ -573,6 +573,15 @@ describe('renaming a folder', () => {
     expect(seen).toEqual([]);
   });
 
+  test('moves a folder into another and back to the root, links following', async () => {
+    await watching.renameFolder('Plans/deep', 'Other/deep');
+    expect(await readFile(at('Home.md'), 'utf8')).toBe('[[Plans/A|alias]] [[Other/deep/B#H]] [[deep/B]] [[B]]');
+    await watching.renameFolder('Other/deep', 'deep');
+    expect(await readFile(at('Home.md'), 'utf8')).toContain('[[deep/B#H]]');
+    expect(await readdir(at('deep/.hidden'))).toEqual(['secret.md']);
+    expect(notes()).toContain('deep/B.md');
+  });
+
   test('a note that is not UTF-8 is left as it is', async () => {
     await writeFile(at('Latin.md'), Buffer.from([0x5b, 0x5b, 0x50, 0x6c, 0x61, 0x6e, 0x73, 0x2f, 0x41, 0x5d, 0x5d, 0xe9]));
     await until(() => expect(notes()).toContain('Latin.md'));

@@ -51,6 +51,8 @@ const parentOf = (path: string) => path.slice(0, Math.max(0, path.lastIndexOf('/
 export function renamedFolderPath(from: string, typed: string): string | null {
   const name = typed.trim();
   if (!name) return null;
+  // Moving is another action; a typed `/` would move the folder by surprise.
+  if (name.includes('/')) throw new Error('a name cannot contain /');
   const to = parentOf(from) ? `${parentOf(from)}/${name}` : name;
   return to === from ? null : to;
 }
@@ -90,7 +92,6 @@ export async function renameFolder(
   from: string,
   to: string,
 ): Promise<FolderRenameOutcome> {
-  if (parentOf(to) !== parentOf(from)) throw new Error('a name cannot contain /');
   // A tab already at a destination holds a deleted note, maybe its only copy (#107).
   const into = `${to.toLowerCase()}/`;
   const held = state.openPaths().find((path) => !isWithin(path, from) && path.toLowerCase().startsWith(into));

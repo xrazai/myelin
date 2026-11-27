@@ -137,7 +137,7 @@
       }
       return true;
     } catch (error) {
-      noteError = `Could not rename the ${kind}. ${errorMessage(error)}`;
+      noteError = `Could not rename or move the ${kind}. ${errorMessage(error)}`;
       return false;
     } finally {
       pendingRename = null;
@@ -485,7 +485,7 @@
       <kbd>Ctrl+P</kbd>
     </button>
     <div class="files">
-      <FileTree bind:this={fileTree} ondelete={requestDelete} hasTab={(path) => tabs.list.some((tab) => tab.path === path)} selected={tabs.active} onopen={openNote} onrename={requestRename} {locked} />
+      <FileTree bind:this={fileTree} ondelete={requestDelete} hasTab={(path) => tabs.list.some((tab) => tab.path === path)} selected={tabs.active} onopen={openNote} onrename={requestRename} {locked} onerror={(message) => (noteError = message)} />
     </div>
   </nav>
 
