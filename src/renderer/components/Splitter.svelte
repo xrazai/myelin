@@ -90,6 +90,7 @@
     position: relative;
     z-index: 1;
     background: var(--divider);
+    transition: background-color var(--t-fast) ease;
   }
 
   /* The grab area is wider than the line. */
