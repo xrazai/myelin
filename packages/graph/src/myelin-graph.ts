@@ -1,9 +1,11 @@
 // The graph on a canvas: composes the layout worker, the camera and its controls, and a
 // graphics backend. It draws only when something changed.
 
-import type { Backend, BackendFactory, Scene } from './backend/backend.ts';
+import type { Backend, BackendFactory, Frame } from './backend/backend.ts';
 import { WebGL2Backend } from './backend/webgl2.ts';
-import { boundsOf, fit, pan, zoomAt, type Camera } from './camera.ts';
+import { boundsOf, fit, pan, screenToWorld, zoomAt, type Camera } from './camera.ts';
+import { HitGrid, type HitStyle } from './hit-grid.ts';
+import { drawLabels, placeLabels, type LabelStyle } from './labels.ts';
 import { attachControls } from './controls.ts';
 import { GraphLayout, type GraphLayoutOptions, type LayoutEvents } from './layout/graph-layout.ts';
 import { checkGraph, type LayoutOptions } from './layout/forceatlas2.ts';
@@ -20,6 +22,19 @@ const NEIGHBOR_TEMPERATURE = 0.3;
 const MAX_LOCAL = 2000;
 /** Where a node with no place yet is uploaded: far outside any view. */
 const NOWHERE = 1e30;
+/** A press that moves less than this, in CSS pixels, is a click. */
+const CLICK_SLOP = 4;
+const FOCUS_MS = 600;
+/** Focusing a node zooms in at least this much. */
+const FOCUS_ZOOM = 1;
+
+export interface PointerEvents {
+  /** The node under the pointer, or `null` when it leaves every node. */
+  nodeHover: (id: number | null) => void;
+  nodeClick: (id: number) => void;
+}
+
+export type GraphEvents = LayoutEvents & PointerEvents;
 
 export interface MyelinGraphOptions {
   /** `#rgb` or `#rrggbb`. */
@@ -29,6 +44,15 @@ export interface MyelinGraphOptions {
   createWorker?: GraphLayoutOptions['createWorker'];
   /** For tests. */
   createBackend?: BackendFactory;
+  /** The title of a node; only asked for nodes that may show. An array is `id => labels[id]`. */
+  getLabel?: ((id: number) => string) | string[];
+  /**
+   * A transparent canvas stacked exactly over the graph's, with `pointer-events: none`:
+   * labels are drawn on it. Needed for `getLabel`.
+   */
+  labelCanvas?: HTMLCanvasElement;
+  /** Neutral by default: the host brings its own. */
+  labelStyle?: Partial<LabelStyle>;
 }
 
 export interface GraphData extends SceneInput {
@@ -39,6 +63,7 @@ export interface GraphData extends SceneInput {
 export class MyelinGraph {
   private readonly canvas: HTMLCanvasElement;
   private readonly createBackend: () => Backend;
+  private readonly hitStyle: HitStyle;
   private backend: Backend;
   private readonly layout: GraphLayout;
   private readonly detach: (() => void)[] = [];
@@ -51,6 +76,24 @@ export class MyelinGraph {
   /** Nodes added and not yet laid out by a finished pass. */
   private readonly fresh = new Set<number>();
   private pending = false;
+  private readonly hits: HitGrid;
+  /** The grid and the label order are rebuilt when next needed. */
+  private staleHits = true;
+  private staleOrder = true;
+  private order: Uint32Array = new Uint32Array(0);
+  private hovered: number | null = null;
+  private readonly labels: {
+    canvas: HTMLCanvasElement;
+    context: CanvasRenderingContext2D;
+    label: (id: number) => string;
+    style: LabelStyle;
+  } | null = null;
+  /** A camera glide in progress. */
+  private glide: { from: Camera; to: Camera; start: number; duration: number } | null = null;
+  private readonly pointerListeners = {
+    nodeHover: new Set<PointerEvents['nodeHover']>(),
+    nodeClick: new Set<PointerEvents['nodeClick']>(),
+  };
   private readonly changeListeners = new Set<LayoutEvents['layoutChange']>();
   private size: CanvasSize = { width: 0, height: 0, pixelWidth: 0, pixelHeight: 0 };
   private view: Camera = { x: 0, y: 0, zoom: 1 };
@@ -69,6 +112,19 @@ export class MyelinGraph {
     this.canvas = canvas;
     this.createBackend = () => factory(canvas, style);
     this.backend = this.createBackend();
+    this.hitStyle = style;
+    this.hits = new HitGrid(style);
+    const { getLabel, labelCanvas } = options;
+    if (getLabel && labelCanvas) {
+      const context = labelCanvas.getContext('2d');
+      if (!context) throw new Error('the label canvas has no 2d context');
+      this.labels = {
+        canvas: labelCanvas,
+        context,
+        label: Array.isArray(getLabel) ? (id) => getLabel[id] ?? '' : getLabel,
+        style: { color: '#dddddd', font: 'sans-serif', ...options.labelStyle },
+      };
+    }
     this.layout = new GraphLayout({ ...options.layout, createWorker: options.createWorker });
     this.layout.on('layoutChange', (positions, status) => {
       this.receive(positions, status.done);
@@ -96,7 +152,139 @@ export class MyelinGraph {
         this.lost = true;
       }),
       this.listen('webglcontextrestored', () => this.restore()),
+      this.pointing(),
     );
+  }
+
+  /** Hover and click. Panning and zooming are `attachControls`'. */
+  private pointing(): () => void {
+    let pressed: { id: number; x: number; y: number } | null = null;
+    const nodeAt = (event: PointerEvent): number | null => {
+      if (!this.placed) return null;
+      if (this.staleHits) {
+        this.hits.build(this.store.positions, this.store.radii, this.store.nodeCount);
+        this.staleHits = false;
+      }
+      const box = this.canvas.getBoundingClientRect();
+      const [x, y] = screenToWorld(
+        this.view,
+        this.size,
+        event.clientX - box.left - this.canvas.clientLeft,
+        event.clientY - box.top - this.canvas.clientTop,
+      );
+      return this.hits.at(x, y, this.view.zoom);
+    };
+    const stops = [
+      this.listen('pointerdown', (event) => {
+        const pointer = event as PointerEvent;
+        this.glide = null;
+        // A second finger makes it a pinch, not a click.
+        pressed = pressed === null && pointer.button === 0
+          ? { id: pointer.pointerId, x: pointer.clientX, y: pointer.clientY }
+          : null;
+      }),
+      this.listen('pointermove', (event) => {
+        const pointer = event as PointerEvent;
+        if (pressed && pointer.pointerId === pressed.id) {
+          if (Math.hypot(pointer.clientX - pressed.x, pointer.clientY - pressed.y) >= CLICK_SLOP) pressed = null;
+          return;
+        }
+        if (pointer.buttons) return;
+        this.hover(nodeAt(pointer));
+      }),
+      this.listen('pointerup', (event) => {
+        const pointer = event as PointerEvent;
+        const click = pressed && pointer.pointerId === pressed.id;
+        pressed = null;
+        if (!click) return;
+        const id = nodeAt(pointer);
+        if (id !== null) for (const listener of this.pointerListeners.nodeClick) listener(id);
+      }),
+      this.listen('pointercancel', () => (pressed = null)),
+      this.listen('pointerleave', () => this.hover(null)),
+    ];
+    return () => stops.forEach((stop) => stop());
+  }
+
+  private hover(id: number | null): void {
+    if (id === this.hovered) return;
+    this.hovered = id;
+    // Its label shows first.
+    if (this.labels) this.invalidate();
+    for (const listener of this.pointerListeners.nodeHover) listener(id);
+  }
+
+  /** Glides the camera to a node, zooming in if it is far out. */
+  focusNode(id: number, { duration = FOCUS_MS }: { duration?: number } = {}): void {
+    this.assertLoaded();
+    this.flush();
+    const x = this.store.positions[id * 2]!;
+    const y = this.store.positions[id * 2 + 1]!;
+    if (!this.store.isAlive(id)) throw new RangeError(`there is no node ${id}`);
+    // Not placed yet: there is nowhere to go.
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    this.following = false;
+    const to = { x, y, zoom: Math.max(this.view.zoom, FOCUS_ZOOM) };
+    if (duration <= 0) {
+      this.glide = null;
+      this.view = to;
+    } else this.glide = { from: this.camera, to, start: performance.now(), duration };
+    this.invalidate();
+  }
+
+  private advanceGlide(): void {
+    if (!this.glide) return;
+    const { from, to, start, duration } = this.glide;
+    const t = Math.min(1, (performance.now() - start) / duration);
+    const eased = t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
+    // The zoom moves by ratios, so that it feels even.
+    this.view = {
+      x: from.x + (to.x - from.x) * eased,
+      y: from.y + (to.y - from.y) * eased,
+      zoom: from.zoom * (to.zoom / from.zoom) ** eased,
+    };
+    if (t >= 1) {
+      this.view = { ...to };
+      this.glide = null;
+    }
+  }
+
+  /** Node ids, the best linked first: which labels win. */
+  private labelOrder(): Uint32Array {
+    if (!this.staleOrder) return this.order;
+    this.staleOrder = false;
+    const { store } = this;
+    const strength = new Float64Array(store.nodeCount);
+    for (let e = 0; e < store.edgeCount; e++) {
+      const weight = store.weights[e]!;
+      const added = weight > 0 && weight < Infinity ? weight : 0;
+      strength[store.ends[e * 2]!]! += added;
+      strength[store.ends[e * 2 + 1]!]! += added;
+    }
+    this.order = Uint32Array.from({ length: store.nodeCount }, (_, id) => id).sort(
+      (a, b) => store.radii[b]! - store.radii[a]! || strength[b]! - strength[a]! || a - b,
+    );
+    return this.order;
+  }
+
+  private drawLabelLayer(frame: Frame): void {
+    if (!this.labels) return;
+    const { canvas, context, label, style } = this.labels;
+    context.setTransform(1, 0, 0, 1, 0, 0);
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    if (!this.placed) return;
+    context.font = `12px ${style.font}`;
+    const boxes = placeLabels({
+      order: this.labelOrder(),
+      positions: this.store.positions,
+      radii: this.store.radii,
+      first: this.hovered,
+      frame,
+      style: this.hitStyle,
+      label,
+      measure: (text) => context.measureText(text).width,
+    });
+    drawLabels(context, boxes, frame, style);
   }
 
   /** Full load. Resets node ids; the caller keeps its arrays. */
@@ -110,6 +298,9 @@ export class MyelinGraph {
     this.backend.setGraph(this.store.scene());
     this.fresh.clear();
     this.pending = false;
+    this.staleHits = this.staleOrder = true;
+    this.hovered = null;
+    this.glide = null;
     this.layout.setGraph(data);
     this.full = { ids: null, running: true };
     this.loaded = true;
@@ -180,14 +371,16 @@ export class MyelinGraph {
     this.invalidate();
   }
 
-  on<K extends keyof LayoutEvents>(event: K, listener: LayoutEvents[K]): void {
+  on<K extends keyof GraphEvents>(event: K, listener: GraphEvents[K]): void {
     if (event === 'layoutChange') this.changeListeners.add(listener as LayoutEvents['layoutChange']);
-    else this.layout.on(event, listener);
+    else if (event === 'layoutError') this.layout.on('layoutError', listener as LayoutEvents['layoutError']);
+    else (this.pointerListeners[event as keyof PointerEvents] as Set<unknown>).add(listener);
   }
 
-  off<K extends keyof LayoutEvents>(event: K, listener: LayoutEvents[K]): void {
+  off<K extends keyof GraphEvents>(event: K, listener: GraphEvents[K]): void {
     if (event === 'layoutChange') this.changeListeners.delete(listener as LayoutEvents['layoutChange']);
-    else this.layout.off(event, listener);
+    else if (event === 'layoutError') this.layout.off('layoutError', listener as LayoutEvents['layoutError']);
+    else (this.pointerListeners[event as keyof PointerEvents] as Set<unknown>).delete(listener);
   }
 
   destroy(): void {
@@ -200,6 +393,7 @@ export class MyelinGraph {
     this.loaded = false;
     this.placed = false;
     this.changeListeners.clear();
+    for (const listeners of Object.values(this.pointerListeners)) listeners.clear();
   }
 
   private assertAlive(): void {
@@ -231,6 +425,8 @@ export class MyelinGraph {
     if (grown) this.backend.setGraph(scene);
     else this.backend.updateGraph(scene, nodes, edges);
     if (this.placed && (grown || nodes)) this.upload();
+    this.staleHits = this.staleOrder = true;
+    if (this.hovered !== null && !this.store.isAlive(this.hovered)) this.hover(null);
     this.arrange();
     this.invalidate();
   }
@@ -305,6 +501,7 @@ export class MyelinGraph {
 
   private showPositions(): void {
     this.placed = true;
+    this.staleHits = true;
     this.upload();
     if (this.following) this.refit();
     this.invalidate();
@@ -327,6 +524,7 @@ export class MyelinGraph {
 
   private move(camera: Camera): void {
     this.following = false;
+    this.glide = null;
     this.view = camera;
     this.invalidate();
   }
@@ -335,6 +533,10 @@ export class MyelinGraph {
     this.size = size;
     if (this.canvas.width !== size.pixelWidth) this.canvas.width = size.pixelWidth;
     if (this.canvas.height !== size.pixelHeight) this.canvas.height = size.pixelHeight;
+    if (this.labels) {
+      this.labels.canvas.width = size.pixelWidth;
+      this.labels.canvas.height = size.pixelHeight;
+    }
     if (this.following) this.refit();
     // Resizing cleared the canvas: drawing now, before the paint, avoids a blank frame.
     this.draw();
@@ -351,12 +553,12 @@ export class MyelinGraph {
     this.frame = 0;
     const { pixelWidth, pixelHeight, width } = this.size;
     if (this.lost || this.destroyed || pixelWidth === 0 || pixelHeight === 0) return;
-    this.backend.render({
-      width: pixelWidth,
-      height: pixelHeight,
-      pixelRatio: pixelWidth / width,
-      camera: this.view,
-    });
+    this.advanceGlide();
+    const frame = { width: pixelWidth, height: pixelHeight, pixelRatio: pixelWidth / width, camera: this.view };
+    this.backend.render(frame);
+    // The same camera, in the same frame: labels never float behind their nodes.
+    this.drawLabelLayer(frame);
+    if (this.glide) this.invalidate();
   }
 
   /** A restored context is empty: everything is created and uploaded again. */
