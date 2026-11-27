@@ -3,10 +3,12 @@
 Desktop app over a vault of `.md` notes that learns from how you write and navigate. Editor, file tree, GPU graph, Brain panel (vault query).
 
 Goal priority:
-1. The personal vault that learns (Rafa's daily use). Scale and scope decisions serve this.
+1. The personal vault (Rafa's daily use). Scale and scope decisions serve this. In this order:
+   - First, a solid manual base: notes, folders and links managed by hand (create, find, organize, rename, delete), with every link kept right.
+   - Then the vault that learns: paused (#34) until the base is solid and the maintainer resumes it.
 2. `@myelin/graph` as an open-source library. Library-only ambitions go to "Later".
 
-Status: stage 1 in progress (app scaffold in place). Repo: https://github.com/xrazai/myelin (branch `main`).
+Status: stage 1 done; stage 2 in progress, with the manual base first (Roadmap). Search, graph and speed work is not paused, but comes after the base. Repo: https://github.com/xrazai/myelin (branch `main`).
 
 ## Commands
 `npm install`, `npm run dev`, `npm run typecheck`, `npm test`, `npm run build`, `npm run preview`, `npm run gen-vault -- --notes 10000 --seed 1` (synthetic vault outside the repo; options in `scripts/gen-vault.ts`).
@@ -199,7 +201,8 @@ Workspace layout: tabs (top) | tree (left) | editor | graph or Brain panel (righ
 
 ## Roadmap
 1. Skeleton, I/O and proof tools: themed window, launcher, file tree, `vault-worker` (atomic writes, watcher loop guard, `index.db` + FTS5), `gen-vault` and `bench`.
-2. Fluid editor: CodeMirror 6, live preview, `Ctrl+P` palette, `[[link]]` autocomplete, rename updates links, hover preview with viewport prefetch. Daily use starts here: first release `v0.1.0` with auto-update (#12).
+2. Fluid editor: CodeMirror 6, live preview, `Ctrl+P` palette, `[[link]]` autocomplete, rename updates links, hover preview with viewport prefetch. Daily use starts here: first release `v0.1.0` with auto-update (#12), which ships the manual base.
+   - Manual base for notes and folders, before new work in later stages: palette to find, open or create a note (#31) -> create from the tree (#95) -> delete to the Recycle Bin (#96) -> rename a folder (#97) -> move notes and folders (#98). Reopen the last vault (#99) follows #31. End-to-end proof closes it (#22).
 3. Search and Brain panel: `brain-adapter` with FTS5, excerpt cards with sources, usage events in `usage.jsonl` and edge weights (the last two are paused, #34).
 4. Graph: `@myelin/graph` on WebGL2, layout worker, incremental API, semantic zoom, micro-animations, edge weights as thickness/glow.
 
