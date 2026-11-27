@@ -123,7 +123,7 @@ Workspace layout: tabs (top) | tree (left) | editor | graph or Brain panel (righ
 - Every piece of work is an issue, in English. ID = issue number (`#12`). Labels: type (`task`, `bug`, `enhancement`, `documentation`) + `area: vault|editor|graph|ui|tooling`. Milestone = roadmap stage.
 - License: MIT for everything (app and `@myelin/graph`). Every `package.json` says `"license": "MIT"`; `packages/graph` ships its own `LICENSE`.
 - Community files: `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md`, `.github/CODEOWNERS`, templates in `.github/` (bug, feature, task, PR; blank issues off).
-- Solo flow (Rafa): commit straight to `main` (ruleset bypass); the commit that finishes an issue ends its message with `Closes #N` (partial work: `Refs #N`). Closing moves the card to Done.
+- Solo flow (Rafa): commit straight to `main` (ruleset bypass); the commit that finishes an issue ends its message with `Closes #N` (partial work: `Refs #N`). Closing moves the card to Done. Rafa's agents follow `CLAUDE.local.md` (local, git-ignored) for when to commit, push and open PRs; if it is missing, ask before any push.
 - Contributors: fork, branch `<issue>-short-slug`, PR with `Closes #N`. Ruleset "Protect main": PR required, 1 approval (code owner), review threads resolved, no force push, no deletion; Rafa (admin) bypasses. Merge: squash only (PR title = commit), branch deleted after merge. CI as a required check comes with #14.
 - Security: private vulnerability reporting on; Dependabot alerts and security updates on.
 - Automations: new issues/PRs are auto-added to the board in Backlog; closed/merged -> Done; card moved to Done -> issue closed; PR linked -> In progress.
