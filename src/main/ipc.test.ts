@@ -39,6 +39,7 @@ test('each call invokes its own channel with its arguments', () => {
   void api.readNote('a.md');
   void api.writeNote('a.md', 'text', 'before');
   void api.search('query');
+  void api.resumeUnload();
   expect(electron.invoke.mock.calls).toEqual([
     [CALL_CHANNELS.createVault],
     [CALL_CHANNELS.openVault],
@@ -46,6 +47,7 @@ test('each call invokes its own channel with its arguments', () => {
     [CALL_CHANNELS.readNote, 'a.md'],
     [CALL_CHANNELS.writeNote, 'a.md', 'text', 'before'],
     [CALL_CHANNELS.search, 'query'],
+    [CALL_CHANNELS.resumeUnload],
   ]);
 });
 

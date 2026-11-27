@@ -44,16 +44,16 @@
     void notes.saveAll().then((saved) => {
       flushing = false;
       // Checked again on the way out: more may have been typed meanwhile.
-      if (saved) return window.close();
+      if (saved) return void window.myelin.resumeUnload();
       unsavable = notes.unsaved();
       const [first] = unsavable;
       if (first !== undefined) tabs = openTab(tabs, first);
     });
   }
 
-  function quitAnyway() {
+  function leaveAnyway() {
     abandon = true;
-    window.close();
+    void window.myelin.resumeUnload();
   }
 
   $effect(() => {
@@ -171,7 +171,7 @@
     <p>Quitting now loses the unsaved text.</p>
     <form method="dialog">
       <button type="submit">Keep editing</button>
-      <button type="button" onclick={quitAnyway}>Quit and lose it</button>
+      <button type="button" onclick={leaveAnyway}>Quit and lose it</button>
     </form>
   </dialog>
 {/if}

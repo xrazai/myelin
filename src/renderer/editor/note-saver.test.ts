@@ -207,6 +207,19 @@ describe('another program changes the note', () => {
     expect(t.saver.unsaved()).toEqual(['a.md']);
   });
 
+  test('undoing every edit while asked takes the disk version', async () => {
+    const t = setup();
+    await t.open();
+    t.type('mine');
+    t.other('theirs');
+    await t.report();
+    t.type('one');
+    await pause();
+    expect(t.texts.get('a.md')).toBe('theirs');
+    expect(t.problem()).toBeUndefined();
+    expect(t.writes).toEqual([]);
+  });
+
   test('auto-save firing before the report does not overwrite the change', async () => {
     const t = setup();
     await t.open();

@@ -70,6 +70,11 @@ export interface MyelinApi {
    * only if there is none. `content` is written as is, BOM and line endings included.
    */
   writeNote(path: string, content: string, base: string | null): Promise<WriteResult>;
+  /**
+   * Does the close or reload that the page held back (`beforeunload`) to save first. The
+   * page cannot tell which one it was.
+   */
+  resumeUnload(): Promise<void>;
   /** Cards ordered by relevance. */
   search(query: string): Promise<SearchCard[]>;
   /** Watcher events, in batches. Returns the unsubscribe function. */
@@ -100,6 +105,7 @@ export const CALL_CHANNELS = {
   readNote: 'note:read',
   writeNote: 'note:write',
   search: 'brain:search',
+  resumeUnload: 'window:resume-unload',
 } as const satisfies Record<CallName, string>;
 
 /** Push channels, main -> renderer, with their payloads. */

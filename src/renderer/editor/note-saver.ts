@@ -287,6 +287,15 @@ export function createNoteSaver(editor: SaverEditor, disk: NoteDisk): NoteSaver 
       const note = entry?.note;
       if (!entry || !note) return;
       if (!note.gone && !note.changed) schedule(path, entry);
+      // Undone back to nothing of the user's own: the disk's version can just load. Queued,
+      // because the editor cannot be changed while it reports a change.
+      if (note.changed && !isDirty(path, note)) {
+        void enqueue(entry, async () => {
+          if (held(path, entry) !== note || !note.changed || isDirty(path, note)) return;
+          apply(path, entry, note, note.disk);
+          notify();
+        });
+      }
       notify();
     },
 
