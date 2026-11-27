@@ -62,6 +62,8 @@ export interface MyelinApi {
   openVault(): Promise<VaultInfo | null>;
   /** Entries at the vault root. */
   getTree(): Promise<TreeEntry[]>;
+  /** The path of every note in the tree, in tree order. No content. */
+  listNotes(): Promise<string[]>;
   /** Full text of a note. */
   readNote(path: string): Promise<string>;
   /**
@@ -102,6 +104,7 @@ export const CALL_CHANNELS = {
   createVault: 'vault:create',
   openVault: 'vault:open',
   getTree: 'vault:tree',
+  listNotes: 'note:list',
   readNote: 'note:read',
   writeNote: 'note:write',
   search: 'brain:search',

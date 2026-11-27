@@ -101,6 +101,7 @@ void app.whenReady().then(() => {
     createVault: () => pickAndOpenVault(vault, 'Create a new vault', 'Create vault here'),
     openVault: () => pickAndOpenVault(vault, 'Open a vault', 'Open vault'),
     getTree: () => vault.call('getTree'),
+    listNotes: () => vault.call('listNotes'),
     readNote: (path) => vault.call('readNote', path),
     writeNote: (path, content, base) => vault.call('writeNote', path, content, base),
     resumeUnload: () => {

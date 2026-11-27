@@ -4,7 +4,7 @@
   import type { NoteProblems, NoteSaver } from '../editor/note-saver';
   import { DEFAULT_WIDTHS, fitWidths, loadWidths, maxWidth, MIN_WIDTHS, resizeSide, saveWidths, type Side } from '../panel-layout';
   import { shortcutFor } from '../shortcuts';
-  import { applyTabEvents, closeTab, cycleTab, moveTab, NO_TABS, openTab, tabName, type Tabs as TabsState } from '../tabs-model';
+  import { applyTabEvents, closeTab, cycleTab, moveTab, NO_TABS, openTab, replaceTab, tabName, type Tabs as TabsState } from '../tabs-model';
   import Editor from './Editor.svelte';
   import FileTree from './FileTree.svelte';
   import Splitter from './Splitter.svelte';
@@ -25,6 +25,15 @@
   async function requestClose(path: string) {
     if ((await saver?.save(path)) !== false) tabs = closeTab(tabs, path);
     else if (tabs.list.some((tab) => tab.path === path)) tabs = openTab(tabs, path);
+  }
+
+  /** A followed link takes the tab of its note only once that note is safe to leave. */
+  async function follow(path: string, source: string, newTab: boolean) {
+    if (path === tabs.active) return;
+    if (newTab || tabs.list.some((tab) => tab.path === path)) tabs = openTab(tabs, path);
+    else if ((await saver?.save(source)) !== false) {
+      tabs = tabs.active === source ? replaceTab(tabs, source, path) : openTab(tabs, path);
+    }
   }
 
   // Quitting (or reloading) waits for the pending saves. If some text cannot be saved,
@@ -134,6 +143,7 @@
       onsaver={(next) => (saver = next)}
       onproblems={(next) => (problems = next)}
       ondiscard={(path) => (tabs = closeTab(tabs, path))}
+      onfollow={follow}
     />
   </main>
 

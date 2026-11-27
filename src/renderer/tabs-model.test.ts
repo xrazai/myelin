@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { applyTabEvents, closeTab, cycleTab, dropIndex, moveTab, NO_TABS, openTab, tabName, type Tabs } from './tabs-model';
+import { applyTabEvents, closeTab, cycleTab, dropIndex, moveTab, NO_TABS, openTab, replaceTab, tabName, type Tabs } from './tabs-model';
 
 const open = (...paths: string[]) => paths.reduce(openTab, NO_TABS);
 const paths = (tabs: Tabs) => tabs.list.map((tab) => tab.path);
@@ -18,6 +18,14 @@ test('opening adds right of the active tab, or activates the one already there',
   tabs = openTab(tabs, 'd');
   expect(paths(tabs)).toEqual(['a', 'd', 'b', 'c']);
   expect(openTab(tabs, 'd')).toBe(tabs);
+});
+
+test('replacing puts the note in the same place, unless it already has a tab', () => {
+  const tabs = openTab(open('a', 'b', 'c'), 'b');
+  expect(paths(replaceTab(tabs, 'b', 'd'))).toEqual(['a', 'd', 'c']);
+  expect(replaceTab(tabs, 'b', 'd').active).toBe('d');
+  expect(replaceTab(tabs, 'b', 'c')).toEqual({ ...tabs, active: 'c' });
+  expect(paths(replaceTab(tabs, 'gone', 'd'))).toEqual(['a', 'b', 'd', 'c']);
 });
 
 test('closing the active tab goes right, then left, then to nothing', () => {

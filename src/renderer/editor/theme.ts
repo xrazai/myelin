@@ -41,6 +41,32 @@ export const theme = EditorView.theme(
       fontWeight: '400',
     },
     '.cm-md-syntax, .cm-md-syntax *': { color: 'var(--text-muted)' },
+
+    // `[[` completion. The prefixes match the specificity of CodeMirror's own theme.
+    '.cm-tooltip.cm-tooltip-autocomplete': {
+      overflow: 'hidden',
+      backgroundColor: 'var(--bg-panel)',
+      border: '1px solid var(--divider)',
+      borderRadius: '6px',
+    },
+    '.cm-tooltip.cm-tooltip-autocomplete > ul': {
+      fontFamily: 'var(--font-ui)',
+      fontSize: 'var(--font-size-ui)',
+      minWidth: '240px',
+      maxHeight: '18em',
+    },
+    '.cm-tooltip.cm-tooltip-autocomplete > ul > li': { padding: '3px 10px', color: 'var(--text)' },
+    '.cm-tooltip.cm-tooltip-autocomplete > ul > li[aria-selected]': {
+      backgroundColor: 'color-mix(in srgb, var(--accent) 16%, transparent)',
+      color: 'var(--accent)',
+    },
+    '.cm-completionDetail': {
+      marginLeft: '1em',
+      fontFamily: 'var(--font-mono)',
+      fontSize: '0.85em',
+      fontStyle: 'normal',
+      color: 'var(--text-muted)',
+    },
   },
   { dark: true },
 );

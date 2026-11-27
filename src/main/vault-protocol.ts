@@ -17,6 +17,8 @@ export interface VaultRequests {
    */
   open(root: string): VaultInfo;
   getTree(): TreeEntry[];
+  /** `listNotes` of the contract, on the current vault. */
+  listNotes(): string[];
   /** Full text of a note of the current vault. Rejects a path outside the contract. */
   readNote(path: string): string;
   /** `writeNote` of the contract, on the current vault. */

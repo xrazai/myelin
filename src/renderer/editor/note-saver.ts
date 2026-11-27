@@ -87,7 +87,12 @@ export interface NoteSaver {
   stop(): void;
 }
 
-export function createNoteSaver(editor: SaverEditor, disk: NoteDisk): NoteSaver {
+/** `onSaved` hears each write: the text it replaced and the one now on disk. */
+export function createNoteSaver(
+  editor: SaverEditor,
+  disk: NoteDisk,
+  onSaved: (path: string, before: string, after: string) => void = () => {},
+): NoteSaver {
   const entries = new Map<string, Entry>();
   const listeners = new Set<(problems: NoteProblems) => void>();
   let problems: NoteProblems = new Map();
@@ -167,6 +172,14 @@ export function createNoteSaver(editor: SaverEditor, disk: NoteDisk): NoteSaver 
     }
     if (!held(path, entry)) return true;
     if (result.status === 'saved') {
+      // A deleted note saved again has no disk text: what it had is what is replaced.
+      const before = note.base === null ? note.saved : parseNote(note.base).text;
+      try {
+        onSaved(path, before, text);
+      } catch (error) {
+        // A listener must not turn a good save into a failed one.
+        console.error(`[note-saver] onSaved for ${path} failed:`, error);
+      }
       Object.assign(note, { base: content, saved: text, disk: content, force: false, error: null });
       return isDirty(path, note) ? 'again' : true;
     }

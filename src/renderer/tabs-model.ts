@@ -28,6 +28,13 @@ export function openTab(tabs: Tabs, path: string): Tabs {
   return { list: tabs.list.toSpliced(after, 0, { path, deleted: false }), active: path };
 }
 
+/** The tab of `from` becomes the tab of `to`. If `to` already has a tab, it is activated. */
+export function replaceTab(tabs: Tabs, from: string, to: string): Tabs {
+  const index = indexOf(tabs, from);
+  if (index < 0 || indexOf(tabs, to) >= 0) return openTab(tabs, to);
+  return { list: tabs.list.with(index, { path: to, deleted: false }), active: to };
+}
+
 /** Closing the active tab activates the one on its right, or else the one on its left. */
 export function closeTab(tabs: Tabs, path: string): Tabs {
   const index = indexOf(tabs, path);
