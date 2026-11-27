@@ -202,7 +202,7 @@ Workspace layout: tabs (top) | tree (left) | editor | graph or Brain panel (righ
 ## Roadmap
 1. Skeleton, I/O and proof tools: themed window, launcher, file tree, `vault-worker` (atomic writes, watcher loop guard, `index.db` + FTS5), `gen-vault` and `bench`.
 2. Fluid editor: CodeMirror 6, live preview, `Ctrl+P` palette, `[[link]]` autocomplete, rename updates links, hover preview with viewport prefetch. Daily use starts here: first release `v0.1.0` with auto-update (#12), which ships the manual base.
-   - Manual base for notes and folders, before new work in later stages: palette to find, open or create a note (#31) -> create from the tree (#95) -> delete to the Recycle Bin (#96) -> rename a folder (#97) -> move notes and folders (#98). Reopen the last vault (#99) follows #31. End-to-end proof closes it (#22).
+   - Manual base for notes, folders and links, before new work in later stages: palette to find, open or create a note (#31) -> create from the tree (#95) -> delete to the Recycle Bin (#96) -> rename a folder (#97) -> move notes and folders (#98). Reopen the last vault (#99), backlinks (#104) and find in the open note (#105) follow #31 too. End-to-end proof closes it (#22).
 3. Search and Brain panel: `brain-adapter` with FTS5, excerpt cards with sources, usage events in `usage.jsonl` and edge weights (the last two are paused, #34).
 4. Graph: `@myelin/graph` on WebGL2, layout worker, incremental API, semantic zoom, micro-animations, edge weights as thickness/glow.
 
