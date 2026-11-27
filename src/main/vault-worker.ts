@@ -3,10 +3,11 @@
 // project imports other than `import type` carry the `.ts` extension.
 import { stat } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
-import { parentPort } from 'node:worker_threads';
+import { parentPort, workerData } from 'node:worker_threads';
 import Database from 'better-sqlite3';
-import type { VaultRequest, VaultRequests, WorkerMessage } from './vault-protocol';
+import type { VaultRequest, VaultRequests, VaultWorkerData, WorkerMessage } from './vault-protocol';
 import { loadVaultConfig } from './vault-config.ts';
+import { indexPath, openIndex, syncIndex, type SyncReport } from './vault-index.ts';
 import { scanVault } from './vault-scan.ts';
 
 // Startup check: the native module loads in this thread and its SQLite has FTS5.
@@ -20,11 +21,43 @@ function checkSqlite(): string {
   }
 }
 
-let vaultRoot: string | null = null;
+interface Session {
+  root: string;
+  /** The index sync. The database stays open until the session is closed. */
+  indexed: Promise<SyncReport>;
+  /** Cancels the sync and closes the database. */
+  close(): Promise<void>;
+}
 
-function openRoot(): string {
-  if (vaultRoot === null) throw new Error('no vault is open');
-  return vaultRoot;
+let session: Session | null = null;
+
+function openSession(): Session {
+  if (session === null) throw new Error('no vault is open');
+  return session;
+}
+
+/** Starts indexing once `after` settles. A failing index never keeps the vault from opening. */
+function startSession(root: string, id: string, after: Promise<void>): Session {
+  const cancel = new AbortController();
+  let db: Database.Database | null = null;
+  const indexed = after.then(() => {
+    cancel.signal.throwIfAborted();
+    const { userData } = workerData as VaultWorkerData;
+    db = openIndex(indexPath(userData, id));
+    return syncIndex(db, root, cancel.signal);
+  });
+  indexed.catch((error: unknown) => {
+    if (!cancel.signal.aborted) console.error('[vault-worker] indexing failed:', error);
+  });
+  return {
+    root,
+    indexed,
+    async close() {
+      cancel.abort(new Error('indexing was cancelled'));
+      await indexed.catch(() => {});
+      db?.close();
+    },
+  };
 }
 
 type Handlers = {
@@ -38,12 +71,16 @@ const handlers: Handlers = {
     const root = resolve(path);
     if (!(await stat(root)).isDirectory()) throw new Error(`not a folder: ${root}`);
     const { id } = await loadVaultConfig(root);
-    vaultRoot = root;
+    // The old session lets go of its database before the new one opens: it may be the same file.
+    session = startSession(root, id, session?.close() ?? Promise.resolve());
     // A drive root has no folder name.
     return { id, name: basename(root) || root, root };
   },
   async getTree() {
-    return scanVault(openRoot());
+    return scanVault(openSession().root);
+  },
+  async whenIndexed() {
+    return openSession().indexed;
   },
 };
 

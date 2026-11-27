@@ -5,6 +5,7 @@ import { app, BrowserWindow, dialog, type OpenDialogOptions } from 'electron';
 import type { VaultInfo } from '../shared/ipc';
 import { pendingHandlers, registerIpc } from './ipc';
 import { createVaultClient, type VaultClient } from './vault-client';
+import type { VaultWorkerData } from './vault-protocol';
 import vaultWorkerPath from './vault-worker?modulePath';
 
 // The renderer never sends paths: the folder comes from this dialog.
@@ -19,7 +20,14 @@ async function pickAndOpenVault(
     ? dialog.showOpenDialog(parent, options)
     : dialog.showOpenDialog(options));
   const [root] = filePaths;
-  return canceled || !root ? null : vault.call('open', root);
+  if (canceled || !root) return null;
+  const info = await vault.call('open', root);
+  // A failure is logged by the worker.
+  void vault.call('whenIndexed').then(
+    (report) => console.log('[main] vault indexed', report),
+    () => {},
+  );
+  return info;
 }
 
 function createWindow(): void {
@@ -53,7 +61,8 @@ function createWindow(): void {
 }
 
 void app.whenReady().then(() => {
-  const vault = createVaultClient(new Worker(vaultWorkerPath));
+  const workerData: VaultWorkerData = { userData: app.getPath('userData') };
+  const vault = createVaultClient(new Worker(vaultWorkerPath, { workerData }));
   registerIpc({
     ...pendingHandlers,
     // The same operation: a folder without vault.json gets one, an existing vault is left as is.
