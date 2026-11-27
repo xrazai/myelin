@@ -24,8 +24,8 @@ jobs:
         shell: bash
     env:
       SIZES: '10000'
-      # Invocations per side, one run each.
-      ROUNDS: 5
+      # Invocations per side, one run each. About 70 s per invocation at 10k notes; 100k does not fit.
+      ROUNDS: 3
     steps:
       # The PR merged into its base (`HEAD`); `HEAD^1` is that base.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
