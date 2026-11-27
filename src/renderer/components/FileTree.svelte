@@ -3,8 +3,10 @@
   import type { TreeEntry } from '../../shared/ipc';
   import { errorMessage } from '../error-message';
   import { foldersAbove, menuItems, newItem, targetFolder, type ItemKind, type MenuItem } from '../new-item';
+  import { canMove, destinations, movedInto, type MoveItem } from '../move-item';
   import { movedPath, renamedFolderPath, renamedPath } from '../rename-note';
   import { cursorAfter, flatten, keyAction, pruneExpanded, scrollToShow, visibleRange, watchTree } from '../tree-model';
+  import MoveDialog from './MoveDialog.svelte';
   import TreeMenu from './TreeMenu.svelte';
 
   /** `selected`: path of the open note. `onopen`: a note was clicked, chosen or created. */
@@ -15,6 +17,7 @@
     hasTab,
     ondelete,
     locked,
+    onerror,
   }: {
     selected: string | null;
     onopen: (path: string) => void;
@@ -25,7 +28,15 @@
     ondelete: (target: { path: string; kind: TreeEntry['kind'] }) => void;
     /** Why nothing can be created right now, or `null`. */
     locked: () => string | null;
+    /** A name the tree itself refuses. */
+    onerror: (message: string) => void;
   } = $props();
+
+  /** The item the "Move to…" dialog is about. */
+  let moving = $state.raw<MoveItem | null>(null);
+  /** The item being dragged, and the folder under it (`''`: the root; `null`: none). */
+  let dragged = $state.raw<MoveItem | null>(null);
+  let dropFolder = $state.raw<string | null>(null);
 
   export function focus() {
     list?.focus();
@@ -179,15 +190,76 @@
     if (!asked) return;
     renaming = null;
     const { path: from, kind } = asked;
-    const to = (kind === 'note' ? renamedPath : renamedFolderPath)(from, renameText);
-    if (!to) return;
+    let to: string | null;
+    try {
+      to = (kind === 'note' ? renamedPath : renamedFolderPath)(from, renameText);
+    } catch (error) {
+      onerror(`Could not rename the ${kind}. ${errorMessage(error)}`);
+      return;
+    }
+    if (to) await relocate(from, to, kind);
+  }
+
+  /** A rename or a move; the tree keeps what was open, and the cursor, on the new paths. */
+  async function relocate(from: string, to: string, kind: TreeEntry['kind']) {
     // Read now: the old paths leave the tree, and their state with them, before this ends.
     const open = [...expanded];
     const wasAt = cursor;
-    if (!(await onrename(from, to, kind)) || kind === 'note') return;
+    if (!(await onrename(from, to, kind))) return;
+    if (kind === 'note') {
+      reveal(to);
+      await scrollToCursor();
+      return;
+    }
     expanded = new Set([...expanded, ...open.map((path) => movedPath(path, from, to))]);
+    expanded = new Set([...expanded, ...foldersAbove(to)]);
     if (wasAt !== null) cursor = movedPath(wasAt, from, to);
     await scrollToCursor();
+  }
+
+  function move(item: MoveItem, folder: string) {
+    if (canMove(item, folder)) void relocate(item.path, movedInto(item, folder), item.kind);
+  }
+
+  const rowOf = (event: Event) => {
+    const element = (event.target as Element).closest<HTMLElement>('[data-index]');
+    return (element && rows[Number(element.dataset['index'])]?.entry) || null;
+  };
+
+  function ondragstart(event: DragEvent) {
+    const entry = rowOf(event);
+    if (!entry || renaming) return event.preventDefault();
+    dragged = { path: entry.path, kind: entry.kind };
+    event.dataTransfer!.effectAllowed = 'move';
+    // Some data, or the drag does not start everywhere. Not text an editor would insert.
+    event.dataTransfer!.setData('application/x-myelin-item', entry.path);
+  }
+
+  /** Onto a folder, into it; onto a note, into its folder; onto blank space, the root. */
+  function ondragover(event: DragEvent) {
+    if (!dragged) return;
+    const folder = targetFolder(rowOf(event));
+    if (!canMove(dragged, folder)) {
+      dropFolder = null;
+      return;
+    }
+    event.preventDefault();
+    event.dataTransfer!.dropEffect = 'move';
+    dropFolder = folder;
+  }
+
+  function enddrag() {
+    dragged = null;
+    dropFolder = null;
+  }
+
+  function ondrop(event: DragEvent) {
+    const item = dragged;
+    const folder = dropFolder;
+    enddrag();
+    if (!item || folder === null) return;
+    event.preventDefault();
+    move(item, folder);
   }
 
   function onclick(event: MouseEvent) {
@@ -221,7 +293,10 @@
   function pick(id: MenuItem['id']) {
     const entry = menu?.entry ?? null;
     menu = null;
-    if (id === 'delete') {
+    if (id === 'move') {
+      list?.focus();
+      if (entry) moving = { path: entry.path, kind: entry.kind };
+    } else if (id === 'delete') {
       // The dialog gives the focus back to what has it when it opens.
       list?.focus();
       if (entry) ondelete({ path: entry.path, kind: entry.kind });
@@ -271,8 +346,20 @@
   }
 </script>
 
-<!-- Right click on any blank part opens the menu of the root. -->
-<div class="file-tree" role="presentation" {oncontextmenu}>
+<svelte:window ondragend={enddrag} />
+
+<!-- Right click on any blank part opens the menu of the root; a drop there moves to the root. -->
+<div
+  class={['file-tree', { 'drop-root': dropFolder === '' }]}
+  role="presentation"
+  {oncontextmenu}
+  {ondragstart}
+  {ondragover}
+  {ondrop}
+  ondragleave={(event) => {
+    if (!event.currentTarget.contains(event.relatedTarget as Node)) dropFolder = null;
+  }}
+>
 <div class="actions">
   <button type="button" aria-label="New note" title="New note (Ctrl+N)" onclick={() => startCreate('note')}>
     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true">
@@ -352,7 +439,8 @@
           {@const open = row.entry.kind === 'folder' && expanded.has(row.entry.path)}
           <div
             id="tree-row-{index}"
-            class={['row', row.entry.kind, { open, cursor: index === cursorIndex }]}
+            class={['row', row.entry.kind, { open, cursor: index === cursorIndex, drop: dropFolder === row.entry.path && row.entry.kind === 'folder' }]}
+            draggable={renaming ? 'false' : 'true'}
             role="treeitem"
             aria-level={row.level}
             aria-posinset={row.position}
@@ -405,11 +493,32 @@
 </div>
 </div>
 
+{#if moving}
+  {@const item = moving}
+  <MoveDialog
+    name={item.path.slice(item.path.lastIndexOf('/') + 1).replace(/\.md$/i, '')}
+    folders={destinations(tree ?? [], item)}
+    onpick={(folder) => move(item, folder)}
+    onclose={() => (moving = null)}
+  />
+{/if}
+
 {#if menu}
   <TreeMenu items={menuItems(menu.entry)} x={menu.x} y={menu.y} onpick={pick} onclose={closeMenu} />
 {/if}
 
 <style>
+  .row.drop {
+    background: var(--surface-active);
+    outline: 1px solid var(--accent);
+    outline-offset: -1px;
+  }
+
+  .file-tree.drop-root .body {
+    outline: 1px solid var(--accent);
+    outline-offset: -2px;
+  }
+
   .file-tree {
     position: relative;
     display: flex;

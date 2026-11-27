@@ -61,7 +61,7 @@ export function foldersAbove(path: string): string[] {
 }
 
 export interface MenuItem {
-  id: 'new-note' | 'new-folder' | 'rename' | 'delete';
+  id: 'new-note' | 'new-folder' | 'rename' | 'move' | 'delete';
   label: string;
 }
 
@@ -71,6 +71,8 @@ export function menuItems(entry: TreeEntry | null): MenuItem[] {
     { id: 'new-note', label: 'New note' },
     { id: 'new-folder', label: 'New folder' },
   ];
-  if (entry) items.push({ id: 'rename', label: 'Rename' }, { id: 'delete', label: 'Delete…' });
+  if (entry) {
+    items.push({ id: 'rename', label: 'Rename' }, { id: 'move', label: 'Move to…' }, { id: 'delete', label: 'Delete…' });
+  }
   return items;
 }

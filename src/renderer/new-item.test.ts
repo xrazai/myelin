@@ -54,7 +54,7 @@ test('lists the folders to expand', () => {
 
 test('an entry can be renamed and deleted; blank space cannot', () => {
   const ids = (entry: TreeEntry | null) => menuItems(entry).map((item) => item.id);
-  expect(ids(idea)).toEqual(['new-note', 'new-folder', 'rename', 'delete']);
-  expect(ids(notes)).toEqual(['new-note', 'new-folder', 'rename', 'delete']);
+  expect(ids(idea)).toEqual(['new-note', 'new-folder', 'rename', 'move', 'delete']);
+  expect(ids(notes)).toEqual(['new-note', 'new-folder', 'rename', 'move', 'delete']);
   expect(ids(null)).toEqual(['new-note', 'new-folder']);
 });

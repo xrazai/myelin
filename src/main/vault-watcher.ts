@@ -566,8 +566,8 @@ export function watchVault(root: string, { openDb, emit, sync = syncIndex }: Vau
       throw new Error('a folder cannot move into itself');
     }
     const toFolder = await newFolderPath(root, to);
-    // Only the new name: the folders above it exist, however they are named.
-    const problem = folderNameProblem(nameOf(to));
+    // Only a new name is judged: what keeps its name, and the folders above it, exist.
+    const problem = nameOf(to) === nameOf(from) ? null : folderNameProblem(nameOf(to));
     if (problem) throw new Error(problem);
     const taken = `something is already named ${to}`;
     if (await isTaken(fromFolder, toFolder)) throw new Error(taken);

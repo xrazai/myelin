@@ -125,10 +125,9 @@ test('text that cannot be saved stops a folder rename', async () => {
   expect(t.log.some((line) => line.startsWith('worker'))).toBe(false);
 });
 
-test('a tab at the destination, in any case, or a name with / refuses it', async () => {
+test('a tab at the destination, in any case, refuses it', async () => {
   const t = folderSetup(['Dir/a.md', 'new/kept.md']);
   await expect(renameFolder(t.disk, t.state, 'Dir', 'New')).rejects.toThrow('close the tab of new/kept.md');
-  await expect(renameFolder(t.disk, t.state, 'Dir', 'x/y')).rejects.toThrow('cannot contain /');
   expect(t.log).toEqual([]);
   // A change of case only is not another destination.
   const same = folderSetup(['Dir/a.md']);
@@ -140,4 +139,5 @@ test('names a renamed folder beside the old one', () => {
   expect(renamedFolderPath('Old', 'New.md')).toBe('New.md');
   expect(renamedFolderPath('a/Old', 'Old')).toBeNull();
   expect(renamedFolderPath('a/Old', '  ')).toBeNull();
+  expect(() => renamedFolderPath('Old', 'x/y')).toThrow('cannot contain /');
 });
