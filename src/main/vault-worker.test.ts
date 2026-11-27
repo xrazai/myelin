@@ -225,6 +225,25 @@ test('rename rewrites links and self links, moves the file and logs one usage ev
   }
 });
 
+test('a rename asked right after open does not wait on itself, and saves still run', async () => {
+  const folder = await mkdtemp(join(tmpdir(), 'myelin-rename-'));
+  try {
+    await writeFile(join(folder, 'A.md'), 'a', 'utf8');
+    const own = new Worker(new URL('./vault-worker.ts', import.meta.url), { workerData: { userData } });
+    try {
+      const client = createVaultClient(own);
+      await client.call('open', folder);
+      // No `whenIndexed`: the first scan may not have run yet.
+      await client.call('renameNote', 'A.md', 'B.md');
+      expect(await client.call('writeNote', 'B.md', 'b', 'a')).toEqual({ status: 'saved' });
+    } finally {
+      await own.terminate();
+    }
+  } finally {
+    await rm(folder, { recursive: true, force: true });
+  }
+}, 4000);
+
 test('rename rejects a missing source and an occupied destination without changing the vault', async () => {
   const folder = await mkdtemp(join(tmpdir(), 'myelin-rename-'));
   try {

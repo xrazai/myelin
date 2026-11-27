@@ -65,6 +65,7 @@ const notes = () => db.prepare('SELECT path FROM notes ORDER BY path').pluck().a
 const hashOf = (path: string) => db.prepare('SELECT hash FROM notes WHERE path = ?').pluck().get(path);
 const linkTargets = () =>
   db.prepare('SELECT source, target_path AS path, name FROM links ORDER BY source, from_pos').all();
+const indexedPaths = () => db.prepare('SELECT path FROM notes ORDER BY path').pluck().all();
 const search = (query: string) =>
   db
     .prepare(
@@ -285,6 +286,8 @@ describe('after the first sync', () => {
       const from = seen.length;
       expect(await watching.rename('Home.md', 'Renamed.md')).toEqual({ notUpdated: [] });
       // No waiting: the index is up to date once the rename resolves.
+      expect(indexedPaths()).toContain('Renamed.md');
+      expect(indexedPaths()).not.toContain('Home.md');
       expect(linkTargets()).toContainEqual({ source: 'Target.md', path: 'Renamed.md', name: null });
       expect(await readFile(at('Target.md'), 'utf8')).toBe('[[Renamed]] [[#Self]]');
       expect(await readFile(at('Renamed.md'), 'utf8')).toBe('start [[Later]]');
