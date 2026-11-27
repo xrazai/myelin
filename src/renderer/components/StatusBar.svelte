@@ -23,7 +23,7 @@
     let timer: ReturnType<typeof setTimeout> | undefined;
     const onPulse = () => {
       pulseKey += 1;
-      pulseLabel = 'Synapse strengthened';
+      pulseLabel = 'Link added';
       clearTimeout(timer);
       timer = setTimeout(() => {
         pulseLabel = null;

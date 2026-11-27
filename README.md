@@ -18,7 +18,7 @@ Checks: `npm run typecheck`, `npm test`, `npm run build`.
 - Fluid Markdown editor (CodeMirror 6) with live preview and `[[links]]`
 - GPU graph (`@myelin/graph`, WebGL2), also published as a standalone open-source library
 - Brain panel: search across your vault with excerpts and sources
-- Myelination: links you use get stronger
+- Planned, paused for now: myelination (links you use get stronger)
 
 Stack: Electron, TypeScript, Svelte 5, SQLite. Details in [`AGENTS.md`](AGENTS.md) and [`docs/`](docs/).
 
