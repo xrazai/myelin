@@ -21,6 +21,7 @@ describe('visibleLinkPaths', () => {
   test('collects and deduplicates resolved links in visibleRanges', () => {
     const view = mockView('See [[Alpha]], [[Beta]], [[Alpha]], and [[Missing]].');
     const notes = {
+      ready: Promise.resolve(),
       isLoaded: () => true,
       resolve: createLinkResolver(['Alpha.md', 'Beta.md']),
     };
@@ -30,6 +31,7 @@ describe('visibleLinkPaths', () => {
   test('ignores code blocks and escaped links', () => {
     const view = mockView('[[Alpha]] `[[Beta]]` \\[[Beta]]');
     const notes = {
+      ready: Promise.resolve(),
       isLoaded: () => true,
       resolve: createLinkResolver(['Alpha.md', 'Beta.md']),
     };

@@ -11,6 +11,8 @@ export interface NoteCache {
   fetch(path: string): Promise<NotePreview | null>;
   /** Batched prefetch for paths not yet cached or in-flight. */
   prefetch(paths: readonly string[]): Promise<void>;
+  /** Removes `path` from the cache and invalidates any in-flight fetch for it. */
+  invalidate(path: string): void;
   /** Current number of entries in the cache. */
   size(): number;
   stop(): void;
@@ -22,6 +24,12 @@ export function createNoteCache(
 ): NoteCache {
   const cache = new Map<string, NotePreview | null>();
   const inflight = new Map<string, Promise<NotePreview | null>>();
+  const generation = new Map<string, number>();
+
+  function invalidate(path: string): void {
+    cache.delete(path);
+    generation.set(path, (generation.get(path) ?? 0) + 1);
+  }
 
   function touch(path: string, value: NotePreview | null): NotePreview | null {
     cache.delete(path);
@@ -36,10 +44,10 @@ export function createNoteCache(
   function applyEvents(events: VaultEvent[]): void {
     for (const event of events) {
       if (event.type === 'changed') {
-        cache.delete(event.path);
+        invalidate(event.path);
       } else if (event.kind === 'note') {
         // `deleted` removes stale previews; `created` clears cached `null` misses.
-        cache.delete(event.path);
+        invalidate(event.path);
       }
     }
   }
@@ -59,9 +67,12 @@ export function createNoteCache(
     const batch = api.getPreviews(missing).catch(() => missing.map(() => null));
     for (let i = 0; i < missing.length; i++) {
       const path = missing[i];
+      const gen = generation.get(path) ?? 0;
       const promise = batch.then((results) => {
         const preview = results[i] ?? null;
-        touch(path, preview);
+        if ((generation.get(path) ?? 0) === gen) {
+          touch(path, preview);
+        }
         return preview;
       }).finally(() => {
         inflight.delete(path);
@@ -86,6 +97,7 @@ export function createNoteCache(
     },
     fetch,
     prefetch,
+    invalidate,
     size: () => cache.size,
     stop: unsubscribe,
   };

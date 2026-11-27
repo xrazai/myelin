@@ -10,14 +10,14 @@ import { linkAt, opensLink } from './link-syntax';
 import { notePath } from './note-path';
 
 export interface LinkHoverOptions {
-  notes: Pick<NoteList, 'isLoaded' | 'resolve'>;
+  notes: Pick<NoteList, 'ready' | 'isLoaded' | 'resolve'>;
   cache: NoteCache;
 }
 
 /** Collects resolved note paths for `[[links]]` in `view.visibleRanges`. */
 export function visibleLinkPaths(
   view: EditorView,
-  notes: Pick<NoteList, 'isLoaded' | 'resolve'>,
+  notes: Pick<NoteList, 'ready' | 'isLoaded' | 'resolve'>,
 ): string[] {
   if (!notes.isLoaded()) return [];
   const source = view.state.facet(notePath);
@@ -66,15 +66,29 @@ function renderPreview(preview: NotePreview): { dom: HTMLElement } {
 export function linkHover({ notes, cache }: LinkHoverOptions): Extension {
   const prefetch = ViewPlugin.fromClass(
     class {
+      private destroyed = false;
+
       constructor(view: EditorView) {
-        const paths = visibleLinkPaths(view, notes);
-        if (paths.length > 0) void cache.prefetch(paths);
+        if (notes.isLoaded()) {
+          const paths = visibleLinkPaths(view, notes);
+          if (paths.length > 0) void cache.prefetch(paths);
+        } else {
+          void notes.ready.then(() => {
+            if (this.destroyed) return;
+            const paths = visibleLinkPaths(view, notes);
+            if (paths.length > 0) void cache.prefetch(paths);
+          });
+        }
       }
 
       update(update: ViewUpdate) {
         if (!update.viewportChanged && !update.docChanged) return;
         const paths = visibleLinkPaths(update.view, notes);
         if (paths.length > 0) void cache.prefetch(paths);
+      }
+
+      destroy() {
+        this.destroyed = true;
       }
     },
   );

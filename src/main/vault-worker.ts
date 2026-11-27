@@ -8,6 +8,7 @@ import Database from 'better-sqlite3';
 import type { VaultRequest, VaultRequests, VaultWorkerData, WorkerMessage } from './vault-protocol';
 import { loadVaultConfig } from './vault-config.ts';
 import { deleteIndex, indexPath, notePaths, openIndex } from './vault-index.ts';
+import { readNotePreview } from './note-preview.ts';
 import { existingNotePath, writableNotePath } from './vault-path.ts';
 import { watchVault, type VaultWatch } from './vault-watcher.ts';
 
@@ -75,17 +76,12 @@ const handlers: Handlers = {
     return readFile(await existingNotePath(openSession().root, path), 'utf8');
   },
   async getPreviews(paths) {
+    if (!Array.isArray(paths)) throw new Error('paths must be an array');
     const { root } = openSession();
     return Promise.all(
       paths.map(async (path) => {
         try {
-          const text = await readFile(await existingNotePath(root, path), 'utf8');
-          const clean = (text.startsWith('\uFEFF') ? text.slice(1) : text).replace(/\r\n?/g, '\n');
-          return {
-            path,
-            title: basename(path, '.md'),
-            excerpt: clean.slice(0, 500).trimEnd(),
-          };
+          return await readNotePreview(await existingNotePath(root, path), path);
         } catch {
           return null;
         }

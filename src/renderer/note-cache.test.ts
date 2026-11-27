@@ -81,4 +81,36 @@ describe('createNoteCache', () => {
     expect(cache.peek('New.md')).toBeUndefined();
     cache.stop();
   });
+
+  test('invalidate removes cached entry and drops stale in-flight prefetch result', async () => {
+    let resolveFetch!: (value: (NotePreview | null)[]) => void;
+    let listener: ((events: VaultEvent[]) => void) | null = null;
+    const api: Pick<MyelinApi, 'getPreviews' | 'onVaultEvents'> = {
+      getPreviews: vi.fn(
+        () =>
+          new Promise<(NotePreview | null)[]>((resolve) => {
+            resolveFetch = resolve;
+          }),
+      ),
+      onVaultEvents: (fn) => {
+        listener = fn;
+        return () => {
+          listener = null;
+        };
+      },
+    };
+    const cache = createNoteCache(api);
+
+    const pending = cache.prefetch(['A.md']);
+    // Invalidate while in-flight.
+    listener!([{ type: 'changed', path: 'A.md' }]);
+    resolveFetch([{ path: 'A.md', title: 'A', excerpt: 'stale' }]);
+    await pending;
+
+    expect(cache.peek('A.md')).toBeUndefined();
+
+    cache.invalidate('A.md');
+    expect(cache.peek('A.md')).toBeUndefined();
+    cache.stop();
+  });
 });

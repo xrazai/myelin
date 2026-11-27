@@ -69,6 +69,7 @@
       ];
       const editor = createNoteEditor(parent, links, (path) => notes.edited(path));
       const notes = createNoteSaver(editor, window.myelin, (path, before, after) => {
+        cache.invalidate(path);
         const pulse = list.isLoaded() ? linkPulse(path, before, after, list.resolve) : null;
         if (pulse) window.dispatchEvent(new CustomEvent(LINK_PULSE_EVENT, { detail: pulse }));
       });
