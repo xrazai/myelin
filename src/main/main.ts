@@ -1,7 +1,7 @@
 // Manages windows and routes IPC. No file I/O here (AGENTS.md, rule 1).
 import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
-import { app, BrowserWindow, dialog, type OpenDialogOptions } from 'electron';
+import { app, BrowserWindow, dialog, Menu, type OpenDialogOptions } from 'electron';
 import { EVENT_CHANNELS, type VaultInfo } from '../shared/ipc';
 import { pendingHandlers, registerIpc, sendEvent } from './ipc';
 import { createVaultClient, type VaultClient } from './vault-client';
@@ -46,6 +46,18 @@ async function pickAndOpenVault(
   return info;
 }
 
+/** The dev server URL only exists under `electron-vite dev`; the packaged app loads from disk. */
+const devUrl = app.isPackaged ? undefined : process.env['ELECTRON_RENDERER_URL'];
+
+// The default menu's accelerators (reload, DevTools, close window) would drop the open
+// workspace, even with the menu hidden. Development keeps them.
+function setAppMenu(): void {
+  if (devUrl) return;
+  // Windows and Linux need no menu for the editing keys; macOS only has them through one.
+  const mac = process.platform === 'darwin';
+  Menu.setApplicationMenu(mac ? Menu.buildFromTemplate([{ role: 'appMenu' }, { role: 'editMenu' }]) : null);
+}
+
 /** Does the latest close or reload that a page held back to save first. */
 let heldUnload: (() => void) | null = null;
 
@@ -54,6 +66,7 @@ function createWindow(): void {
     width: 1200,
     height: 800,
     show: false,
+    // Only in development, where there is a menu to hide.
     autoHideMenuBar: true,
     webPreferences: {
       preload: join(import.meta.dirname, '../preload/preload.cjs'),
@@ -79,9 +92,7 @@ function createWindow(): void {
     heldUnload = () => (close ? window.close() : window.webContents.reload());
   });
 
-  // The dev server URL only exists under `electron-vite dev`; the packaged app loads from disk.
-  const devUrl = process.env['ELECTRON_RENDERER_URL'];
-  if (!app.isPackaged && devUrl) {
+  if (devUrl) {
     void window.loadURL(devUrl);
   } else {
     void window.loadFile(join(import.meta.dirname, '../renderer/index.html'));
@@ -119,6 +130,7 @@ function start(): void {
       heldUnload = null;
     },
   });
+  setAppMenu();
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
