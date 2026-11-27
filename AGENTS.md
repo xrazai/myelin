@@ -33,7 +33,7 @@ Status: stage 1 done; stage 2 in progress, with the manual base first (Roadmap).
 - Editor: CodeMirror 6.
 - Graph: `@myelin/graph`, WebGL2 only (GLSL ES 3.0), graphics backend behind an internal interface. Layout: own ForceAtlas2 (LinLog) + Barnes-Hut solver inside the library, no dependency (`docs/graph-lib.md`).
 - Fonts: Literata (body serif), Inter (UI), JetBrains Mono (code, raw syntax, metadata). Bundled (offline), variable, OFL.
-- Shortcuts: `Ctrl+P` is a single palette (notes by default, `>` prefix for commands). `Ctrl+Shift+L` toggles graph / Brain panel. `Ctrl+\` toggles Focus Mode (collapses both side panels). `Ctrl+Shift+B` toggles the file tree. `Ctrl+N` creates a note at the vault root (showing the file tree if hidden). `Ctrl+S` saves now. `Delete`, in the file tree only, moves the item under the cursor to the Recycle Bin after a confirmation.
+- Shortcuts: `Ctrl+P` is a single palette (notes by default, `>` prefix for commands). `Ctrl+Shift+L` toggles graph / Brain panel. `Ctrl+\` toggles Focus Mode (collapses both side panels). `Ctrl+Shift+B` toggles the file tree. `Ctrl+N` creates a note at the vault root (showing the file tree if hidden). `Ctrl+S` saves now. `Ctrl+F` finds text in the open note. `Delete`, in the file tree only, moves the item under the cursor to the Recycle Bin after a confirmation.
 
 ## AI: prepared, not decided
 No AI model is chosen or built now. The app ships ready to receive it, through three slots:
@@ -146,6 +146,7 @@ myelin/
 │       │   ├── note-saver.ts  # auto-save, save triggers, external changes and conflicts
 │       │   ├── note-text.ts   # a file's BOM and line endings <-> the editor's text
 │       │   ├── text-changes.ts # minimal changes for a reload that keeps cursor and scroll
+│       │   ├── find.ts        # Ctrl+F: find in the open note, a CodeMirror panel (no replace)
 │       │   ├── live-preview.ts # hides Markdown syntax away from the cursor (visible ranges only)
 │       │   ├── wiki-link.ts   # [[link]] in the Lezer parser, same grammar as shared/links.ts
 │       │   ├── link-syntax.ts # the link at a position (tables included), never in code

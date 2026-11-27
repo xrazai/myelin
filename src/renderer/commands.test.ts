@@ -20,6 +20,7 @@ test('workspace commands match their shortcuts', () => {
   expect(press('L', { shift: true })).toBe('toggle-right-panel');
   expect(press('s')).toBe('save');
   expect(press('n')).toBe('new-note');
+  expect(press('f')).toBe('find');
   expect(press('\\')).toBe('toggle-focus-mode');
   expect(press('b', { shift: true })).toBe('toggle-left-panel');
 });

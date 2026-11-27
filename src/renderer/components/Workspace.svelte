@@ -301,6 +301,7 @@
   $effect(() => () => noteList.stop());
 
   let paletteOpen = $state(false);
+  let editorView = $state<ReturnType<typeof Editor>>();
   let fileTree = $state<ReturnType<typeof FileTree>>();
 
   /** The name is typed in the file tree, which is shown if it is hidden. */
@@ -349,6 +350,10 @@
         return;
       case 'new-note':
         void newNote();
+        return;
+      case 'find':
+        // Once the palette, if that is where this came from, has given the focus back.
+        void tick().then(() => tick()).then(() => editorView?.find());
         return;
       case 'delete': {
         // From the palette: the open note. A deleted one has nothing to delete.
@@ -499,6 +504,7 @@
 
   <main>
     <Editor
+      bind:this={editorView}
       {vault}
       {tabs}
       {problems}
