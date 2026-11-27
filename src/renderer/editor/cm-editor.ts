@@ -5,6 +5,7 @@ import { defaultKeymap, history, historyKeymap, isolateHistory } from '@codemirr
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { Annotation, EditorState, Transaction, type Extension, type StateEffect } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
+import { focusDim, setFocusDimEffect } from './focus-dim';
 import { livePreview } from './live-preview';
 import { notePath } from './note-path';
 import type { SaverEditor } from './note-saver';
@@ -28,6 +29,7 @@ const extensions: Extension = [
   EditorView.lineWrapping,
   EditorView.contentAttributes.of({ 'aria-label': 'Note text' }),
   livePreview,
+  focusDim,
   theme,
 ];
 
@@ -37,6 +39,8 @@ export interface NoteEditor extends SaverEditor {
   has(path: string): boolean;
   /** Shows a loaded note, or nothing. */
   show(path: string | null): void;
+  /** Toggles paragraph focus dimming on the active view. */
+  setFocusDim(enabled: boolean): void;
   /** Forgets every note not in `paths`. */
   keep(paths: readonly string[]): void;
   destroy(): void;
@@ -56,6 +60,7 @@ export function createNoteEditor(
   const view = new EditorView({ parent });
   const notes = new Map<string, Note>();
   let shown: string | null = null;
+  let focusDimOn = false;
   view.dom.hidden = true;
 
   const edits = EditorView.updateListener.of((update) => {
@@ -109,10 +114,16 @@ export function createNoteEditor(
       view.dom.hidden = !note;
       if (!note) return;
       view.setState(note.state);
+      view.dispatch({ effects: setFocusDimEffect.of(focusDimOn) });
       if (note.scroll) view.dispatch({ effects: note.scroll });
       // `setState` keeps the scroll of the note before. 0 also shows the top padding.
       else view.scrollDOM.scrollTop = 0;
       if (focus) view.focus();
+    },
+    setFocusDim(enabled) {
+      focusDimOn = enabled;
+      view.dom.classList.toggle('cm-focus-dim', enabled);
+      if (shown !== null) view.dispatch({ effects: setFocusDimEffect.of(enabled) });
     },
     keep(paths) {
       for (const path of notes.keys()) {

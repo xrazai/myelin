@@ -22,6 +22,15 @@ export const theme = EditorView.theme(
     },
     '.cm-line': { padding: '0 32px' },
 
+    // Optional paragraph focus dimming (off by default; zero cost when inactive).
+    '&.cm-focus-dim .cm-line': {
+      opacity: '0.38',
+      transition: 'opacity var(--t-base) ease',
+    },
+    '&.cm-focus-dim .cm-line.cm-focus-active, &.cm-focus-dim .cm-line:hover': {
+      opacity: '1',
+    },
+
     // Asymmetric heading rhythm: more breathing room above than below.
     '.cm-md-h1-line': { paddingTop: '1.05em', paddingBottom: '0.32em' },
     '.cm-md-h1-line:first-child': { paddingTop: '0' },

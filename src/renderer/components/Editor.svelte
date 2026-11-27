@@ -1,8 +1,9 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import type { VaultInfo } from '../../shared/ipc';
-  import { createNoteEditor } from '../editor/cm-editor';
+  import { createNoteEditor, type NoteEditor } from '../editor/cm-editor';
   import { connectEditor, type EditorStatus } from '../editor/editor-tabs';
+  import { TOGGLE_PARAGRAPH_FOCUS_EVENT } from '../editor/focus-dim';
   import { linkCompletion } from '../editor/link-complete';
   import { linkDestination, linkFollowing, type FollowLink } from '../editor/link-follow';
   import { linkHover } from '../editor/link-hover';
@@ -47,6 +48,8 @@
   let linkError = $state('');
   let scrolled = $state(false);
   let typing = $state(false);
+  let paragraphFocus = $state(false);
+  let editorApi = $state.raw<NoteEditor>();
 
   const active = $derived(tabs.list.find((tab) => tab.path === tabs.active) ?? null);
   const folders = $derived(active ? active.path.split('/').slice(0, -1) : []);
@@ -108,6 +111,7 @@
         markTyping();
         if (activePath === path) scheduleMetrics(path);
       });
+      editorApi = editor;
       const scroller = parent.querySelector<HTMLElement>('.cm-scroller');
       const onScroll = () => {
         scrolled = (scroller?.scrollTop ?? 0) > 12;
@@ -142,9 +146,21 @@
         cache.stop();
         list.stop();
         notes.stop();
+        editorApi = undefined;
         editor.destroy();
       };
     });
+  });
+
+  $effect(() => {
+    editorApi?.setFocusDim(paragraphFocus);
+  });
+
+  // Command palette (#31) or keyboard extensions can toggle paragraph dimming without tight coupling.
+  $effect(() => {
+    const onToggle = () => (paragraphFocus = !paragraphFocus);
+    window.addEventListener(TOGGLE_PARAGRAPH_FOCUS_EVENT, onToggle);
+    return () => window.removeEventListener(TOGGLE_PARAGRAPH_FOCUS_EVENT, onToggle);
   });
 
   // The message is about the note the link is in.
@@ -170,8 +186,17 @@
         {/each}
         <span class="current">{tabName(active.path)}</span>
       </div>
-      {#if onfocusmode}
-        <div class="chrome-tools">
+      <div class="chrome-tools">
+        <button
+          type="button"
+          class="chrome-btn"
+          aria-pressed={paragraphFocus}
+          title="Dim surrounding paragraphs for deep reading"
+          onclick={() => (paragraphFocus = !paragraphFocus)}
+        >
+          Dim
+        </button>
+        {#if onfocusmode}
           <button
             type="button"
             class="chrome-btn"
@@ -181,8 +206,8 @@
           >
             Focus
           </button>
-        </div>
-      {/if}
+        {/if}
+      </div>
     </header>
   {/if}
   {#if active && problem && status.kind === 'ready'}
