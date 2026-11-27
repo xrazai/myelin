@@ -45,4 +45,4 @@ Effects and events:
 Millions of nodes, WebGPU backend and GPU compute layout, MSDF text in WebGL (only worth it for thousands of labels), edge bundling, spatial streaming, Pro tier.
 
 ## Open points
-- npm scope `@myelin`: see `CLAUDE.md`, "Decide later".
+- npm scope `@myelin`: see `AGENTS.md`, "Decide later".

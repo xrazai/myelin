@@ -1,4 +1,4 @@
-// Main side of the contract in `shared/ipc.ts`. Routing only (CLAUDE.md, rule 1).
+// Main side of the contract in `shared/ipc.ts`. Routing only (AGENTS.md, rule 1).
 import { ipcMain, type WebContents } from 'electron';
 import { CALL_CHANNELS, type CallHandlers, type CallName, type EventPayloads } from '../shared/ipc';
 

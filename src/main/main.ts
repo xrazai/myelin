@@ -1,4 +1,4 @@
-// Manages windows and routes IPC. No file I/O here (CLAUDE.md, rule 1).
+// Manages windows and routes IPC. No file I/O here (AGENTS.md, rule 1).
 import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { app, BrowserWindow } from 'electron';
