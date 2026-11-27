@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import type { VaultEvent, VaultInfo } from '../../shared/ipc';
-  import { createNoteEditor, type NoteEditor } from '../editor/cm-editor';
+  import { createNoteEditor, type Locate, type NoteEditor } from '../editor/cm-editor';
   import { connectEditor, type EditorStatus } from '../editor/editor-tabs';
   import { TOGGLE_PARAGRAPH_FOCUS_EVENT } from '../editor/focus-dim';
   import { linkCompletion } from '../editor/link-complete';
@@ -69,8 +69,8 @@
   let status = $state.raw<EditorStatus>({ kind: 'empty' });
 
   /** Takes the cursor to a position of a note, now or once it shows. */
-  export function reveal(path: string, line: number, column: number) {
-    editorApi?.reveal(path, line, column);
+  export function reveal(path: string, locate: Locate) {
+    editorApi?.reveal(path, locate);
   }
 
   /** `Ctrl+F`: find in the note on screen. */

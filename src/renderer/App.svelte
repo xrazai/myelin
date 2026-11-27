@@ -7,6 +7,9 @@
   import Workspace from './components/Workspace.svelte';
 
   let vault = $state.raw<VaultInfo | null>(null);
+  /** The index is syncing. Tracked here: it starts before the workspace is mounted. */
+  let indexing = $state(false);
+  $effect(() => window.myelin.onIndexing((active) => (indexing = active)));
   /** While the last vault is being reopened, so the launcher does not flash. */
   let starting = $state(true);
   /** Why the last vault did not reopen. */
@@ -34,7 +37,7 @@
 
 {#if vault}
   {#key vault.root}
-    <Workspace {vault} onswitch={leave} />
+    <Workspace {vault} {indexing} onswitch={leave} />
   {/key}
 {:else if !starting}
   <Launcher {notice} onopen={(opened) => (vault = opened)} />

@@ -14,7 +14,9 @@ Extremely fluid, easy to navigate: tactile graph interactions, links, command pa
 
 Layout: tabs (top) | tree (left) | editor | right column (graph or Brain panel) | status bar (bottom) with the learning indicator.
 
-Shortcuts: `Ctrl+P` single palette (notes by default, `>` for commands). `Ctrl+Shift+L` toggles graph / Brain panel. `Ctrl+\` toggles Focus Mode (collapsing both side panels and restoring them on exit). `Ctrl+Shift+B` toggles the file tree. Backlinks: under the graph / Brain panel, the right column lists the notes that link to the open note, each with the line holding the link (both lines if it links twice). Click or `Enter` opens that note at the link. It follows saves, renames, deletions and outside changes; links to a namesake and the note's own links do not count. While the vault is first indexed it says so.
+Shortcuts: `Ctrl+P` single palette (notes by default, `>` for commands). `Ctrl+Shift+L` toggles graph / Brain panel. `Ctrl+\` toggles Focus Mode (collapsing both side panels and restoring them on exit). `Ctrl+Shift+B` toggles the file tree. Brain panel as built (search with FTS5, no model): the box searches after a pause in typing; arrows move from the box through the cards, `Enter` opens (from the box: the first card) with the cursor at the match; the footer says the answer came from the local vault and lists its sources.
+
+Backlinks: under the graph / Brain panel, the right column lists the notes that link to the open note, each with the line holding the link (both lines if it links twice). Click or `Enter` opens that note at the link. It follows saves, renames, deletions and outside changes; links to a namesake and the note's own links do not count. While the vault is first indexed it says so.
 
 On start the last vault reopens with its tabs and expanded folders (what is gone is skipped); if its folder is gone or invalid, the launcher says why. "Switch vault" (button beside the vault name, or the `>` palette) saves and goes back to the launcher. `Ctrl+N` creates a note. `Ctrl+F` finds text in the open note: `Enter` and `Shift+Enter` go to the next and previous match, `Escape` closes and returns to the text.
 

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick, untrack } from 'svelte';
-  import type { Backlink, VaultInfo } from '../../shared/ipc';
+  import type { Backlink, SearchCard, VaultInfo } from '../../shared/ipc';
+  import { locateExcerpt } from '../locate-excerpt';
   import type { NoteMetrics } from '../editor/note-metrics';
   import type { NoteProblems, NoteSaver } from '../editor/note-saver';
   import {
@@ -29,6 +30,7 @@
   import { applyTabEvents, closeTab, cycleTab, moveTab, NO_TABS, openTab, renameTab, replaceTab, tabName, type Tabs as TabsState } from '../tabs-model';
   import { errorMessage } from '../error-message';
   import BacklinksPanel from './BacklinksPanel.svelte';
+  import BrainPanel from './BrainPanel.svelte';
   import CommandPalette from './CommandPalette.svelte';
   import DeleteDialog from './DeleteDialog.svelte';
   import Editor from './Editor.svelte';
@@ -37,7 +39,7 @@
   import StatusBar from './StatusBar.svelte';
   import Tabs from './Tabs.svelte';
 
-  let { vault, onswitch }: { vault: VaultInfo; onswitch: () => void } = $props();
+  let { vault, indexing, onswitch }: { vault: VaultInfo; indexing: boolean; onswitch: () => void } = $props();
 
   let tabs = $state.raw<TabsState>(NO_TABS);
   /** The pair being renamed: its tree batch arrives before the IPC result. */
@@ -296,6 +298,8 @@
   const toggleRightPanel = () => {
     if (collapsed.right) toggleSide('right');
     rightPanel = rightPanel === 'graph' ? 'brain' : 'graph';
+    // Opened by keyboard: ready to type. A hidden panel is `inert` until the DOM follows.
+    if (rightPanel === 'brain') void tick().then(() => tick()).then(() => brain?.focus());
   };
 
   let noteListRev = $state(0);
@@ -322,8 +326,18 @@
 
   function openBacklink(link: Backlink) {
     openNote(link.path);
-    editorView?.reveal(link.path, link.line, link.column);
+    editorView?.reveal(link.path, (doc) => {
+      const line = doc.line(Math.min(Math.max(1, link.line), doc.lines));
+      return Math.min(line.from + link.column, line.to);
+    });
   }
+
+  function openCard(card: SearchCard) {
+    openNote(card.path);
+    editorView?.reveal(card.path, (doc) => locateExcerpt(doc.toString(), card));
+  }
+
+  let brain = $state<ReturnType<typeof BrainPanel>>();
 
   // The session of this vault: restored once the notes are known, saved from then on, so
   // an empty start never replaces what is stored. The vault is fixed while mounted.
@@ -617,8 +631,14 @@
       </div>
       <kbd class="shortcut-hint" title="Switch between Graph and Brain panel (Ctrl+Shift+L)">Ctrl+Shift+L</kbd>
     </header>
-    <!-- Placeholder: `@myelin/graph` or the Brain panel mounts here later. -->
-    <p>{rightPanel === 'graph' ? 'The graph is not here yet.' : 'The Brain panel is not here yet.'}</p>
+    <!-- Placeholder: `@myelin/graph` mounts here later. -->
+    {#if rightPanel === 'graph'}
+      <p>The graph is not here yet.</p>
+    {/if}
+    <!-- Kept while the graph shows: the query and its cards stay. -->
+    <div class={['brain-slot', { off: rightPanel !== 'brain' }]}>
+      <BrainPanel bind:this={brain} revision={linksRevision} {indexing} onopen={openCard} />
+    </div>
     <BacklinksPanel path={tabs.active} revision={linksRevision} onopen={openBacklink} />
   </aside>
 
@@ -988,7 +1008,18 @@
     border: 1px solid var(--hairline);
   }
 
-  aside p {
+  .brain-slot {
+    display: flex;
+    flex: 2;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .brain-slot.off {
+    display: none;
+  }
+
+  aside > p {
     margin: 0;
     padding: 6px 12px;
     color: var(--text-muted);
