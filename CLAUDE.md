@@ -54,6 +54,11 @@ Do not create tables, dependencies, queues or files for AI before the decision. 
    - Graph node ids are session-local dense indices assigned by `graph-view.ts`. Persisted data (positions, weights) is keyed by note path, never by node id.
 6. Performance claims are proven by the benchmark in `scripts/`, never assumed.
 7. Single stack: everything in Electron/Node. No Python, no external services, no HTTP servers.
+8. Text encoding and line endings (enforced by `.editorconfig` and `.gitattributes`):
+   - Every text file is UTF-8 without BOM, LF.
+   - Shell: use `pwsh` (PowerShell 7) or Git Bash. In Windows PowerShell 5.1, never write project files with `Out-File` or `>` (UTF-16 by default); prefer the agent's file tools.
+   - Node code reading/writing files always passes `'utf8'` explicitly.
+   - Never parse localized text printed by Windows tools (e.g. `chcp`, `ipconfig`); use exit codes or structured output (JSON).
 
 ## Targets (app)
 - Graph: 100k nodes at 60 FPS, glow included, on an integrated GPU at high DPI. Bloom/glow cost scales with pixels, not nodes.
