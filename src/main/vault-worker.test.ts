@@ -70,6 +70,8 @@ test('open indexes the vault into userData, with nothing added to the vault', as
 
 test('a second open cancels the first sync and indexes again', async () => {
   await vault.call('open', root);
+  await vault.call('whenIndexed');
+  await vault.call('open', root);
   const first = vault.call('whenIndexed').then(
     () => 'finished',
     (error: Error) => error.message,
