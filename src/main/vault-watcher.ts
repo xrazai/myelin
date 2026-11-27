@@ -13,7 +13,7 @@ import { watch } from 'chokidar';
 import type Database from 'better-sqlite3';
 import type { TreeEntry, VaultEvent, WriteResult } from '../shared/ipc';
 import { writeFileAtomic, type AtomicWriteDeps } from './atomic-write.ts';
-import { contentHash, syncIndex, updateIndex, type NoteUpdate, type SyncReport } from './vault-index.ts';
+import { contentHash, isDamaged, syncIndex, updateIndex, type NoteUpdate, type SyncReport } from './vault-index.ts';
 import { listFolder, scanFolder, scanVault } from './vault-scan.ts';
 
 /** Hints are handled in one batch: after a quiet moment, or this long after the first. */
@@ -27,8 +27,11 @@ const RETRY_MS: readonly number[] = [200, 1000, 5000];
 const CLOCK_SLACK_MS = 2000;
 
 export interface VaultWatchOptions {
-  /** Opens the index; the watcher closes it. If it fails, only the index is lost. */
-  openDb(): Promise<Database.Database>;
+  /**
+   * Opens the index; the watcher closes it. With `damaged`, the file (closed by then) is
+   * deleted first. If it fails, only the index is lost.
+   */
+  openDb(damaged?: boolean): Promise<Database.Database>;
   /** Changes made outside the app. Never called after `close`. */
   emit(events: VaultEvent[]): void;
   /** Replaced in tests to hold the first sync. */
@@ -290,6 +293,22 @@ export function watchVault(root: string, { openDb, emit, sync = syncIndex }: Vau
   });
 
   let db: Database.Database | null = null;
+  let rebuilt = false;
+
+  /**
+   * Damage SQLite finds only when it reaches the page: replaces the index with a new one,
+   * synced in full. Once per open; damage that comes back is thrown, like any other error.
+   */
+  async function rebuild(error: unknown, onIndexed?: (path: string) => void): Promise<SyncReport> {
+    if (signal.aborted || rebuilt || !isDamaged(error)) throw error;
+    rebuilt = true;
+    console.error('[vault-watcher] index.db is damaged, rebuilding it:', error);
+    db!.close();
+    db = null;
+    db = await openDb(true);
+    signal.throwIfAborted();
+    return sync(db, root, signal, { onIndexed });
+  }
 
   const indexed = (async () => {
     // The scan comes after the watcher is listening: no change can fall between them.
@@ -297,7 +316,9 @@ export function watchVault(root: string, { openDb, emit, sync = syncIndex }: Vau
     const tree = await serial(rescan);
     db = await openDb();
     signal.throwIfAborted();
-    return sync(db, root, signal, { tree, onIndexed: (path) => syncRead.add(path) });
+    const onIndexed = (path: string) => void syncRead.add(path);
+    // The rebuild scans again: this tree may be old by then.
+    return sync(db, root, signal, { tree, onIndexed }).catch((error: unknown) => rebuild(error, onIndexed));
   })();
   indexed.catch(report('indexing'));
 
@@ -353,9 +374,32 @@ export function watchVault(root: string, { openDb, emit, sync = syncIndex }: Vau
     // While the first sync reads the vault, Windows reports each note whose last-access
     // time that moved. Reading all of them again would double the cost of the sync.
     const trustStamp = hintedInSync !== null;
-    const failed = await updateIndex(db!, root, paths, exists, signal, onNote, { trustStamp });
+    let failed: string[];
+    try {
+      failed = await updateIndex(db!, root, paths, exists, signal, onNote, { trustStamp });
+    } catch (error) {
+      if (!isDamaged(error)) throw error;
+      await replaceIndex(error, paths);
+      return;
+    }
     for (const path of failed) retry(path);
     send(events);
+  }
+
+  /** Rebuilds an index an update found damaged. If it cannot, the vault goes on without one. */
+  async function replaceIndex(error: unknown, paths: string[]): Promise<void> {
+    try {
+      await rebuild(error);
+    } catch (failure) {
+      ready = false;
+      throw failure;
+    } finally {
+      // The hashes that told what changed are gone, and the new ones may already hold what
+      // is still waiting: all of it counts as changed. The renderer compares content.
+      const waiting = new Set([...paths, ...stale, ...hintedNotes]);
+      for (const path of waiting) expected.delete(path);
+      send([...waiting].filter(exists).map((path) => ({ type: 'changed', path })));
+    }
   }
 
   // Index updates wait for the first sync, then run one at a time.

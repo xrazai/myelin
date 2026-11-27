@@ -88,6 +88,11 @@ function prepare(file: string): Database.Database | null {
 
 const UNUSABLE = /^SQLITE_(CORRUPT|NOTADB)/;
 
+/** True if the index file itself is bad. Anything else (locked, disk full) is not a reason to delete it. */
+export function isDamaged(error: unknown): boolean {
+  return UNUSABLE.test((error as { code?: string } | null)?.code ?? '');
+}
+
 /** Opens the index, starting over if the file is damaged or from another schema version. */
 export function openIndex(file: string): Database.Database {
   mkdirSync(dirname(file), { recursive: true });
@@ -97,12 +102,16 @@ export function openIndex(file: string): Database.Database {
     const db = prepare(file);
     if (db) return db;
   } catch (error) {
-    // Anything else (locked, disk full) is not a reason to delete the file.
-    if (!UNUSABLE.test((error as { code?: string }).code ?? '')) throw error;
+    if (!isDamaged(error)) throw error;
   }
+  deleteIndex(file);
+  return prepare(file)!;
+}
+
+/** Removes the index and its sidecars. It must be closed: Windows keeps an open file. */
+export function deleteIndex(file: string): void {
   rmSync(file, { force: true });
   removeSidecars(file);
-  return prepare(file)!;
 }
 
 function removeSidecars(file: string): void {
