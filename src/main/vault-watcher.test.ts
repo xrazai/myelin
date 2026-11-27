@@ -1,6 +1,6 @@
 // The real watcher on a real folder. Events are followed through the renderer's own tree
 // logic, so each test also checks that the reported tree matches a fresh scan.
-import { appendFile, mkdir, mkdtemp, rename, rm, utimes, writeFile } from 'node:fs/promises';
+import { appendFile, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type Database from 'better-sqlite3';
@@ -211,17 +211,63 @@ describe('after the first sync', () => {
 
   describe('loop guard', () => {
     test("the app's own writes are indexed and report nothing", async () => {
-      await watching.write('Home.md', 'mine [[New]]');
-      await watching.write('Home.md', 'mine again [[New]]');
-      await watching.write('New.md', 'brand new');
+      await watching.write('Home.md', 'mine [[New]]', 'start [[Later]]');
+      await watching.write('Home.md', 'mine again [[New]]', 'mine [[New]]');
+      await watching.write('New.md', 'brand new', null);
       await until(() => expect(search('again')).toEqual(['Home.md']));
       await until(() => expect(search('brand')).toEqual(['New.md']));
       expect(linkTargets()).toEqual([{ source: 'Home.md', path: 'New.md', name: null }]);
+      // Only the note new to the tree is reported, and never as `changed`.
+      expect(await settled()).toEqual([event('created', 'New.md')]);
+      await expectTreeMatchesDisk();
+    });
+
+    test('a write never replaces what it did not expect', async () => {
+      // Before the watcher reports it: the race between an external edit and auto-save.
+      await write('Home.md', 'theirs');
+      expect(await watching.write('Home.md', 'mine', 'start [[Later]]')).toEqual({ status: 'conflict', disk: 'theirs' });
+      expect(await readFile(at('Home.md'), 'utf8')).toBe('theirs');
+      await until(() => expect(seen).toContainEqual(event('changed', 'Home.md')));
+
+      // Creating over an existing note, and saving a note that was deleted.
+      expect(await watching.write('Home.md', 'mine', null)).toEqual({ status: 'conflict', disk: 'theirs' });
+      await rm(at('Home.md'));
+      expect(await watching.write('Home.md', 'mine', 'theirs')).toEqual({ status: 'conflict', disk: null });
+      expect(await readdir(root)).toEqual([]);
+    });
+
+    test('a write of what is already on disk does nothing, whatever it expected', async () => {
+      const before = (await stat(at('Home.md'))).mtimeMs;
+      expect(await watching.write('Home.md', 'start [[Later]]', 'old')).toEqual({ status: 'saved' });
+      expect((await stat(at('Home.md'))).mtimeMs).toBe(before);
       expect(await settled()).toEqual([]);
     });
 
+    test('a file that is not UTF-8 is never overwritten', async () => {
+      const latin1 = Buffer.from('a\u00e7\u00e3o', 'latin1');
+      await writeFile(at('Home.md'), latin1);
+      // What the editor was given cannot be turned back into these bytes.
+      await expect(watching.write('Home.md', 'edited', latin1.toString('utf8'))).rejects.toThrow('not UTF-8');
+      expect(await readFile(at('Home.md'))).toEqual(latin1);
+    });
+
+    test('an app write that creates folders reports them with the note', async () => {
+      await mkdir(at('deep/er'), { recursive: true });
+      expect(await watching.write('deep/er/A.md', 'a', null)).toEqual({ status: 'saved' });
+      await expectTreeMatchesDisk();
+      const events = await settled();
+      expect(events.filter((e) => e.type === 'changed')).toEqual([]);
+    });
+
+    test('a failed write leaves the note and no temp file', async () => {
+      // A folder where the temp file goes.
+      await mkdir(at('Home.md.tmp'));
+      await expect(watching.write('Home.md', 'mine', 'start [[Later]]')).rejects.toThrow();
+      expect(await readFile(at('Home.md'), 'utf8')).toBe('start [[Later]]');
+    });
+
     test('an external write right after an own write is reported', async () => {
-      await watching.write('Home.md', 'mine');
+      await watching.write('Home.md', 'mine', 'start [[Later]]');
       await until(() => expect(hashOf('Home.md')).toBe(contentHash('mine')));
       await writeFileAtomic(at('Home.md'), 'theirs');
       await until(() => expect(seen).toEqual([event('changed', 'Home.md')]));
@@ -232,7 +278,7 @@ describe('after the first sync', () => {
     });
 
     test('a failed own write leaves no expected hash behind', async () => {
-      await expect(watching.write('missing/A.md', 'lost')).rejects.toThrow('ENOENT');
+      await expect(watching.write('missing/A.md', 'lost', null)).rejects.toThrow('ENOENT');
       await mkdir(at('missing'));
       await write('missing/A.md', 'lost');
       await until(() => expect(seen).toContainEqual(event('created', 'missing/A.md')));
@@ -287,7 +333,7 @@ describe('during the first sync', () => {
     await write('Edited.md', 'after');
     await write('Added.md', 'fresh');
     await rm(at('Deleted.md'));
-    await watching.write('Own.md', 'mine during the sync');
+    await watching.write('Own.md', 'mine during the sync', 'before');
     await expectTreeMatchesDisk();
     expect(done).toBe(false);
     // Nothing touched the index yet.

@@ -36,7 +36,16 @@ export interface SearchCard {
   score: number;
 }
 
-/** A change on disk made outside the app (the watcher drops the app's own writes). */
+/**
+ * What `writeNote` did. `conflict`: the disk did not hold `base`, so nothing was written;
+ * `disk` is what it holds (`null`: there is no note).
+ */
+export type WriteResult = { status: 'saved' } | { status: 'conflict'; disk: string | null };
+
+/**
+ * A change on disk made outside the app (the watcher drops the app's own writes). One
+ * exception: a note, or folder, that an app write creates is reported as `created`.
+ */
 export type VaultEvent =
   | { type: 'created' | 'deleted'; kind: TreeEntry['kind']; path: string }
   /** Note content changed. An external rename arrives as `deleted` + `created`. */
@@ -55,8 +64,12 @@ export interface MyelinApi {
   getTree(): Promise<TreeEntry[]>;
   /** Full text of a note. */
   readNote(path: string): Promise<string>;
-  /** Atomically replaces the note's text; creates the note if it does not exist. */
-  writeNote(path: string, content: string): Promise<void>;
+  /**
+   * Atomically replaces the note's text, only if the disk still holds `base`: the text
+   * `readNote` returned or the last one written. `null` creates the note (and its folders),
+   * only if there is none. `content` is written as is, BOM and line endings included.
+   */
+  writeNote(path: string, content: string, base: string | null): Promise<WriteResult>;
   /** Cards ordered by relevance. */
   search(query: string): Promise<SearchCard[]>;
   /** Watcher events, in batches. Returns the unsubscribe function. */

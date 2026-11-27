@@ -5,11 +5,14 @@
 // What chokidar reports is only a hint that a path may have changed. Events come from
 // comparing disk with what is known: folder listings for the tree, content hashes for the
 // notes. So repeated, merged or missing reports cannot corrupt either one.
+import { isUtf8 } from 'node:buffer';
+import { readFile, rename, rm } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { watch } from 'chokidar';
 import type Database from 'better-sqlite3';
-import type { TreeEntry, VaultEvent } from '../shared/ipc';
-import { writeFileAtomic } from './atomic-write.ts';
+import type { TreeEntry, VaultEvent, WriteResult } from '../shared/ipc';
+import { writeFileAtomic, type AtomicWriteDeps } from './atomic-write.ts';
 import { contentHash, syncIndex, updateIndex, type NoteUpdate, type SyncReport } from './vault-index.ts';
 import { listFolder, scanFolder, scanVault } from './vault-scan.ts';
 
@@ -37,14 +40,48 @@ export interface VaultWatch {
   indexed: Promise<SyncReport>;
   getTree(): Promise<TreeEntry[]>;
   /**
-   * The app's own write of a note: atomic, indexed, and reported by no event. The folder
-   * must exist. The caller validates `path` and updates its own tree.
+   * The app's own write of a note: atomic, indexed, and reported by no event, except
+   * `created` for what it adds to the tree. Writes only over `base` (`null`: no note), and
+   * never over a note that is not UTF-8. The folder must exist. The caller validates `path`.
    */
-  write(path: string, content: string): Promise<void>;
+  write(path: string, content: string, base: string | null): Promise<WriteResult>;
   close(): Promise<void>;
 }
 
 type Kind = TreeEntry['kind'];
+
+/** The disk did not hold what a write expected. */
+class Conflict extends Error {
+  readonly disk: string | null;
+  constructor(disk: string | null) {
+    super('the note changed on disk');
+    this.disk = disk;
+  }
+}
+
+/** The note's bytes, `null` if there is none. */
+async function readBytes(file: string): Promise<Buffer | null> {
+  try {
+    return await readFile(file);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw error;
+  }
+}
+
+/**
+ * Throws unless the disk holds `base`. `true`: it already holds `content`, so there is
+ * nothing to write.
+ */
+async function checkBase(file: string, content: string, base: string | null): Promise<boolean> {
+  const bytes = await readBytes(file);
+  if (bytes?.equals(Buffer.from(content, 'utf8'))) return true;
+  // Its text cannot be written back byte by byte: writing would destroy it.
+  if (bytes && !isUtf8(bytes)) throw new Error('this file is not UTF-8 text, so Myelin does not overwrite it');
+  const holds = base === null ? bytes === null : bytes?.equals(Buffer.from(base, 'utf8')) === true;
+  if (!holds) throw new Conflict(bytes?.toString('utf8') ?? null);
+  return false;
+}
 
 const parentOf = (path: string) => path.slice(0, Math.max(0, path.lastIndexOf('/')));
 const nameOf = (path: string) => path.slice(path.lastIndexOf('/') + 1);
@@ -349,21 +386,37 @@ export function watchVault(root: string, { openDb, emit, sync = syncIndex }: Vau
       scheduleUpdate();
       return tree;
     }),
-    write: (path, content) =>
-      serial(async () => {
-        const hash = contentHash(content);
+    write: (path, content, base) =>
+      serial(async (): Promise<WriteResult> => {
+        const file = join(root, path);
         const hashes = expected.get(path) ?? [];
-        expected.set(path, [...hashes, hash]);
         try {
-          await writeFileAtomic(join(root, path), content);
+          if (await checkBase(file, content, base)) return { status: 'saved' };
+          expected.set(path, [...hashes, contentHash(content)]);
+          // Checked again right before each rename attempt: another program may write
+          // while the temp file is flushed, or while the note is held.
+          const deps: AtomicWriteDeps = {
+            async rename(from, to) {
+              if (await checkBase(file, content, base)) return rm(from);
+              await rename(from, to);
+            },
+            sleep,
+          };
+          await writeFileAtomic(file, content, deps);
         } catch (error) {
           expected.set(path, hashes);
+          if (error instanceof Conflict) return { status: 'conflict', disk: error.disk };
           throw error;
         }
-        // Known before the next batch compares the folder, so no `created` is reported.
-        known?.get(parentOf(path))?.set(nameOf(path), 'note');
+        if (known && !exists(path)) {
+          // New to the tree, maybe with its folders: reported like any other.
+          const events: VaultEvent[] = [];
+          await compareFolder(parentOf(path), events);
+          send(events);
+        }
         stale.add(path);
         scheduleUpdate();
+        return { status: 'saved' };
       }),
     async close() {
       cancel.abort(new Error('indexing was cancelled'));

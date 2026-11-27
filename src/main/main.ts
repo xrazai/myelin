@@ -90,6 +90,7 @@ void app.whenReady().then(() => {
     openVault: () => pickAndOpenVault(vault, 'Open a vault', 'Open vault'),
     getTree: () => vault.call('getTree'),
     readNote: (path) => vault.call('readNote', path),
+    writeNote: (path, content, base) => vault.call('writeNote', path, content, base),
   });
   createWindow();
   app.on('activate', () => {

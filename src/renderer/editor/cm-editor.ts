@@ -1,11 +1,13 @@
 // The CodeMirror 6 editor, in plain TS: Svelte only mounts its container (AGENTS.md,
 // rule 4). One view; each open tab keeps its own state (text, cursor, undo history) and
-// scroll position. Nothing is saved to disk yet.
-import { defaultKeymap, history, historyKeymap } from '@codemirror/commands';
+// scroll position. Saving is `note-saver.ts`'s job.
+import { defaultKeymap, history, historyKeymap, isolateHistory } from '@codemirror/commands';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
-import { EditorState, type Extension, type StateEffect } from '@codemirror/state';
+import { Annotation, EditorState, Transaction, type Extension, type StateEffect } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
 import { livePreview } from './live-preview';
+import type { SaverEditor } from './note-saver';
+import { textChanges } from './text-changes';
 import { theme } from './theme';
 import { wikiLink } from './wiki-link';
 
@@ -14,6 +16,9 @@ export const markdownSupport: Extension = markdown({
   extensions: [wikiLink],
   completeHTMLTags: false,
 });
+
+/** Marks a reload from disk, which is not typing. */
+const fromDisk = Annotation.define<boolean>();
 
 const extensions: Extension = [
   history(),
@@ -25,11 +30,10 @@ const extensions: Extension = [
   theme,
 ];
 
-export interface NoteEditor {
+/** `load` adds a note read from disk, without showing it. */
+export interface NoteEditor extends SaverEditor {
   /** `true` if the editor holds this note's text. */
   has(path: string): boolean;
-  /** Adds a note read from disk. It does not show it. */
-  load(path: string, text: string): void;
   /** Shows a loaded note, or nothing. */
   show(path: string | null): void;
   /** Forgets every note not in `paths`. */
@@ -42,12 +46,23 @@ interface Note {
   scroll: StateEffect<unknown> | null;
 }
 
-/** `extra` is for the benchmark's probe. */
-export function createNoteEditor(parent: HTMLElement, extra: Extension = []): NoteEditor {
+/** `extra` is for the benchmark's probe; `onEdit` hears the user change a note's text. */
+export function createNoteEditor(
+  parent: HTMLElement,
+  extra: Extension = [],
+  onEdit: (path: string) => void = () => {},
+): NoteEditor {
   const view = new EditorView({ parent });
   const notes = new Map<string, Note>();
   let shown: string | null = null;
   view.dom.hidden = true;
+
+  const edits = EditorView.updateListener.of((update) => {
+    if (shown === null || !update.docChanged) return;
+    if (!update.transactions.some((transaction) => transaction.annotation(fromDisk))) onEdit(shown);
+  });
+
+  const stateOf = (path: string) => (path === shown ? view.state : notes.get(path)!.state);
 
   /** Puts aside the state of the note on screen. */
   function stash() {
@@ -61,9 +76,27 @@ export function createNoteEditor(parent: HTMLElement, extra: Extension = []): No
   return {
     has: (path) => notes.has(path),
     load(path, text) {
-      // A leading byte order mark is not part of the text.
-      const state = EditorState.create({ doc: text.replace(/^\uFEFF/, ''), extensions: [extensions, extra] });
+      const state = EditorState.create({ doc: text, extensions: [extensions, edits, extra] });
       notes.set(path, { state, scroll: null });
+    },
+    text: (path) => stateOf(path).doc.toString(),
+    replace(path, text, undoable) {
+      const state = stateOf(path);
+      const changes = state.changes(textChanges(state.doc.toString(), text));
+      if (changes.empty) return;
+      const annotations = [
+        fromDisk.of(true),
+        // Not undoable: undo steps over the reload and still undoes the user's own edits.
+        undoable ? isolateHistory.of('full') : Transaction.addToHistory.of(false),
+      ];
+      if (path === shown) {
+        const scroll = view.scrollSnapshot().map(changes);
+        view.dispatch({ changes, annotations, effects: scroll ? [scroll] : [] });
+      } else {
+        const note = notes.get(path)!;
+        note.state = state.update({ changes, annotations }).state;
+        note.scroll = note.scroll?.map(changes) ?? null;
+      }
     },
     show(path) {
       if (path === shown) return;

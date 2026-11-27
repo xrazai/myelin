@@ -47,6 +47,17 @@ test('reads a note of the open vault, and nothing outside it', async () => {
   await expect(vault.call('readNote', 42 as unknown as string)).rejects.toThrow('not a note path');
 });
 
+test('writes a note of the open vault, recreating folders only for a note to create', async () => {
+  const text = '\uFEFFa\r\nb\r\n';
+  expect(await vault.call('writeNote', 'new/A.md', text, null)).toEqual({ status: 'saved' });
+  expect(readFileSync(join(root, 'new', 'A.md'))).toEqual(Buffer.from(text, 'utf8'));
+  await rm(join(root, 'new'), { recursive: true });
+  expect(await vault.call('writeNote', 'new/A.md', 'x', text)).toEqual({ status: 'conflict', disk: null });
+  expect(existsSync(join(root, 'new'))).toBe(false);
+  await expect(vault.call('writeNote', '../x.md', 'x', null)).rejects.toThrow('not a note path');
+  await expect(vault.call('writeNote', 'A.md', 42 as unknown as string, null)).rejects.toThrow('must be a string');
+});
+
 test('a failed open rejects and keeps the current vault', async () => {
   await expect(vault.call('open', join(root, 'Home.md'))).rejects.toThrow('not a folder');
   await expect(vault.call('open', join(root, 'missing'))).rejects.toThrow('ENOENT');

@@ -31,7 +31,7 @@ Status: stage 1 in progress (app scaffold in place). Repo: https://github.com/xr
 - Editor: CodeMirror 6.
 - Graph: `@myelin/graph`, WebGL2 only (GLSL ES 3.0), graphics backend behind an internal interface. Layout: own ForceAtlas2 (LinLog) + Barnes-Hut solver inside the library, no dependency (`docs/graph-lib.md`).
 - Fonts: Literata (body serif), Inter (UI), JetBrains Mono (code, raw syntax, metadata). Bundled (offline), variable, OFL.
-- Shortcuts: `Ctrl+P` is a single palette (notes by default, `>` prefix for commands). `Ctrl+Shift+L` toggles graph / Brain panel.
+- Shortcuts: `Ctrl+P` is a single palette (notes by default, `>` prefix for commands). `Ctrl+Shift+L` toggles graph / Brain panel. `Ctrl+S` saves now.
 
 ## AI: prepared, not decided
 No AI model is chosen or built now. The app ships ready to receive it, through three slots:
@@ -48,10 +48,16 @@ Do not create tables, dependencies, queues or files for AI before the decision. 
    - Owner: `vault-worker.ts` owns all file I/O, the `chokidar` watcher, parsing and SQLite. `main.ts` only manages windows and routes IPC.
 2. Save pipeline: two paths.
    - Light path, auto-save 500 ms after typing stops: atomic write, FTS5 update, link/edge update, synaptic pulse for new `[[link]]`s.
+   - No text is lost or silently overwritten (`renderer/editor/note-saver.ts`):
+     - `writeNote(path, content, base)` writes only if the disk still holds `base` (the text read or last written; `null`: no note), checked again right before each rename. Otherwise it returns a conflict. This covers an external edit whose watcher report has not arrived yet.
+     - A note is written only when its text differs from what was read or written, so opening, switching or blur never rewrites it. A file that is not UTF-8 is never overwritten.
+     - Note switch, tab close, window blur, app quit and reload save at once. A tab or the window stays open while text cannot be saved; only the user gives it up. `beforeunload` holds the window until the saves end.
+     - External change on an open note, decided by content: clean editor reloads (cursor, scroll and undo history stay); dirty editor keeps its text and auto-save stops until "keep mine" or "load disk version" (undoable). A deleted note with edits is not recreated until the user asks.
+     - A failed write shows the error and is retried on the next save trigger, not in a loop.
    - Heavy path: runs the registered processors (none yet) on every note whose content hash differs from what that processor last saw. `Ctrl+S`, note switch, a few seconds idle, window blur and app close only bring it forward; on startup, pending notes are processed. Correctness never depends on a trigger, and external edits go through the same path.
    - Atomic write on Windows: write `<note>.md.tmp`, `fsync`, then rename over the original. Retry the rename on `EPERM`/`EBUSY`/`EACCES` (antivirus, OneDrive, indexer holding the file).
    - Watcher loop guard: ignore `*.tmp`; before writing, the worker records the expected content hash of each file it is about to write, and a watcher event whose file hash matches is dropped. Any event whose hash equals the indexed hash is a no-op.
-   - Watcher (`main/vault-watcher.ts`): what chokidar reports (its events and `raw`) only marks paths to look at. `VaultEvent`s come from comparing folder listings with the last reported tree, and `changed` from content hashes. Never forward chokidar events: on Windows it misses repeated case-only renames. The tree is updated at once; the index waits for the first sync. The worker writes notes only through `VaultWatch.write`.
+   - Watcher (`main/vault-watcher.ts`): what chokidar reports (its events and `raw`) only marks paths to look at. `VaultEvent`s come from comparing folder listings with the last reported tree, and `changed` from content hashes. Never forward chokidar events: on Windows it misses repeated case-only renames. The tree is updated at once; the index waits for the first sync. The worker writes notes only through `VaultWatch.write`. An app write that creates a note (or its folders) is the one own write reported, as `created`.
    - Rename is one batch: rename the file, rewrite the linking notes, reindex once. Those rewrites are marked as link-only and do not count as content changes for the heavy path.
 3. The main thread never blocks: scanning, parsing, indexing and heavy processors run in workers.
 4. Golden rule: Svelte owns only the shell (file tree, tabs, palette, status bar, Brain panel). CodeMirror 6 and `@myelin/graph` run in plain TS inside containers mounted by Svelte, outside its reactivity.
@@ -64,6 +70,7 @@ Do not create tables, dependencies, queues or files for AI before the decision. 
 7. Single stack: everything in Electron/Node. No Python, no external services, no HTTP servers. Only outbound connection: the update check (see Releases and updates).
 8. Text encoding and line endings (enforced by `.editorconfig` and `.gitattributes`):
    - Every text file is UTF-8 without BOM, LF.
+   - Exception, the user's notes: saving keeps the BOM and line ending (`\r\n`, `\n` or `\r`; mixed: the most used, LF on a tie) a note had on disk (`renderer/editor/note-text.ts`; the editor works on LF text without BOM). New notes follow the rule above.
    - Shell: use `pwsh` (PowerShell 7) or Git Bash. In Windows PowerShell 5.1, never write project files with `Out-File` or `>` (UTF-16 by default); prefer the agent's file tools.
    - Node code reading/writing files always passes `'utf8'` explicitly.
    - Never parse localized text printed by Windows tools (e.g. `chcp`, `ipconfig`); use exit codes or structured output (JSON).
@@ -127,7 +134,10 @@ myelin/
 │       ├── components/        # Launcher, Workspace, FileTree, Tabs, Editor, CommandPalette, StatusBar, BrainPanel (.svelte)
 │       ├── editor/
 │       │   ├── cm-editor.ts   # CodeMirror 6 (one view, a state per tab); [[link]] autocomplete and hover plug in here
-│       │   ├── editor-tabs.ts # tabs -> editor: reads a note when its tab is first shown
+│       │   ├── editor-tabs.ts # tabs -> editor: opens a note when its tab is first shown, saves the one left
+│       │   ├── note-saver.ts  # auto-save, save triggers, external changes and conflicts
+│       │   ├── note-text.ts   # a file's BOM and line endings <-> the editor's text
+│       │   ├── text-changes.ts # minimal changes for a reload that keeps cursor and scroll
 │       │   ├── live-preview.ts # hides Markdown syntax away from the cursor (visible ranges only)
 │       │   ├── wiki-link.ts   # [[link]] in the Lezer parser, same grammar as shared/links.ts
 │       │   └── theme.ts       # editor look, from the identity tokens

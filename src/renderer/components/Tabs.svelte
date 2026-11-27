@@ -1,14 +1,18 @@
 <script lang="ts">
   import { tick } from 'svelte';
+  import type { NoteProblems } from '../editor/note-saver';
   import { dropIndex, tabName, type Tabs } from '../tabs-model';
 
   let {
     tabs,
+    problems,
     onactivate,
     onclose,
     onmove,
   }: {
     tabs: Tabs;
+    /** Notes whose edits are not saved. */
+    problems: NoteProblems;
     onactivate: (path: string) => void;
     onclose: (path: string) => void;
     onmove: (path: string, to: number) => void;
@@ -115,8 +119,9 @@
 >
   {#each tabs.list as tab, index (tab.path)}
     {@const active = tab.path === tabs.active}
+    {@const unsaved = problems.has(tab.path)}
     <div
-      class={['tab', { active, deleted: tab.deleted, lifted: drag?.path === tab.path }]}
+      class={['tab', { active, unsaved, deleted: tab.deleted, lifted: drag?.path === tab.path }]}
       role="presentation"
       onauxclick={(event) => event.button === 1 && onclose(tab.path)}
       onmousedown={(event) => event.button === 1 && event.preventDefault()}
@@ -127,7 +132,7 @@
         role="tab"
         aria-selected={active}
         tabindex={active ? 0 : -1}
-        title={tab.deleted ? `${tab.path} (deleted)` : tab.path}
+        title={`${tab.path}${tab.deleted ? ' (deleted)' : ''}${unsaved ? ' (not saved)' : ''}`}
         onpointerdown={(event) => onpointerdown(event, tab.path)}
         {onpointermove}
         {onpointerup}
@@ -136,6 +141,7 @@
         onclick={() => onactivate(tab.path)}
         onkeydown={(event) => onkeydown(event, index)}
       >
+        {#if unsaved}<span class="mark" aria-label="Not saved">!</span>{/if}
         {tabName(tab.path)}
       </button>
       <button
@@ -211,6 +217,12 @@
 
   .label:focus-visible {
     outline-offset: -2px;
+  }
+
+  .mark {
+    margin-right: 4px;
+    color: var(--learning);
+    font-weight: 700;
   }
 
   .deleted .label {
