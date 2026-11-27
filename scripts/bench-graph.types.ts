@@ -10,9 +10,8 @@ export interface PageJob {
   resolutions: [number, number][];
   /** Resolution of the bloom as a share of the frame's; 0 is glow off. */
   glows: number[];
-  /** Zoom factors over the view of the whole graph, measured at the last resolution. */
+  /** Cameras, as zoom factors over the view of the whole graph (1). */
   zooms: number[];
-  zoomGlow: number;
   frames: number;
   pixelRatio: number;
 }

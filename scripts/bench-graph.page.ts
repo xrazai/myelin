@@ -285,11 +285,9 @@ async function run(job: PageJob): Promise<{ edges: number; samples: Sample[] }> 
   // The upload alternates between two layouts, so that nothing can skip it as unchanged.
   const moved = positions.map((value) => value + 1);
 
-  const last = job.resolutions.at(-1)!;
-  const cases = [
-    ...job.resolutions.flatMap((size) => job.glows.map((glow) => ({ size, glow, zoom: 1 }))),
-    ...job.zooms.map((zoom) => ({ size: last, glow: job.zoomGlow, zoom })),
-  ];
+  const cases = job.zooms.flatMap((zoom) =>
+    job.resolutions.flatMap((size) => job.glows.map((glow) => ({ size, glow, zoom }))),
+  );
   const samples: Sample[] = [];
   for (const { size: [width, height], glow, zoom } of cases) {
     const frame = pipeline(width, height, glow, job.pixelRatio);

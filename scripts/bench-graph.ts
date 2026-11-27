@@ -9,7 +9,7 @@
 //
 // `bench-graph.page.ts` draws them with the library's backend into an offscreen framebuffer,
 // in a hidden window of the repo's Electron. Needs a GPU. The whole graph is in view, which
-// draws every node and edge; zoomed views are measured too.
+// draws every node and edge; zoomed views (ZOOMS) are measured over the same grid.
 //
 // Glow: the library has no bloom yet. A stand-in in the page measures its cost.
 //
@@ -18,8 +18,9 @@
 // over it. Zoomed views over the budget are printed and saved, and do not change the exit.
 //
 // Weak GPUs, a MODEL and not a measurement (expected error up to about 2x): per glow, fit
-// gpu_ms = a * pixels + b * (nodes + edges) + c over the measured grid, then scale `a` by
-// memory bandwidth and `b` by FP32 throughput of each profile of `gpu-profiles.json`.
+// gpu_ms = a * pixels + b * (nodes + edges) + c over the measured grid, one fit per camera,
+// then scale `a` by memory bandwidth and `b` by FP32 throughput of each profile of
+// `gpu-profiles.json`.
 //
 // Run directly by Node (type stripping): erasable TypeScript only.
 
@@ -43,7 +44,8 @@ const REPO_ROOT = resolve(SCRIPTS, '..');
 
 const RESOLUTIONS: [number, number][] = [[1920, 1080], [2560, 1440], [2880, 1800]];
 const GLOWS = [1, 0.5, 0.25, 0];
-const ZOOMS = [2, 4, 16];
+/** Cameras: 1 is the whole graph; the rest zoom into its center. */
+const ZOOMS = [1, 2, 4, 16];
 const BUDGET = { width: 2880, height: 1800, nodes: 100_000, gpuMs: 1.5, cpuMs: 4 };
 /** The bloom resolution the budget is checked with: the library's chosen default. */
 const BUDGET_GLOW = 0.5;
@@ -228,15 +230,17 @@ const sampleAt = (graph: GraphResult, [width, height]: [number, number], glow: n
 const glowName = (glow: number) => (glow === 0 ? 'off' : glow === 1 ? 'full' : `1/${1 / glow}`);
 
 /** The zoomed views of the budget frame whose p95 is over a limit of the budget, as text. */
-export function zoomedOverBudget(samples: Sample[]): string[] {
+export function zoomedOverBudget(samples: Sample[], glow = BUDGET_GLOW): string[] {
   return samples
-    .filter((s) => s.zoom !== 1 && s.width === BUDGET.width && s.height === BUDGET.height && s.glow === BUDGET_GLOW)
+    .filter((s) => s.zoom !== 1 && s.width === BUDGET.width && s.height === BUDGET.height && s.glow === glow)
     .flatMap((s) => {
       const gpu = worst(s.gpuMs, s.gpuWithUploadMs)?.p95 ?? 0;
       const cpu = worst(s.cpuMs, s.cpuWithUploadMs)!.p95;
       return gpu > BUDGET.gpuMs || cpu > BUDGET.cpuMs ? [`x${s.zoom} GPU ${gpu} ms, CPU ${cpu} ms`] : [];
     });
 }
+
+const viewName = (zoom: number) => (zoom === 1 ? 'whole graph' : `zoom x${zoom}`);
 
 /** The worst of a still frame and one that uploads a layout step first. */
 const worst = (a: Percentiles | null, b: Percentiles | null): Percentiles | null =>
@@ -316,7 +320,6 @@ export async function benchGraph(args: string[]): Promise<void> {
         resolutions: RESOLUTIONS,
         glows: GLOWS,
         zooms: ZOOMS,
-        zoomGlow: BUDGET_GLOW,
         frames,
         pixelRatio: PIXEL_RATIO,
       };
@@ -395,29 +398,31 @@ export async function benchGraph(args: string[]): Promise<void> {
     );
   }
 
-  const models = GLOWS.map((glow) => {
-    const points = graphs.flatMap((graph) =>
-      RESOLUTIONS.map((size) => {
-        const sample = sampleAt(graph, size, glow)!;
-        return {
-          pixels: size[0] * size[1],
-          elements: graph.nodeCount + graph.edges,
-          gpuMs: sample.gpuMs?.median ?? sample.syncedFrameMs,
-        };
-      }),
-    );
-    return { glow, ...fitModel(points) };
-  });
+  const models = ZOOMS.flatMap((zoom) =>
+    GLOWS.map((glow) => {
+      const points = graphs.flatMap((graph) =>
+        RESOLUTIONS.map((size) => {
+          const sample = sampleAt(graph, size, glow, zoom)!;
+          return {
+            pixels: size[0] * size[1],
+            elements: graph.nodeCount + graph.edges,
+            gpuMs: sample.gpuMs?.median ?? sample.syncedFrameMs,
+          };
+        }),
+      );
+      return { zoom, glow, ...fitModel(points) };
+    }),
+  );
   const estimates: Record<string, number | string>[] = [];
   // With one size, the pixel and the geometry terms cannot be told apart.
   if (graphs.length > 1) {
     lines.push(
       '',
-      'Fit of the median gpu ms of a still frame: a * pixels + b * (nodes + edges) + c',
+      'Fit of the median gpu ms of a still frame: a * pixels + b * (nodes + edges) + c, per camera',
       table(
-        ['glow', 'a ms/Mpx', 'b ms/M', 'c ms', 'max error'],
+        ['view, glow', 'a ms/Mpx', 'b ms/M', 'c ms', 'max error'],
         models.map((m) => [
-          glowName(m.glow),
+          `${viewName(m.zoom)}, ${glowName(m.glow)}`,
           (m.a * 1e6).toFixed(4),
           (m.b * 1e6).toFixed(3),
           m.c.toFixed(3),
@@ -425,27 +430,34 @@ export async function benchGraph(args: string[]): Promise<void> {
         ]),
       ),
       '',
-      'ESTIMATE, a model and not a measurement (expected error up to about 2x): GPU-bound FPS,',
-      'whole graph in view. The CPU, the browser compositor and vsync are not in it.',
+      'ESTIMATE, a model and not a measurement (expected error up to about 2x): GPU-bound FPS.',
+      'The CPU, the browser compositor and vsync are not in it.',
     );
-    for (const [nodes, [width, height]] of ESTIMATED) {
-      const graph = graphs.find((each) => each.nodeCount === nodes);
-      if (!graph) continue;
-      const rows = profiles.map((profile) => [
-        profile.name,
-        ...models.map((model) => {
-          const ms = estimateMs(model, reference, profile, width * height, graph.nodeCount + graph.edges);
-          estimates.push({ profile: profile.id, nodes, width, height, glow: model.glow, ms, fps: 1000 / ms });
-          return Math.round(1000 / ms);
-        }),
-      ]);
-      lines.push('', `${nodes} nodes at ${width}x${height}, FPS by glow`);
-      lines.push(table(['profile', ...GLOWS.map(glowName)], rows, 48));
+    for (const zoom of ZOOMS) {
+      for (const [nodes, [width, height]] of ESTIMATED) {
+        const graph = graphs.find((each) => each.nodeCount === nodes);
+        // Zoomed in, only the largest graph is shown.
+        if (!graph || (zoom !== 1 && nodes !== BUDGET.nodes)) continue;
+        const rows = profiles.map((profile) => [
+          profile.name,
+          ...models
+            .filter((model) => model.zoom === zoom)
+            .map((model) => {
+              const ms = estimateMs(model, reference, profile, width * height, graph.nodeCount + graph.edges);
+              estimates.push({ profile: profile.id, zoom, nodes, width, height, glow: model.glow, ms, fps: 1000 / ms });
+              return Math.round(1000 / ms);
+            }),
+        ]);
+        lines.push('', `${nodes} nodes at ${width}x${height}, ${viewName(zoom)}, FPS by glow`);
+        lines.push(table(['profile', ...GLOWS.map(glowName)], rows, 48));
+      }
     }
   }
 
   const budgetGraph = graphs.find((graph) => graph.nodeCount === BUDGET.nodes);
-  const overBudgetZoomed = budgetGraph ? zoomedOverBudget(budgetGraph.samples) : null;
+  const overBudgetZoomed = budgetGraph
+    ? [BUDGET_GLOW, 1].map((glow) => ({ glow, views: zoomedOverBudget(budgetGraph.samples, glow) }))
+    : null;
 
   await mkdir(dirname(out), { recursive: true });
   await writeFile(
@@ -472,8 +484,9 @@ export async function benchGraph(args: string[]): Promise<void> {
     `GPU ${gpu} ms (budget ${BUDGET.gpuMs}), CPU ${cpu} ms (budget ${BUDGET.cpuMs})`;
   if (gpu > BUDGET.gpuMs || cpu > BUDGET.cpuMs) throw new Error(`over budget with the whole graph in view: ${verdict}`);
   console.log(`within budget with the whole graph in view: ${verdict}`);
-  if (overBudgetZoomed!.length > 0) {
-    console.log(`OVER BUDGET ZOOMED IN (same frame, p95): ${overBudgetZoomed!.join('; ')}`);
+  for (const { glow, views } of overBudgetZoomed!) {
+    if (views.length === 0) continue;
+    console.log(`OVER BUDGET ZOOMED IN (same frame, glow ${glowName(glow)}, p95): ${views.join('; ')}`);
   }
 }
 

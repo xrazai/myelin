@@ -53,7 +53,8 @@ Graph on a canvas (done: drawing and camera):
 Drawing (`src/backend/`, `src/shaders/`):
 - Positions in one RG32F texture, read by node id: a layout update uploads only it; edge instances hold two ids and a strength.
 - Edge strength `w / (w + 1)` (weight 1 when absent) sets width (0.5-2 CSS px), opacity and color. Node radius grows with the square root of the degree, with a floor and a ceiling in pixels.
-- `node scripts/bench.ts --graph`: GPU and CPU per frame and the weak-GPU estimate (a model, error up to ~2x; `scripts/gpu-profiles.json`). The 100k budget is checked on the whole-graph view and met there; zoomed in (2x and more) it is over (GPU 1.6-2.8 ms), long edges filling more pixels.
+- `node scripts/bench.ts --graph`: GPU and CPU per frame and the weak-GPU estimate (a model, error up to ~2x; `scripts/gpu-profiles.json`).
+- For now the GPU budget applies to the whole-graph view only. Zoomed in (2x and more) it is over (GPU 1.7-3.2 ms at 100k): edge fill, #73.
 
 Adaptive quality, defaults chosen with that estimate (not implemented yet, #40; the bloom measured by the bench is a stand-in):
 - Bloom at 1/2 resolution; below 50 FPS go to 1/4, then off. Never drop nodes.
