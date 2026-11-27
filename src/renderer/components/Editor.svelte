@@ -58,6 +58,11 @@
 
   let container = $state<HTMLDivElement>();
   let status = $state.raw<EditorStatus>({ kind: 'empty' });
+
+  /** `Ctrl+F`: find in the note on screen. */
+  export function find() {
+    editorApi?.find();
+  }
   let connection = $state.raw<ReturnType<typeof connectEditor>>();
 
   // The editor is plain TS inside this container: Svelte renders nothing in it.

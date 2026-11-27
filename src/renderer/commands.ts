@@ -4,6 +4,7 @@ import { fold, score } from './note-search';
 export type CommandId =
   | 'open-palette'
   | 'new-note'
+  | 'find'
   | 'delete'
   | 'next-tab'
   | 'previous-tab'
@@ -55,6 +56,12 @@ export const COMMANDS: readonly Command[] = [
     shortcut: 'Delete (file tree)',
     scope: 'tree',
     match: (event) => !event.ctrlKey && !event.altKey && !event.metaKey && event.key === 'Delete',
+  },
+  {
+    id: 'find',
+    label: 'Find in note',
+    shortcut: 'Ctrl+F',
+    match: ctrl('f'),
   },
   {
     id: 'save',

@@ -5,6 +5,7 @@ import { defaultKeymap, history, historyKeymap, isolateHistory } from '@codemirr
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { Annotation, Compartment, EditorState, Transaction, type Extension, type StateEffect } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
+import { findInNote, openFind } from './find';
 import { focusDim, setFocusDimEffect } from './focus-dim';
 import { livePreview } from './live-preview';
 import { notePath } from './note-path';
@@ -30,6 +31,7 @@ const extensions: Extension = [
   EditorView.contentAttributes.of({ 'aria-label': 'Note text' }),
   livePreview,
   focusDim,
+  findInNote,
   theme,
 ];
 
@@ -41,6 +43,8 @@ export interface NoteEditor extends SaverEditor {
   show(path: string | null): void;
   /** Toggles paragraph focus dimming on the active view. */
   setFocusDim(enabled: boolean): void;
+  /** Opens find over the note on screen, if there is one. */
+  find(): void;
   /** Forgets every note not in `paths`. */
   keep(paths: readonly string[]): void;
   /** Rekeys a note's state to a new path, preserving text, cursor, scroll and undo history. */
@@ -132,6 +136,9 @@ export function createNoteEditor(
       focusDimOn = enabled;
       view.dom.classList.toggle('cm-focus-dim', enabled);
       if (shown !== null) view.dispatch({ effects: setFocusDimEffect.of(enabled) });
+    },
+    find() {
+      if (shown !== null) openFind(view);
     },
     keep(paths) {
       for (const path of notes.keys()) {
