@@ -25,16 +25,14 @@ Inputs (Brain panel search, `Ctrl+P`): filled with `bg-editor` on top of `bg-pan
 ## Typography
 | Role | Family | Notes |
 |---|---|---|
-| Writing / reading body | Literata or Newsreader (serif) | "Field notebook" feel, not generic SaaS. 17-18 px. Pick by visual test on `#111615`. |
+| Writing / reading body | Literata (serif) | "Field notebook" feel, not generic SaaS. 17-18 px. Roman and italic. |
 | UI (menus, tree, Brain panel) | Inter | Legible at 12-13 px. Tabular numbers via `font-feature-settings: "tnum"`. |
 | Code, raw Markdown syntax, metadata | JetBrains Mono | |
 
-- Body candidates on dark backgrounds:
-  - Literata: built for long screen reading, larger x-height, more even stroke contrast; less halation (light text "blooming" on dark).
-  - Newsreader: more editorial personality and an expressive italic, fits the identity; higher thick/thin contrast may need variable weight ~420-450.
-  - Both have an optical size axis: keep `font-optical-sizing: auto`.
+- Body serif: Literata (chosen over Newsreader at 17-18 px on `#111615`: larger x-height, sturdier strokes, holds up in `text-muted`). It has an optical size axis: keep `font-optical-sizing: auto`.
 - `[[links]]` use the body font in `accent` color, not mono. Mono shows only the raw syntax when the cursor is on the line.
-- Fonts are bundled in the app (offline), variable versions, all OFL.
+- Fonts are bundled in the app (offline), variable versions, all OFL: files and `@font-face` in `src/renderer/fonts/` (latin + latin-ext), licenses in `src/renderer/public/licenses/` (shipped with the build).
+- Code: `src/renderer/styles.css` declares one CSS variable per token (`--bg-editor`, ...; `scripts/theme.test.ts` keeps them equal), plus `--font-body`, `--font-ui`, `--font-mono`, `--font-size-body`, `--font-size-ui`. Writing/reading text takes the `.prose` class. Components use the variables, never literal colors.
 
 ## Icon
 Minimal cellular/botanical structure: a leaf vein turning into a synapse. `#52B788` on a dark background.
