@@ -143,6 +143,7 @@ Workspace layout: tabs (top) | tree (left) | editor | graph or Brain panel (righ
 - Automations: new issues/PRs are auto-added to the board in Backlog; closed/merged -> Done; card moved to Done -> issue closed; PR linked -> In progress.
 - Change status: `gh project item-edit 7 --owner xrazai --url <issue-url> --field Status --value "In progress"` (values: Backlog, Todo, In progress, Done).
 - New issue: `gh issue create -R xrazai/myelin` with labels + milestone; it lands in Backlog by itself.
+- Dependencies: native GitHub "Blocked by" links (plus a readable `Depends on: #a, #b` line in the body). An issue is ready when it has no open blocker: `gh api repos/xrazai/myelin/issues/N --jq .issue_dependencies_summary.blocked_by` returns `0`.
 
 ## Releases and updates
 - Packaging: `electron-builder` (NSIS on Windows). Updates: `electron-updater`, GitHub provider.
