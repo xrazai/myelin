@@ -3,6 +3,8 @@
 
 export type Side = 'left' | 'right';
 export type SideWidths = Record<Side, number>;
+export type CollapsedPanels = Record<Side, boolean>;
+export const DEFAULT_COLLAPSED: Readonly<CollapsedPanels> = { left: false, right: false };
 /**
  * The widths the user chose. `kept` is set when they do not fit the window they were chosen
  * in: the side resized last, which takes its room from the other one.
@@ -98,5 +100,58 @@ export function saveWidths(storage: Pick<Storage, 'setItem'>, vaultId: string, w
     storage.setItem(storageKey(vaultId), JSON.stringify(widths));
   } catch {
     // A full or blocked storage only loses the sizes.
+  }
+}
+
+/** Toggles one side panel's collapsed state without altering stored widths. */
+export function toggleCollapsed(collapsed: CollapsedPanels, side: Side): CollapsedPanels {
+  return { ...collapsed, [side]: !collapsed[side] };
+}
+
+/**
+ * Toggles Focus Mode: collapses both side panels if either is open (saving the prior state),
+ * or restores the saved state when both are already collapsed.
+ */
+export function toggleFocusMode(
+  collapsed: CollapsedPanels,
+  beforeFocus: CollapsedPanels | null,
+): { collapsed: CollapsedPanels; beforeFocus: CollapsedPanels | null } {
+  if (!collapsed.left || !collapsed.right) {
+    return { collapsed: { left: true, right: true }, beforeFocus: { ...collapsed } };
+  }
+  const restored =
+    beforeFocus && (!beforeFocus.left || !beforeFocus.right) ? { ...beforeFocus } : { left: false, right: false };
+  return { collapsed: restored, beforeFocus: null };
+}
+
+/** Fits widths considering which side panels are currently open. */
+export function fitVisibleWidths(widths: PanelWidths, collapsed: CollapsedPanels, total: number): SideWidths {
+  if (collapsed.left && collapsed.right) return { left: 0, right: 0 };
+  if (!collapsed.left && !collapsed.right) return fitWidths(widths, total);
+  const open: Side = collapsed.left ? 'right' : 'left';
+  const room = Math.max(MIN_WIDTHS[open], total - MIN_EDITOR_WIDTH - 1);
+  const clamped = Math.min(room, Math.max(MIN_WIDTHS[open], widths[open]));
+  return collapsed.left ? { left: 0, right: clamped } : { left: clamped, right: 0 };
+}
+
+const collapsedKey = (vaultId: string) => `myelin.collapsed.${vaultId}`;
+
+export function loadCollapsed(storage: Pick<Storage, 'getItem'>, vaultId: string): CollapsedPanels {
+  try {
+    const stored = JSON.parse(storage.getItem(collapsedKey(vaultId)) ?? 'null') as Partial<CollapsedPanels> | null;
+    return {
+      left: stored?.left === true,
+      right: stored?.right === true,
+    };
+  } catch {
+    return { ...DEFAULT_COLLAPSED };
+  }
+}
+
+export function saveCollapsed(storage: Pick<Storage, 'setItem'>, vaultId: string, collapsed: CollapsedPanels): void {
+  try {
+    storage.setItem(collapsedKey(vaultId), JSON.stringify(collapsed));
+  } catch {
+    // A full or blocked storage only loses the collapsed state.
   }
 }

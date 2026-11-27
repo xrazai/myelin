@@ -1,6 +1,13 @@
 // Workspace keyboard shortcuts (AGENTS.md, "Shortcuts"; `Ctrl+P` comes with the palette).
 
-export type Shortcut = 'next-tab' | 'previous-tab' | 'close-tab' | 'toggle-right-panel' | 'save';
+export type Shortcut =
+  | 'next-tab'
+  | 'previous-tab'
+  | 'close-tab'
+  | 'toggle-right-panel'
+  | 'toggle-focus-mode'
+  | 'toggle-left-panel'
+  | 'save';
 
 type Keys = Pick<KeyboardEvent, 'key' | 'ctrlKey' | 'shiftKey' | 'altKey' | 'metaKey'>;
 
@@ -16,6 +23,10 @@ export function shortcutFor(event: Keys): Shortcut | null {
       return event.shiftKey ? null : 'close-tab';
     case 'l':
       return event.shiftKey ? 'toggle-right-panel' : null;
+    case '\\':
+      return event.shiftKey ? null : 'toggle-focus-mode';
+    case 'b':
+      return event.shiftKey ? 'toggle-left-panel' : null;
     default:
       return null;
   }

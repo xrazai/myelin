@@ -16,7 +16,8 @@
   } = $props();
 
   /** Fixed, so only the rows in view need to be in the DOM. */
-  const ROW_HEIGHT = 24;
+  const ROW_HEIGHT = 28;
+  const INDENT = 14;
   const OVERSCAN = 10;
 
   // Raw state: the model replaces these, and a deep proxy over a whole vault is slow.
@@ -139,7 +140,7 @@
     {onkeydown}
   >
     <div class="sizer" role="none" style:height="{rows.length * ROW_HEIGHT}px">
-      <div role="none" style:transform="translateY({range.start * ROW_HEIGHT}px)">
+      <div class="window" role="none" style:transform="translateY({range.start * ROW_HEIGHT}px)">
         {#each rows.slice(range.start, range.end) as row, offset (`${row.entry.kind}:${row.entry.path}`)}
           {@const index = range.start + offset}
           {@const open = row.entry.kind === 'folder' && expanded.has(row.entry.path)}
@@ -155,9 +156,19 @@
             data-index={index}
             title={row.entry.name}
             style:height="{ROW_HEIGHT}px"
-            style:padding-left="{(row.level - 1) * 14 + 8}px"
+            style:padding-left="{(row.level - 1) * INDENT + 8}px"
+            style:--guides="{Math.max(0, row.level - 1) * INDENT}px"
           >
-            <span class="chevron" aria-hidden="true"></span>
+            {#if row.entry.kind === 'folder'}
+              <svg class="glyph chevron" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+                <path d="M4.5 2.5 8 6l-3.5 3.5" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+            {:else}
+              <svg class="glyph note-icon" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.2" aria-hidden="true">
+                <rect x="2" y="1.5" width="8" height="9" rx="1.5" />
+                <path d="M4 4.5h4M4 7h2.8" stroke-linecap="round" />
+              </svg>
+            {/if}
             {#if renaming === row.entry.path}
               <!-- svelte-ignore a11y_autofocus -->
               <input
@@ -189,10 +200,16 @@
 
 <style>
   .tree {
+    --guide-color: var(--divider);
     height: 100%;
+    padding: 2px 0 12px;
     overflow-x: hidden;
     overflow-y: auto;
     overflow-anchor: none;
+  }
+
+  .tree:hover {
+    --guide-color: color-mix(in srgb, var(--accent) 24%, var(--divider));
   }
 
   .tree:focus-visible {
@@ -203,47 +220,99 @@
     overflow: hidden;
   }
 
+  .window {
+    padding: 0 6px;
+  }
+
   .row {
+    position: relative;
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 7px;
     padding-right: 8px;
+    border-radius: 6px;
+    font-size: 12.8px;
     white-space: nowrap;
     cursor: pointer;
+    transition:
+      background-color var(--t-fast) ease,
+      color var(--t-fast) ease;
+  }
+
+  /* Vertical indentation guides aligned under parent folder chevrons (O(1) DOM cost). */
+  .row::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 14px;
+    width: var(--guides, 0px);
+    background-image: repeating-linear-gradient(
+      to right,
+      var(--guide-color) 0 1px,
+      transparent 1px 14px
+    );
+    pointer-events: none;
+  }
+
+  .row.folder {
+    font-weight: 500;
+    color: var(--text-muted);
+  }
+
+  .row.note {
+    color: color-mix(in srgb, var(--text) 86%, var(--text-muted));
   }
 
   .row:hover {
-    background: var(--divider);
+    background: var(--surface-hover);
+    color: var(--text);
   }
 
   .row[aria-selected='true'] {
-    background: color-mix(in srgb, var(--accent) 16%, transparent);
+    background: var(--surface-active);
     color: var(--accent);
+    font-weight: 500;
   }
 
+  /* Keyboard focus stays instant: zero transition on outline. */
   .tree:focus-visible .cursor {
     outline: 1px solid var(--accent);
     outline-offset: -1px;
   }
 
-  .chevron {
+  .glyph {
     flex: none;
-    width: 10px;
+    width: 12px;
+    height: 12px;
   }
 
-  .folder .chevron::before {
-    content: '';
-    display: block;
-    width: 5px;
-    height: 5px;
-    margin-left: 1px;
-    border-top: 1.5px solid var(--text-muted);
-    border-right: 1.5px solid var(--text-muted);
-    transform: rotate(45deg);
+  .chevron {
+    color: var(--text-muted);
+    transition:
+      transform 140ms var(--ease-out),
+      color var(--t-fast) ease;
   }
 
-  .folder.open .chevron::before {
-    transform: rotate(135deg);
+  .folder.open .chevron {
+    transform: rotate(90deg);
+  }
+
+  .folder:hover .chevron {
+    color: var(--text);
+  }
+
+  .note-icon {
+    opacity: 0.42;
+    transition: opacity var(--t-fast) ease;
+  }
+
+  .row.note:hover .note-icon {
+    opacity: 0.72;
+  }
+
+  .row[aria-selected='true'] .note-icon {
+    opacity: 0.95;
   }
 
   .name {
@@ -264,9 +333,15 @@
 
   .message {
     margin: 0;
-    padding: 4px 12px;
+    padding: 8px 14px;
     color: var(--text-muted);
     overflow-wrap: anywhere;
     user-select: text;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .chevron {
+      transition: none;
+    }
   }
 </style>
