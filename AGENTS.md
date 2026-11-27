@@ -51,6 +51,7 @@ Do not create tables, dependencies, queues or files for AI before the decision. 
    - Heavy path: runs the registered processors (none yet) on every note whose content hash differs from what that processor last saw. `Ctrl+S`, note switch, a few seconds idle, window blur and app close only bring it forward; on startup, pending notes are processed. Correctness never depends on a trigger, and external edits go through the same path.
    - Atomic write on Windows: write `<note>.md.tmp`, `fsync`, then rename over the original. Retry the rename on `EPERM`/`EBUSY`/`EACCES` (antivirus, OneDrive, indexer holding the file).
    - Watcher loop guard: ignore `*.tmp`; before writing, the worker records the expected content hash of each file it is about to write, and a watcher event whose file hash matches is dropped. Any event whose hash equals the indexed hash is a no-op.
+   - Watcher (`main/vault-watcher.ts`): what chokidar reports (its events and `raw`) only marks paths to look at. `VaultEvent`s come from comparing folder listings with the last reported tree, and `changed` from content hashes. Never forward chokidar events: on Windows it misses repeated case-only renames. The tree is updated at once; the index waits for the first sync. The worker writes notes only through `VaultWatch.write`.
    - Rename is one batch: rename the file, rewrite the linking notes, reindex once. Those rewrites are marked as link-only and do not count as content changes for the heavy path.
 3. The main thread never blocks: scanning, parsing, indexing and heavy processors run in workers.
 4. Golden rule: Svelte owns only the shell (file tree, tabs, palette, status bar, Brain panel). CodeMirror 6 and `@myelin/graph` run in plain TS inside containers mounted by Svelte, outside its reactivity.
@@ -104,7 +105,8 @@ myelin/
 │   │   ├── ipc.ts             # registers the contract's handlers, sends its events
 │   │   ├── vault-worker.ts    # file I/O (atomic), watcher, parsing, index.db, FTS5, usage events, heavy path
 │   │   ├── vault-config.ts    # .myelin/vault.json (used by vault-worker)
-│   │   ├── vault-index.ts     # index.db: schema and sync (used by vault-worker)
+│   │   ├── vault-index.ts     # index.db: schema, sync and updates (used by vault-worker)
+│   │   ├── vault-watcher.ts   # chokidar watcher, loop guard, tree events (used by vault-worker)
 │   │   └── brain-adapter.ts   # AI slot: search(query), process(changedNote); FTS5 now
 │   ├── preload/preload.ts     # contextBridge, exposes window.myelin
 │   ├── shared/ipc.ts          # window.myelin contract: types and channel names
@@ -118,6 +120,7 @@ myelin/
 │       ├── components/        # Launcher, Workspace, FileTree, Tabs, CommandPalette, StatusBar, BrainPanel (.svelte)
 │       ├── editor/
 │       │   └── cm-editor.ts   # CodeMirror 6, live preview, [[link]] autocomplete, hover preview
+│       ├── tree-model.ts      # file tree logic: visible rows, watcher events, keyboard
 │       ├── note-cache.ts      # LRU of short previews, viewport prefetch
 │       └── graph-view.ts      # glue: note path <-> node id, feeds @myelin/graph, wires events
 └── vault-dev/                 # local test vault
@@ -139,7 +142,7 @@ Workspace layout: tabs (top) | tree (left) | editor | graph or Brain panel (righ
 - Solo flow (Rafa): commit straight to `main` (ruleset bypass); the commit that finishes an issue ends its message with `Closes #N` (partial work: `Refs #N`). Closing moves the card to Done. Rafa's agents follow `CLAUDE.local.md` (local, git-ignored) for when to commit, push and open PRs; if it is missing, ask before any push.
 - Commit messages: Conventional Commits, `type(scope): subject` in English, imperative, lower case, no period. Types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `ci`, `build`, `perf`. Scope = area (`vault`, `editor`, `graph`, `ui`, `tooling`) when it fits. Breaking change: `type(scope)!: subject`. PR titles use the same format (the squash commit takes the PR title).
 - Contributors: fork, branch `<issue>-short-slug`, PR with `Closes #N`. Ruleset "Protect main": PR required, review threads resolved, no force push, no deletion; no required approval (only maintainers can merge anyway; CODEOWNERS still requests review). Rafa (admin) bypasses for direct pushes. Merge: squash only (PR title = commit), branch deleted after merge. CI (`.github/workflows/ci.yml`) runs on PRs and pushes to `main`; every CI job goes in the `needs` of the `all-checks` job. Every `uses:` is pinned to a full commit SHA with the full version as a comment (`# v7.0.1`; Dependabot updates both). The `actionlint` job lints all workflows on every PR. `all-checks` is a strict required check (PR must be up to date with `main`): that is what serializes simultaneous PRs.
-- Security: private vulnerability reporting on; Dependabot alerts and security updates on.
+- Security: private vulnerability reporting on; Dependabot alerts and security updates on; secret scanning with push protection on; CodeQL default setup on (JS/TS and Actions, weekly + PRs, not a required check).
 - Automations: new issues/PRs are auto-added to the board in Backlog; closed/merged -> Done; card moved to Done -> issue closed; PR linked -> In progress.
 - Change status: `gh project item-edit 7 --owner xrazai --url <issue-url> --field Status --value "In progress"` (values: Backlog, Todo, In progress, Done).
 - New issue: `gh issue create -R xrazai/myelin` with labels + milestone; it lands in Backlog by itself.

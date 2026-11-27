@@ -78,7 +78,11 @@ function createWindow(): void {
 
 void app.whenReady().then(() => {
   const workerData: VaultWorkerData = { userData: app.getPath('userData') };
-  const vault = createVaultClient(new Worker(vaultWorkerPath, { workerData }));
+  const vault = createVaultClient(new Worker(vaultWorkerPath, { workerData }), (events) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      sendEvent(window.webContents, EVENT_CHANNELS.vaultEvents, events);
+    }
+  });
   registerIpc({
     ...pendingHandlers,
     // The same operation: a folder without vault.json gets one, an existing vault is left as is.

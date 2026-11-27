@@ -10,7 +10,7 @@
     "packages/*"
   ],
   "engines": {
-    "node": ">=22.12.0"
+    "node": ">=22.22.0"
   },
   "scripts": {
     "dev": "electron-vite dev",
@@ -23,7 +23,8 @@
   },
   "dependencies": {
     "@myelin/graph": "^0.0.0",
-    "better-sqlite3": "^13.2.0"
+    "better-sqlite3": "^13.2.0",
+    "chokidar": "^6.0.0"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.2",
