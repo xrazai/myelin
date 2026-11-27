@@ -2,10 +2,12 @@
   import { tick } from 'svelte';
   import type { TreeEntry } from '../../shared/ipc';
   import { errorMessage } from '../error-message';
+  import { foldersAbove, menuItems, newItem, targetFolder, type ItemKind, type MenuItem } from '../new-item';
   import { renamedPath } from '../rename-note';
   import { flatten, keyAction, pruneExpanded, scrollToShow, visibleRange, watchTree } from '../tree-model';
+  import TreeMenu from './TreeMenu.svelte';
 
-  /** `selected`: path of the open note. `onopen`: a note was clicked or chosen by keyboard. */
+  /** `selected`: path of the open note. `onopen`: a note was clicked, chosen or created. */
   let {
     selected,
     onopen,
@@ -32,6 +34,19 @@
   let renameText = $state('');
   let input = $state<HTMLInputElement>();
 
+  /** The item being named, and where it goes (`''`: the root). */
+  let creating = $state.raw<{ kind: ItemKind; folder: string } | null>(null);
+  let createText = $state('');
+  /** Why the last attempt failed, until the name changes. */
+  let failure = $state('');
+  let submitting = false;
+  let createInput = $state<HTMLInputElement>();
+  /** The context menu: where it is and what it is about (`null`: no entry). */
+  let menu = $state.raw<{ x: number; y: number; entry: TreeEntry | null } | null>(null);
+
+  const item = $derived(creating && newItem(tree ?? [], creating.folder, creating.kind, createText));
+  const refusal = $derived(failure || item?.problem || '');
+
   let list = $state<HTMLDivElement>();
   let scrollTop = $state(0);
   let viewHeight = $state(0);
@@ -53,6 +68,60 @@
       },
     }),
   );
+
+  /** Asks for the name of a new note or folder inside `folder`. */
+  export async function startCreate(kind: ItemKind, folder = '') {
+    menu = null;
+    creating = { kind, folder };
+    createText = '';
+    failure = '';
+    // Focus after the input is in the DOM.
+    await tick();
+    createInput?.focus();
+  }
+
+  function cancelCreate() {
+    creating = null;
+    failure = '';
+  }
+
+  function reveal(path: string) {
+    expanded = new Set([...expanded, ...foldersAbove(path)]);
+    cursor = path;
+  }
+
+  async function scrollToCursor() {
+    await tick();
+    if (list) list.scrollTop = scrollToShow(cursorIndex, list.scrollTop, list.clientHeight, ROW_HEIGHT);
+  }
+
+  async function submitCreate() {
+    const asked = creating;
+    if (!asked || !item || item.problem !== null || submitting) return;
+    const { path } = item;
+    submitting = true;
+    try {
+      if (asked.kind === 'folder') await window.myelin.createFolder(path);
+      else if ((await window.myelin.writeNote(path, '', null)).status === 'conflict') {
+        failure = `a note already exists at ${path}`;
+        return;
+      }
+    } catch (error) {
+      failure = errorMessage(error);
+      return;
+    } finally {
+      submitting = false;
+    }
+    // Cancelled, or another name asked for, while this one was written.
+    const current = creating === asked;
+    if (current) creating = null;
+    reveal(path);
+    await scrollToCursor();
+    if (!current) return;
+    // With the input gone nothing has the focus: the editor of the new note takes it.
+    if (asked.kind === 'note') onopen(path);
+    else list?.focus();
+  }
 
   function toggle(path: string) {
     const next = new Set(expanded);
@@ -88,17 +157,47 @@
   }
 
   function oncontextmenu(event: MouseEvent) {
-    // The rename input keeps its own menu.
+    // The inputs keep their own menu.
     if (event.target instanceof HTMLInputElement) return;
-    const element = (event.target as Element).closest<HTMLElement>('[data-index]');
-    const entry = element && rows[Number(element.dataset['index'])]?.entry;
-    if (!entry || entry.kind !== 'note') return;
     event.preventDefault();
-    cursor = entry.path;
-    startRename(entry.path);
+    const element = (event.target as Element).closest<HTMLElement>('[data-index]');
+    const entry = (element && rows[Number(element.dataset['index'])]?.entry) || null;
+    if (entry) cursor = entry.path;
+    menu = { x: event.clientX, y: event.clientY, entry };
+  }
+
+  /** The menu of the row under the keyboard cursor, next to it. */
+  async function openCursorMenu() {
+    await scrollToCursor();
+    const entry = rows[cursorIndex]?.entry ?? null;
+    const box = (document.getElementById(`tree-row-${cursorIndex}`) ?? list)?.getBoundingClientRect();
+    if (entry) cursor = entry.path;
+    menu = { x: (box?.left ?? 0) + 24, y: box?.bottom ?? 0, entry };
+  }
+
+  function pick(id: MenuItem['id']) {
+    const entry = menu?.entry ?? null;
+    menu = null;
+    if (id === 'rename') {
+      if (entry) startRename(entry.path);
+    } else {
+      void startCreate(id === 'new-note' ? 'note' : 'folder', targetFolder(entry));
+    }
+  }
+
+  function closeMenu(dismissed: boolean) {
+    menu = null;
+    if (dismissed) list?.focus();
   }
 
   async function onkeydown(event: KeyboardEvent) {
+    // `preventDefault` keeps the key from also raising a `contextmenu` event.
+    if (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) {
+      if (event.target !== list) return;
+      event.preventDefault();
+      await openCursorMenu();
+      return;
+    }
     if (event.ctrlKey || event.altKey || event.metaKey) return;
     const action = keyAction(rows, cursorIndex, event.key, expanded);
     if (!action) return;
@@ -113,11 +212,64 @@
       if (action.type === 'toggle') toggle(action.path);
       else onopen(action.path);
     }
-    await tick();
-    if (list) list.scrollTop = scrollToShow(cursorIndex, list.scrollTop, list.clientHeight, ROW_HEIGHT);
+    await scrollToCursor();
   }
 </script>
 
+<!-- Right click on any blank part opens the menu of the root. -->
+<div class="file-tree" role="presentation" {oncontextmenu}>
+<div class="actions">
+  <button type="button" aria-label="New note" title="New note (Ctrl+N)" onclick={() => startCreate('note')}>
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" aria-hidden="true">
+      <path d="M9 2H4.5A1.5 1.5 0 0 0 3 3.5v9A1.5 1.5 0 0 0 4.5 14h7a1.5 1.5 0 0 0 1.5-1.5V8" />
+      <path d="M12.5 1.8v4.4M10.3 4h4.4" />
+    </svg>
+  </button>
+  <button type="button" aria-label="New folder" title="New folder" onclick={() => startCreate('folder')}>
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M8 13H3.5A1.5 1.5 0 0 1 2 11.500v-7A1.5 1.5 0 0 1 3.500 3H6l1.500 2h5A1.500 1.500 0 0 1 14 6.500V8" />
+      <path d="M12 9.800v4.4M9.800 12h4.4" />
+    </svg>
+  </button>
+</div>
+
+{#if creating}
+  <div class="create">
+    <label for="new-item-name">New {creating.kind} in {creating.folder || 'the vault root'}</label>
+    <input
+      id="new-item-name"
+      bind:this={createInput}
+      bind:value={createText}
+      autocomplete="off"
+      spellcheck="false"
+      aria-invalid={refusal !== ''}
+      aria-describedby={refusal ? 'new-item-problem' : undefined}
+      oninput={() => (failure = '')}
+      onkeydown={(event) => {
+        if (event.isComposing) return;
+        // Shortcuts still reach the window.
+        if (!event.ctrlKey && !event.metaKey) event.stopPropagation();
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          void submitCreate();
+        } else if (event.key === 'Escape') {
+          event.preventDefault();
+          cancelCreate();
+          void tick().then(() => list?.focus());
+        }
+      }}
+      onblur={() => {
+        // Leaving the window keeps it; moving elsewhere in the app gives it up.
+        if (document.hasFocus() && !submitting) cancelCreate();
+      }}
+    />
+    {#if refusal}
+      <p id="new-item-problem" role="alert">{refusal}</p>
+    {/if}
+  </div>
+{/if}
+
+<div class="body">
 {#if error}
   <p class="message" role="alert">{error}</p>
 {:else if !tree}
@@ -136,7 +288,6 @@
     bind:clientHeight={viewHeight}
     onscroll={(event) => (scrollTop = event.currentTarget.scrollTop)}
     {onclick}
-    {oncontextmenu}
     {onkeydown}
   >
     <div class="sizer" role="none" style:height="{rows.length * ROW_HEIGHT}px">
@@ -196,8 +347,90 @@
     </div>
   </div>
 {/if}
+</div>
+</div>
+
+{#if menu}
+  <TreeMenu items={menuItems(menu.entry)} x={menu.x} y={menu.y} onpick={pick} onclose={closeMenu} />
+{/if}
 
 <style>
+  .file-tree {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+  }
+
+  .body {
+    flex: 1;
+    min-height: 0;
+  }
+
+  .actions {
+    display: flex;
+    flex: none;
+    gap: 2px;
+    justify-content: flex-end;
+    padding: 0 10px 4px;
+  }
+
+  .actions button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    color: var(--text-muted);
+    background: none;
+    border: 0;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  .actions button:hover {
+    color: var(--text);
+    background: var(--surface-hover);
+  }
+
+  .create {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    gap: 4px;
+    padding: 0 10px 8px;
+  }
+
+  .create label {
+    overflow: hidden;
+    color: var(--text-muted);
+    font-size: 11.5px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .create input {
+    min-width: 0;
+    padding: 4px 8px;
+    color: var(--text);
+    background: var(--bg-editor);
+    border: 1px solid var(--divider);
+    border-radius: 6px;
+    font: inherit;
+    font-size: 12.8px;
+  }
+
+  .create input:focus {
+    border-color: var(--accent);
+    outline: 1px solid transparent;
+  }
+
+  .create p {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 11.5px;
+    overflow-wrap: anywhere;
+  }
+
   .tree {
     --guide-color: var(--divider);
     height: 100%;

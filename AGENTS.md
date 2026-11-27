@@ -33,7 +33,7 @@ Status: stage 1 done; stage 2 in progress, with the manual base first (Roadmap).
 - Editor: CodeMirror 6.
 - Graph: `@myelin/graph`, WebGL2 only (GLSL ES 3.0), graphics backend behind an internal interface. Layout: own ForceAtlas2 (LinLog) + Barnes-Hut solver inside the library, no dependency (`docs/graph-lib.md`).
 - Fonts: Literata (body serif), Inter (UI), JetBrains Mono (code, raw syntax, metadata). Bundled (offline), variable, OFL.
-- Shortcuts: `Ctrl+P` is a single palette (notes by default, `>` prefix for commands). `Ctrl+Shift+L` toggles graph / Brain panel. `Ctrl+\` toggles Focus Mode (collapses both side panels). `Ctrl+Shift+B` toggles the file tree. `Ctrl+S` saves now.
+- Shortcuts: `Ctrl+P` is a single palette (notes by default, `>` prefix for commands). `Ctrl+Shift+L` toggles graph / Brain panel. `Ctrl+\` toggles Focus Mode (collapses both side panels). `Ctrl+Shift+B` toggles the file tree. `Ctrl+N` creates a note at the vault root (showing the file tree if hidden). `Ctrl+S` saves now.
 
 ## AI: prepared, not decided
 No AI model is chosen or built now. The app ships ready to receive it, through three slots:
@@ -138,7 +138,7 @@ myelin/
 │       ├── styles.css         # palette and font variables (docs/identity.md)
 │       ├── fonts/             # Literata, Inter, JetBrains Mono (variable, OFL) + fonts.css
 │       ├── public/licenses/   # font licenses, copied into the build
-│       ├── components/        # Launcher, Workspace, FileTree, Tabs, Editor, CommandPalette, StatusBar, BrainPanel (.svelte)
+│       ├── components/        # Launcher, Workspace, FileTree, Tabs, Editor, TreeMenu, CommandPalette, StatusBar, BrainPanel (.svelte)
 │       ├── editor/
 │       │   ├── cm-editor.ts   # CodeMirror 6 (one view, a state per tab); [[link]] autocomplete and hover plug in here
 │       │   ├── editor-tabs.ts # tabs -> editor: opens a note when its tab is first shown, saves the one left
@@ -158,6 +158,7 @@ myelin/
 │       │   ├── note-path.ts   # which note an editor state holds
 │       │   └── theme.ts       # editor look, from the identity tokens
 │       ├── tree-model.ts      # file tree logic: visible rows, watcher events, keyboard
+│       ├── new-item.ts        # creating from the tree: target folder, name rules, context menu items
 │       ├── note-list.ts       # every note path (no content), kept current by watcher events
 │       ├── note-search.ts     # fuzzy search over note names, ignoring case and accents
 │       ├── commands.ts        # every workspace command and its shortcut; `>` in the palette lists them

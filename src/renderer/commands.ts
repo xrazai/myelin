@@ -3,6 +3,7 @@ import { fold, score } from './note-search';
 
 export type CommandId =
   | 'open-palette'
+  | 'new-note'
   | 'next-tab'
   | 'previous-tab'
   | 'close-tab'
@@ -35,6 +36,12 @@ export const COMMANDS: readonly Command[] = [
     label: 'Open command palette',
     shortcut: 'Ctrl+P',
     match: ctrl('p'),
+  },
+  {
+    id: 'new-note',
+    label: 'New note',
+    shortcut: 'Ctrl+N',
+    match: ctrl('n'),
   },
   {
     id: 'save',

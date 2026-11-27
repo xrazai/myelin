@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import type { VaultInfo } from '../../shared/ipc';
   import type { NoteMetrics } from '../editor/note-metrics';
   import type { NoteProblems, NoteSaver } from '../editor/note-saver';
@@ -211,6 +211,15 @@
   $effect(() => () => noteList.stop());
 
   let paletteOpen = $state(false);
+  let fileTree = $state<ReturnType<typeof FileTree>>();
+
+  /** The name is typed in the file tree, which is shown if it is hidden. */
+  async function newNote() {
+    if (collapsed.left) toggleSide('left');
+    // A hidden tree is `inert` until the DOM follows.
+    await tick();
+    await fileTree?.startCreate('note');
+  }
   let recentNotes = $state.raw<string[]>([]);
 
   $effect(() => {
@@ -246,6 +255,9 @@
     switch (id) {
       case 'open-palette':
         paletteOpen = !paletteOpen;
+        return;
+      case 'new-note':
+        void newNote();
         return;
       case 'next-tab':
         tabs = cycleTab(tabs, 1);
@@ -369,7 +381,7 @@
       <kbd>Ctrl+P</kbd>
     </button>
     <div class="files">
-      <FileTree selected={tabs.active} onopen={(path) => (tabs = openTab(tabs, path))} onrename={requestRename} />
+      <FileTree bind:this={fileTree} selected={tabs.active} onopen={(path) => (tabs = openTab(tabs, path))} onrename={requestRename} />
     </div>
   </nav>
 

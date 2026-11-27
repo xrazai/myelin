@@ -606,7 +606,8 @@ export function watchVault(root: string, { openDb, emit, sync = syncIndex }: Vau
     createFolder: (path) =>
       serial(async () => {
         const folder = await newFolderPath(root, path);
-        const problem = folderNameProblem(path);
+        // Only the new name: the folders above it exist, however they are named.
+        const problem = folderNameProblem(path.slice(path.lastIndexOf('/') + 1));
         if (problem) throw new Error(problem);
         const other = await folderOnDiskInOtherCase(root, path);
         if (other !== null) throw new Error(`the folder is named ${other}`);
