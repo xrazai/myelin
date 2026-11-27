@@ -27,9 +27,10 @@ export type NoteLink = ParsedLink & {
 
 /**
  * `path`: the note the link points to. `null`: no such note yet (a "create note" target),
- * named `name`; links to the same missing note have the same `key`.
+ * named `name`. `key` is `linkKey(target)`, empty for a link to the note itself; links to
+ * the same missing note share it.
  */
-export type Resolution = { path: string } | { path: null; name: string; key: string };
+export type Resolution = ({ path: string } | { path: null; name: string }) & { key: string };
 
 /**
  * Comparison key of a note name or path: ignores case and Unicode composition, keeps
@@ -72,11 +73,11 @@ export function createLinkResolver(notePaths: Iterable<string>): LinkResolver {
   }
 
   return (target, source) => {
-    if (target === '') return { path: source };
+    if (target === '') return { path: source, key: '' };
     const key = linkKey(target);
     const candidates = byName.get(key.slice(key.lastIndexOf('/') + 1));
     const match = candidates?.find((c) => c.key.endsWith(`/${key}`));
-    return match ? { path: match.path } : { path: null, name: stripExtension(target), key };
+    return match ? { path: match.path, key } : { path: null, name: stripExtension(target), key };
   };
 }
 
@@ -166,7 +167,8 @@ function inlineBlocks(text: string): [number, number][] {
       inList = false;
     }
 
-    const opening = FENCE.exec(line);
+    // Outside lists, an indented fence here is just paragraph text.
+    const opening = !inList && INDENTED.test(line) ? null : FENCE.exec(line);
     if (opening) {
       flush();
       fence = { marker: opening[1]!, quotes: depth };

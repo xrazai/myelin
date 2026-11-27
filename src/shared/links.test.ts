@@ -81,6 +81,7 @@ describe('parseLinks: code', () => {
     ['indented list continuation', '1. a\n\n    [[yes]]'],
     ['indented paragraph continuation', 'text\n    [[yes]]'],
     ['inline triple backticks', '```a``` [[yes]]'],
+    ['an indented fence inside a paragraph', 'text\n    ```\n[[yes]]'],
   ])('keeps links near %s', (_, text) => {
     expect(targets(text)).toEqual(['yes']);
   });
@@ -131,9 +132,9 @@ describe('resolution', () => {
   it('picks the shortest path among namesakes, whatever the input order', () => {
     for (const list of [paths, [...paths].reverse()]) {
       const r = createLinkResolver(list);
-      expect(r('plano', 'Home.md')).toEqual({ path: 'Estudos/Plano.md' }); // fewer folders, then shorter
-      expect(r('Curta', 'Home.md')).toEqual({ path: 'ab/Curta.md' });
-      expect(r('Empate', 'Home.md')).toEqual({ path: 'a/Empate.md' });
+      expect(r('plano', 'Home.md').path).toBe('Estudos/Plano.md'); // fewer folders, then shorter
+      expect(r('Curta', 'Home.md').path).toBe('ab/Curta.md');
+      expect(r('Empate', 'Home.md').path).toBe('a/Empate.md');
     }
     expect(createLinkResolver(['a-very-long-folder/N.md', 'a/b/N.md'])('N', 'x.md').path).toBe(
       'a-very-long-folder/N.md',
@@ -159,8 +160,8 @@ describe('resolution', () => {
     expect(links).toMatchObject([
       { source: 'Estudos/Plano.md', path: null, name: 'Ainda Não', key: 'ainda não', subpath: '#X', from: 0 },
       { source: 'Estudos/Plano.md', path: null, name: 'ainda não', key: 'ainda não' },
-      { source: 'Estudos/Plano.md', path: 'Estudos/Plano.md', subpath: '#Topo' },
-      { source: 'Estudos/Plano.md', path: 'Home.md' },
+      { source: 'Estudos/Plano.md', path: 'Estudos/Plano.md', key: '', subpath: '#Topo' },
+      { source: 'Estudos/Plano.md', path: 'Home.md', key: 'home' },
     ]);
   });
 
