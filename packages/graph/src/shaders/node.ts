@@ -27,6 +27,8 @@ void main() {
   vRadius = pixels;
   vState = state;
   gl_Position = toClip(toScreen(nodePosition(uint(gl_InstanceID))) + vOffset);
+  // A removed node (or one with no place yet): outside the view, so nothing is drawn.
+  if (radius <= 0.0) gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
 }
 `;
 

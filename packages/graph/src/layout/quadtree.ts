@@ -159,6 +159,39 @@ export class QuadTree {
   }
 
   /**
+   * Adds to `out[at]`, `out[at + 1]` the repulsion on a point that is not a body of the
+   * tree, with `own = scaling * mass`.
+   */
+  repulsionAt(px: number, py: number, own: number, theta: number, out: Float64Array, at: number): void {
+    const { x, y, mass, cellX, cellY, cellMass, cellSize, start, end, next, cellCount } = this;
+    const theta2 = theta * theta;
+    let cell = 0;
+    while (cell < cellCount) {
+      const dx = px - cellX[cell]!;
+      const dy = py - cellY[cell]!;
+      const d2 = dx * dx + dy * dy;
+      const width = cellSize[cell]!;
+      if (width * width < theta2 * d2) {
+        const factor = (own * cellMass[cell]!) / d2;
+        out[at]! += dx * factor;
+        out[at + 1]! += dy * factor;
+        cell = next[cell]!;
+        continue;
+      }
+      if (next[cell] === cell + 1) {
+        for (let j = start[cell]!; j < end[cell]!; j++) {
+          const bx = px - x[j]!;
+          const by = py - y[j]!;
+          const factor = (own * mass[j]!) / Math.max(bx * bx + by * by, 1e-2);
+          out[at]! += bx * factor;
+          out[at + 1]! += by * factor;
+        }
+      }
+      cell++;
+    }
+  }
+
+  /**
    * Writes into `out` (`[fx0, fy0, ...]`, by body) the repulsion on every body:
    * magnitude `scaling * mass_a * mass_b / distance`. A cell is taken as one body when
    * `size / distance < theta`; `theta = 0` computes every pair.

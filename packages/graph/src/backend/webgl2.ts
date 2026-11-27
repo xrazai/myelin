@@ -28,6 +28,8 @@ export class WebGL2Backend implements Backend {
   private texture: WebGLTexture | null = null;
   private nodeCount = 0;
   private edgeCount = 0;
+  /** Nodes the position texture holds. */
+  private capacity = 0;
   private placed = false;
 
   constructor(canvas: HTMLCanvasElement | OffscreenCanvas, style: Style) {
@@ -65,14 +67,17 @@ export class WebGL2Backend implements Backend {
     });
   }
 
-  setGraph({ nodeCount, edges, strengths, radii, states }: Scene): void {
+  setGraph({ nodeCount, edgeCount, edges, strengths, radii, states }: Scene): void {
     const { gl } = this;
-    const rows = Math.max(1, Math.ceil(nodeCount / POSITION_TEXTURE_WIDTH));
+    // Room for as many nodes as the arrays hold, so that adding some uploads only them.
+    const capacity = radii.length;
+    const rows = Math.max(1, Math.ceil(capacity / POSITION_TEXTURE_WIDTH));
     const maxRows = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
     // A lost context reports no limit.
     if (maxRows && rows > maxRows) throw new RangeError(`this GPU draws at most ${maxRows * POSITION_TEXTURE_WIDTH} nodes`);
     this.nodeCount = nodeCount;
-    this.edgeCount = edges.length / 2;
+    this.edgeCount = edgeCount;
+    this.capacity = capacity;
     this.placed = false;
 
     const upload = (buffer: WebGLBuffer, data: ArrayBufferView) => {
@@ -91,6 +96,24 @@ export class WebGL2Backend implements Backend {
     // Float textures are read texel by texel; the default filter would leave it incomplete.
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  }
+
+  updateGraph(scene: Scene, nodes: [number, number] | null, edges: [number, number] | null): void {
+    const { gl } = this;
+    this.nodeCount = scene.nodeCount;
+    this.edgeCount = scene.edgeCount;
+    const patch = (buffer: WebGLBuffer, data: Float32Array | Uint32Array, from: number, to: number, size: number) => {
+      gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+      gl.bufferSubData(gl.ARRAY_BUFFER, from * size * 4, data, from * size, (to - from) * size);
+    };
+    if (nodes) {
+      patch(this.radii, scene.radii, nodes[0], nodes[1], 1);
+      patch(this.states, scene.states, nodes[0], nodes[1], 1);
+    }
+    if (edges) {
+      patch(this.ends, scene.edges, edges[0], edges[1], 2);
+      patch(this.strengths, scene.strengths, edges[0], edges[1], 1);
+    }
   }
 
   setPositions(positions: Float32Array): void {

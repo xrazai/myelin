@@ -75,6 +75,9 @@ export interface SceneInput {
   states?: Float32Array;
 }
 
+/** World radius of a node with `degree` edges. */
+export const edgeRadius = (degree: number) => NODE_RADIUS * (1 + DEGREE_GROWTH * Math.sqrt(degree));
+
 /** Copies what it keeps: the caller's arrays stay the caller's. */
 export function buildScene({ nodeCount, edges, weights, states }: SceneInput): Scene {
   if (states && states.length !== nodeCount) throw new RangeError('states must hold one value per node');
@@ -90,10 +93,10 @@ export function buildScene({ nodeCount, edges, weights, states }: SceneInput): S
   const strengths = new Float32Array(edges.length / 2);
   for (let e = 0; e < strengths.length; e++) strengths[e] = strength(weights ? weights[e]! : 1);
   const radii = new Float32Array(nodeCount);
-  for (let i = 0; i < nodeCount; i++) radii[i] = NODE_RADIUS * (1 + DEGREE_GROWTH * Math.sqrt(degrees[i]!));
+  for (let i = 0; i < nodeCount; i++) radii[i] = edgeRadius(degrees[i]!);
   const glow = new Float32Array(nodeCount);
   if (states) {
     for (let i = 0; i < nodeCount; i++) glow[i] = states[i]! > 0 ? Math.min(1, states[i]!) : 0;
   }
-  return { nodeCount, edges: edges.slice(), strengths, radii, states: glow };
+  return { nodeCount, edgeCount: strengths.length, edges: edges.slice(), strengths, radii, states: glow };
 }

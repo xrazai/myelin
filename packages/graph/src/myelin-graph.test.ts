@@ -42,9 +42,16 @@ class FakeBackend implements Backend {
   positions: number[] | null = null;
   rendered: Frame[] = [];
   destroyed = false;
+  updates: { nodes: [number, number] | null; edges: [number, number] | null }[] = [];
+  loads = 0;
   setGraph(scene: Scene) {
     this.scene = scene;
     this.positions = null;
+    this.loads++;
+  }
+  updateGraph(scene: Scene, nodes: [number, number] | null, edges: [number, number] | null) {
+    this.scene = scene;
+    this.updates.push({ nodes, edges });
   }
   setPositions(positions: Float32Array) {
     this.positions = [...positions];
@@ -225,5 +232,57 @@ describe('MyelinGraph', () => {
     event('pointermove', { pointerId: 1, clientX: 50, clientY: 50 });
     expect(graph.camera).toEqual(camera);
     expect(() => graph.setGraph(data())).toThrow(/destroyed/);
+  });
+});
+
+describe('incremental changes', () => {
+  /** A settled graph of three nodes in a row: 0 - 1, and 2 alone. */
+  function settled() {
+    const t = setup();
+    resize(400, 300);
+    t.graph.setGraph({ nodeCount: 3, edges: Uint32Array.of(0, 1), positions: Float32Array.of(0, 0, 100, 0, 500, 0) });
+    t.layout(0, 0, 100, 0, 500, 0);
+    const start = t.sent.findLast((message) => message.type === 'start')!;
+    t.worker.onmessage!({
+      data: { type: 'positions', run: start.run, buffer: Float32Array.of(0, 0, 100, 0, 500, 0).buffer, iteration: 2, done: true, converged: true },
+    });
+    return t;
+  }
+  const relaxes = (sent: ToWorker[]) => sent.flatMap((message) => (message.type === 'relax' ? [message] : []));
+
+  test('one local pass for the changes of a task: the new node and its neighbor may move', async () => {
+    const { graph, sent, backend } = settled();
+    const loads = backend().loads;
+    const [id] = graph.addNodes(1);
+    graph.addEdges(Uint32Array.of(id!, 2));
+    await Promise.resolve();
+    expect(id).toBe(3);
+    expect(relaxes(sent)).toHaveLength(1);
+    const { graph: asked } = relaxes(sent)[0]!;
+    expect([...asked.movable].sort()).toEqual([2, 3]);
+    expect(backend().loads).toBe(loads);
+    expect(backend().updates).toHaveLength(1);
+  });
+
+  test('removed slots are reused, ids stay stable and the host hears positions by id', async () => {
+    const { graph, sent, worker } = settled();
+    graph.removeNodes([1]);
+    await Promise.resolve();
+    expect(relaxes(sent)).toHaveLength(0);
+    expect([...graph.addNodes(2)]).toEqual([1, 3]);
+    await Promise.resolve();
+    const seen: number[][] = [];
+    graph.on('layoutChange', (positions) => seen.push([...positions]));
+    const message = relaxes(sent)[0]!;
+    worker.onmessage!({
+      data: { type: 'positions', run: message.run, buffer: Float32Array.of(0, 0, 1, 1, 500, 0, 3, 3).buffer, iteration: 0, done: true, converged: true },
+    });
+    expect(seen).toEqual([[0, 0, 1, 1, 500, 0, 3, 3]]);
+    expect(() => graph.removeNodes([9])).toThrow(/no node 9/);
+  });
+
+  test('changes need a graph first', () => {
+    const { graph } = setup();
+    expect(() => graph.addNodes(1)).toThrow(/setGraph/);
   });
 });

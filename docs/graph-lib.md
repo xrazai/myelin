@@ -60,9 +60,11 @@ Adaptive quality, defaults chosen with that estimate (not implemented yet, #40; 
 - Bloom at 1/2 resolution; below 50 FPS go to 1/4, then off. Never drop nodes.
 - Weak GPUs at 100k are bound by nodes and edges: turning the glow off does not bring them to 50 FPS.
 
-Data:
+Data (done: incremental calls; `communities` comes with #42):
 - `graph.setGraph({ nodeCount, edges, weights?, states?, positions?, communities? })`: full load (vault open). Resets ids.
 - `graph.addNodes(count, { positions?, states? }) => ids`: new nodes start at the centroid of their neighbors once their edges arrive.
+- The changes of one task are applied together: one GPU patch (`bufferSubData`; arrays double when they fill) and one local pass in the worker (`layout/relax.ts`): the new nodes move freely, their neighbors a little, every other node stays exactly. Past 2000 movable nodes, or while a full layout runs, the living nodes are laid out again from where they are.
+- `layoutChange` positions are by node id; NaN for a removed or unplaced node.
 - `graph.removeNodes(ids)`: tombstones; their edges are removed.
 - `graph.addEdges(pairs, weights)`, `graph.removeEdges(pairs)`, `graph.updateWeights(pairs, weights)`: `pairs` is a `Uint32Array` `[s0, t0, s1, t1, ...]`.
 - `graph.updateStates(ids, values)`.
