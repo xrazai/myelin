@@ -202,11 +202,27 @@
   />
 
   <aside aria-label={rightPanel === 'graph' ? 'Graph' : 'Brain panel'}>
-    <header>
-      <h2>{rightPanel === 'graph' ? 'Graph' : 'Brain panel'}</h2>
-      <button type="button" title="Switch between graph and Brain panel (Ctrl+Shift+L)" onclick={toggleRightPanel}>
-        {rightPanel === 'graph' ? 'Brain panel' : 'Graph'}
-      </button>
+    <header class="right-header">
+      <div class="segmented" data-mode={rightPanel} role="group" aria-label="Right panel view">
+        <span class="seg-thumb" aria-hidden="true"></span>
+        <button
+          type="button"
+          class="seg-btn"
+          aria-pressed={rightPanel === 'graph'}
+          onclick={() => (rightPanel = 'graph')}
+        >
+          Graph
+        </button>
+        <button
+          type="button"
+          class="seg-btn"
+          aria-pressed={rightPanel === 'brain'}
+          onclick={() => (rightPanel = 'brain')}
+        >
+          Brain
+        </button>
+      </div>
+      <kbd class="shortcut-hint" title="Switch between Graph and Brain panel (Ctrl+Shift+L)">Ctrl+Shift+L</kbd>
     </header>
     <!-- Placeholder: `@myelin/graph` or the Brain panel mounts here later. -->
     <p>{rightPanel === 'graph' ? 'The graph is not here yet.' : 'The Brain panel is not here yet.'}</p>
@@ -274,7 +290,7 @@
 
   .workspace {
     display: grid;
-    grid-template-rows: 35px minmax(0, 1fr) 24px;
+    grid-template-rows: 38px minmax(0, 1fr) 26px;
     height: 100vh;
     overflow: hidden;
   }
@@ -369,17 +385,6 @@
     border: 1px solid var(--hairline);
   }
 
-  aside h2 {
-    flex: none;
-    margin: 0;
-    padding: 12px;
-    overflow: hidden;
-    font-size: var(--font-size-ui);
-    font-weight: 600;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
   .files {
     flex: 1;
     min-height: 0;
@@ -390,36 +395,78 @@
     min-height: 0;
   }
 
-  aside header {
+  .right-header {
     display: flex;
     flex: none;
+    gap: 8px;
     align-items: center;
     justify-content: space-between;
-    padding-right: 8px;
+    height: 40px;
+    padding: 0 12px;
   }
 
-  aside header h2 {
-    flex: 0 1 auto;
+  .segmented {
+    position: relative;
+    display: inline-grid;
+    grid-template-columns: 1fr 1fr;
+    width: 148px;
+    padding: 2px;
+    background: var(--bg-editor);
+    border: 1px solid var(--divider);
+    border-radius: 7px;
   }
 
-  aside button {
-    flex: none;
-    padding: 3px 8px;
+  .seg-thumb {
+    position: absolute;
+    top: 2px;
+    bottom: 2px;
+    left: 2px;
+    width: calc(50% - 2px);
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+    border-radius: 5px;
+    pointer-events: none;
+    transition: transform var(--t-base) var(--ease-out);
+  }
+
+  .segmented[data-mode='brain'] .seg-thumb {
+    transform: translateX(100%);
+  }
+
+  .seg-btn {
+    position: relative;
+    z-index: 1;
+    height: 22px;
+    font-size: 12px;
+    font-weight: 500;
     color: var(--text-muted);
     background: none;
-    border: 1px solid var(--divider);
-    border-radius: 6px;
+    border: 0;
+    border-radius: 5px;
     cursor: pointer;
   }
 
-  aside button:hover {
-    border-color: var(--accent);
+  .seg-btn:hover {
     color: var(--text);
+  }
+
+  .seg-btn[aria-pressed='true'] {
+    color: var(--accent);
+  }
+
+  .shortcut-hint {
+    flex: none;
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 10.5px;
+    color: var(--text-muted);
+    background: var(--surface-hover);
+    border: 1px solid var(--hairline);
   }
 
   aside p {
     margin: 0;
-    padding: 4px 12px;
+    padding: 6px 12px;
     color: var(--text-muted);
   }
 </style>
