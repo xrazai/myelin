@@ -3,7 +3,7 @@
 import { Prec, type Extension } from '@codemirror/state';
 import { EditorView, keymap } from '@codemirror/view';
 import type { MyelinApi } from '../../shared/ipc';
-import type { ParsedLink } from '../../shared/links';
+import { isReservedName, type ParsedLink } from '../../shared/links';
 import type { NoteList } from '../note-list';
 import { linkAt } from './link-syntax';
 import { notePath } from './note-path';
@@ -16,7 +16,7 @@ const UNUSABLE = /[<>:"\\|?*\u0000-\u001f]|[. ]$|^\./;
 
 /** Where the note for an unresolved link goes: as written, from the vault root. */
 export function newNotePath(name: string): string {
-  if (name.split('/').some((part) => part === '' || UNUSABLE.test(part))) {
+  if (name.split('/').some((part) => part === '' || UNUSABLE.test(part) || isReservedName(part))) {
     throw new Error(`"${name}" cannot be a note name`);
   }
   return `${name}.md`;
@@ -32,12 +32,15 @@ export async function linkDestination(
   disk: Pick<MyelinApi, 'writeNote'>,
   target: string,
   source: string,
+  /** A tab at a missing note's path holds a deleted note: it is shown, not written over. */
+  hasTab: (path: string) => boolean = () => false,
 ): Promise<string> {
   // Without the list, a note in a folder would look missing and get a twin at the root.
   await notes.ready;
   const found = notes.resolve(target, source);
   if (found.path !== null) return found.path;
   const path = newNotePath(found.name);
+  if (hasTab(path)) return path;
   // On a conflict the file is there already: it is opened as it is.
   await disk.writeNote(path, '', null);
   return path;

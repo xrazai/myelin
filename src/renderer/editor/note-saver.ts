@@ -234,7 +234,8 @@ export function createNoteSaver(
     if (text === mine) {
       adopt(note, raw);
     } else if (!note.force && mine === note.saved) {
-      editor.replace(path, text, false);
+      // Over a deleted note, the editor may hold the only copy of its text: undo brings it back.
+      editor.replace(path, text, note.gone);
       adopt(note, raw);
     } else if (!note.force && text === note.saved) {
       // The same text in other bytes, or the note came back: the edits apply to it.

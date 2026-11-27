@@ -395,6 +395,22 @@ describe('another program deletes the note', () => {
     expect(t.disk.get('a.md')).toBe('back!');
   });
 
+  // The tab may hold the only copy of the deleted text, whatever came back at its path.
+  test('the text of a deleted note is one undo away from whatever replaces it', async () => {
+    const t = setup();
+    await t.open();
+    t.other(null);
+    await t.report('deleted');
+    t.other('');
+    await t.report('created');
+    expect(t.texts.get('a.md')).toBe('');
+    expect(t.undoable).toEqual([true]);
+    // An ordinary external change is not a step to undo.
+    t.other('theirs');
+    await t.report();
+    expect(t.undoable).toEqual([true, false]);
+  });
+
   test('a note that comes back unchanged takes the pending edits', async () => {
     const t = setup();
     await t.open();

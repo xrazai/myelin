@@ -100,8 +100,16 @@ export function noteNameProblem(path: string): string | null {
   return null;
 }
 
+const RESERVED = /^(?:con|prn|aux|nul|com[0-9\u00b9\u00b2\u00b3]|lpt[0-9\u00b9\u00b2\u00b3]|conin\$|conout\$) *(?:\.|$)/i;
+
+/** A device name of Windows, with any extension. Git and most Windows tools refuse it. */
+export function isReservedName(segment: string): boolean {
+  return RESERVED.test(segment);
+}
+
 /** What no name on the way to a note, its own included, can be. */
 function segmentsProblem(segments: string[]): string | null {
+  if (segments.some(isReservedName)) return 'Windows reserves that name';
   if (segments.some((segment) => /[<>:"?*\\\x00-\x1f]/.test(segment))) {
     return 'a name cannot contain < > : " ? * \\';
   }

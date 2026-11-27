@@ -103,3 +103,15 @@ test('creates nothing outside the vault, nor without the list', async () => {
   expect(disk.writeNote).not.toHaveBeenCalled();
   await disk.watch.close();
 });
+
+test('a tab at the missing note is shown, and nothing is written over its text', async () => {
+  const disk = await onDisk();
+  const notes = { ready: Promise.resolve(), resolve: createLinkResolver([]) };
+  expect(await linkDestination(notes, disk, 'Gone', 'Home.md', (path) => path === 'Gone.md')).toBe('Gone.md');
+  expect(disk.writeNote).not.toHaveBeenCalled();
+  await disk.watch.close();
+});
+
+test('a link to a reserved Windows name creates nothing', () => {
+  for (const name of ['CON', 'aux/Note', 'folder/nul']) expect(() => newNotePath(name), name).toThrow();
+});
