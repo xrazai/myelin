@@ -6,6 +6,7 @@ import { basename, join } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { afterAll, beforeAll, expect, test, vi } from 'vitest';
 import { createVaultClient, type VaultClient } from './vault-client';
+import { damageLinks } from './vault-index.fixtures';
 
 let root: string;
 let userData: string;
@@ -157,4 +158,27 @@ test('pending and later calls reject once the worker is gone', async () => {
   await doomed.terminate();
   await pending;
   await expect(client.call('getTree')).rejects.toThrow('exited');
+});
+
+test('reopening a vault whose links table is damaged rebuilds its index', async () => {
+  const damaged = await mkdtemp(join(tmpdir(), 'myelin-damaged-'));
+  try {
+    await writeFile(join(damaged, 'A.md'), '[[B]]', 'utf8');
+    const { id } = await vault.call('open', damaged);
+    expect(await vault.call('whenIndexed')).toMatchObject({ notes: 1 });
+    // Opening another vault closes this one's index.
+    await vault.call('open', root);
+    await vault.call('whenIndexed');
+
+    damageLinks(join(userData, 'vaults', id, 'index.db'));
+    await writeFile(join(damaged, 'B.md'), '[[A]]', 'utf8');
+    await vault.call('open', damaged);
+    expect(await vault.call('whenIndexed')).toMatchObject({ notes: 2, indexed: 2, failed: 0 });
+    expect(readdirSync(damaged).sort()).toEqual(['.myelin', 'A.md', 'B.md']);
+    expect(readdirSync(join(damaged, '.myelin'))).toEqual(['vault.json']);
+    await vault.call('open', root);
+    await vault.call('whenIndexed');
+  } finally {
+    await rm(damaged, { recursive: true, force: true });
+  }
 });

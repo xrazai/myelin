@@ -8,7 +8,8 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import type { TreeEntry, VaultEvent } from '../shared/ipc';
 import { applyEvents } from '../renderer/tree-model';
 import { writeFileAtomic } from './atomic-write';
-import { contentHash, openIndex, syncIndex } from './vault-index';
+import { contentHash, deleteIndex, openIndex, syncIndex } from './vault-index';
+import { damageLinks } from './vault-index.fixtures';
 import { scanVault } from './vault-scan';
 import { watchVault, type VaultWatch, type VaultWatchOptions } from './vault-watcher';
 
@@ -413,5 +414,121 @@ describe('during the first sync', () => {
     const rejected = expect(watching.indexed).rejects.toThrow('indexing was cancelled');
     await watching.close();
     await rejected;
+  });
+});
+
+describe('an index damaged where only a later read or write finds it', () => {
+  let file: string;
+  /** `damaged` of each `openDb` call. */
+  let opens: boolean[];
+
+  /** As the worker does it. */
+  const openDb = async (damaged = false) => {
+    opens.push(damaged);
+    if (damaged) deleteIndex(file);
+    return openIndex(file);
+  };
+
+  /** Opens the reader the helpers use. Only once the watcher is closed: it would hold the file. */
+  const readIndex = () => {
+    db = openIndex(file);
+    return { notes: notes(), links: linkTargets() };
+  };
+
+  const rebuiltIndex = {
+    notes: ['A.md', 'B.md'],
+    links: [
+      { source: 'A.md', path: 'B.md', name: null },
+      { source: 'B.md', path: 'A.md', name: null },
+    ],
+  };
+
+  beforeEach(async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    file = join(base, 'userData', 'index.db');
+    opens = [];
+    await write('A.md', '[[B]]');
+    await write('B.md', 'b [[A]]');
+    watching = start({ openDb });
+    await watching.indexed;
+    await watching.close();
+    opens = [];
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  test('during the first sync: the index is rebuilt', async () => {
+    damageLinks(file);
+    await write('B.md', 'edited while closed [[A]]');
+    watching = start({ openDb });
+    expect(await watching.indexed).toMatchObject({ notes: 2, indexed: 2, failed: 0 });
+    expect(opens).toEqual([false, true]);
+    await watching.close();
+    expect(readIndex()).toEqual(rebuiltIndex);
+    expect(search('edited')).toEqual(['B.md']);
+  });
+
+  test('during an update: the index is rebuilt and the change is still reported', async () => {
+    damageLinks(file);
+    watching = start({ openDb });
+    // Nothing changed, so the first sync never reaches the damaged page.
+    expect(await watching.indexed).toMatchObject({ indexed: 0 });
+    expect(opens).toEqual([false]);
+    tree = await watching.getTree();
+
+    await write('B.md', 'edited while open [[A]]');
+    await until(() => expect(seen).toContainEqual(event('changed', 'B.md')));
+    expect(opens).toEqual([false, true]);
+
+    // The new index takes the next changes.
+    await write('C.md', 'later');
+    await until(() => expect(seen).toContainEqual(event('created', 'C.md')));
+    await rm(at('C.md'));
+    await until(() => expect(seen).toContainEqual(event('deleted', 'C.md')));
+    await write('A.md', 'after the rebuild [[B]]');
+    await until(() => expect(seen).toContainEqual(event('changed', 'A.md')));
+    await watching.close();
+    expect(readIndex()).toEqual(rebuiltIndex);
+    expect(search('rebuild')).toEqual(['A.md']);
+    expect(opens).toEqual([false, true]);
+  });
+
+  test.each(['SQLITE_BUSY', 'SQLITE_LOCKED', 'SQLITE_FULL', 'SQLITE_IOERR_WRITE'])(
+    '%s never deletes the file',
+    async (code) => {
+      const failure = Object.assign(new Error(code), { code });
+      watching = start({ openDb, sync: () => Promise.reject(failure) });
+      await expect(watching.indexed).rejects.toBe(failure);
+      expect(opens).toEqual([false]);
+      await watching.close();
+      expect(readIndex()).toEqual(rebuiltIndex);
+    },
+  );
+
+  test('damage that comes back is not rebuilt twice, and changes are still reported', async () => {
+    const failure = Object.assign(new Error('malformed'), { code: 'SQLITE_CORRUPT_VTAB' });
+    watching = start({ openDb, sync: () => Promise.reject(failure) });
+    await expect(watching.indexed).rejects.toBe(failure);
+    expect(opens).toEqual([false, true]);
+    tree = await watching.getTree();
+    await write('B.md', 'still watched');
+    await until(() => expect(seen).toContainEqual(event('changed', 'B.md')));
+    expect(opens).toEqual([false, true]);
+  });
+
+  test('if the rebuild during an update fails, changes are still reported', async () => {
+    damageLinks(file);
+    watching = start({
+      openDb: (damaged) => (damaged ? Promise.reject(new Error('the file is held')) : openDb()),
+    });
+    await watching.indexed;
+    tree = await watching.getTree();
+    await write('B.md', 'first');
+    await until(() => expect(seen).toContainEqual(event('changed', 'B.md')));
+    const from = seen.length;
+    await write('A.md', 'second');
+    await until(() => expect(seen.slice(from)).toContainEqual(event('changed', 'A.md')));
   });
 });

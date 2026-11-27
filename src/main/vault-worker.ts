@@ -7,7 +7,7 @@ import { parentPort, workerData } from 'node:worker_threads';
 import Database from 'better-sqlite3';
 import type { VaultRequest, VaultRequests, VaultWorkerData, WorkerMessage } from './vault-protocol';
 import { loadVaultConfig } from './vault-config.ts';
-import { indexPath, notePaths, openIndex } from './vault-index.ts';
+import { deleteIndex, indexPath, notePaths, openIndex } from './vault-index.ts';
 import { existingNotePath, writableNotePath } from './vault-path.ts';
 import { watchVault, type VaultWatch } from './vault-watcher.ts';
 
@@ -37,10 +37,12 @@ function openSession(): Session {
 /** Watches the vault; its index opens once `after` settles. */
 function startSession(root: string, id: string, after: Promise<void>): Session {
   const watch = watchVault(root, {
-    async openDb() {
+    async openDb(damaged) {
       await after;
       const { userData } = workerData as VaultWorkerData;
-      return openIndex(indexPath(userData, id));
+      const file = indexPath(userData, id);
+      if (damaged) deleteIndex(file);
+      return openIndex(file);
     },
     emit: (events) => post({ type: 'events', events }),
   });
