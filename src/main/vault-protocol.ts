@@ -17,6 +17,8 @@ export interface VaultRequests {
    */
   open(root: string): VaultInfo;
   getTree(): TreeEntry[];
+  /** Full text of a note of the current vault. Rejects a path outside the contract. */
+  readNote(path: string): string;
   /**
    * Settles when the current vault's index sync ends. Rejects if the index cannot be
    * opened or synced, or if another `open` cancels it.

@@ -38,6 +38,15 @@ test('opens a folder and serves its tree from the worker thread', async () => {
   expect(await vault.call('getTree')).toEqual([{ kind: 'note', name: 'Home', path: 'Home.md' }]);
 });
 
+test('reads a note of the open vault, and nothing outside it', async () => {
+  expect(await vault.call('readNote', 'Home.md')).toBe('# Home\n');
+  const outside = `../${basename(userData)}/x.md`;
+  for (const path of [outside, join(root, 'Home.md'), '.myelin/vault.json']) {
+    await expect(vault.call('readNote', path)).rejects.toThrow('not a note path');
+  }
+  await expect(vault.call('readNote', 42 as unknown as string)).rejects.toThrow('not a note path');
+});
+
 test('a failed open rejects and keeps the current vault', async () => {
   await expect(vault.call('open', join(root, 'Home.md'))).rejects.toThrow('not a folder');
   await expect(vault.call('open', join(root, 'missing'))).rejects.toThrow('ENOENT');
