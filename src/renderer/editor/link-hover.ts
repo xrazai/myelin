@@ -48,6 +48,14 @@ function renderPreview(preview: NotePreview): { dom: HTMLElement } {
   const dom = document.createElement('div');
   dom.className = 'cm-hover-preview';
 
+  const slash = preview.path.lastIndexOf('/');
+  if (slash > 0) {
+    const folder = document.createElement('div');
+    folder.className = 'cm-hover-preview-path';
+    folder.textContent = preview.path.slice(0, slash);
+    dom.appendChild(folder);
+  }
+
   const title = document.createElement('div');
   title.className = 'cm-hover-preview-title';
   title.textContent = preview.title;
