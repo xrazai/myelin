@@ -38,6 +38,16 @@ const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
 const PHASES = ['cold', 'warm', 'reopen'] as const;
 export const METRICS = ['scanMs', 'coldMs', 'warmMs', 'reopenMs'] as const;
 
+/** What each metric measured, saved with the numbers. */
+const CONDITIONS: Record<Metric, string> = {
+  scanMs: 'scanVault alone; file contents are not read.',
+  coldMs:
+    'New index (openIndex + syncIndex, scan included). Notes written by the parent process ' +
+    '(system Node) and not read since by the benchmark; not a cold disk: the OS may cache them.',
+  warmMs: 'Another new index (scan included) over notes the measuring process has already read.',
+  reopenMs: 'The warm index again with nothing changed (scan and mtime + size check).',
+};
+
 type Phase = (typeof PHASES)[number];
 type Metric = (typeof METRICS)[number];
 export type Runtime = 'node' | 'electron';
@@ -87,7 +97,9 @@ export interface BenchReport {
     /** Uncommitted changes in the working tree. */
     dirty: boolean | null;
   };
+  /** The measuring process. `electron-as-node` is not the app. */
   runtime: 'node' | 'electron-as-node';
+  conditions: Record<Metric, string>;
   seed: number;
   results: SizeResult[];
 }
@@ -264,6 +276,7 @@ export async function runBench(options: BenchOptions): Promise<BenchReport> {
       dirty: changes === null ? null : changes !== '',
     },
     runtime: runtime === 'electron' ? 'electron-as-node' : 'node',
+    conditions: CONDITIONS,
     seed,
     results,
   };

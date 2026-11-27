@@ -11,6 +11,7 @@ test('measures a small vault in its own process', async () => {
   const report = await runBench({ sizes: [100], runs: 2, seed: 1, runtime: 'node' });
   expect(report.runtime).toBe('node');
   expect(report.versions.electron).toBeNull();
+  expect(report.conditions.coldMs).toContain('not a cold disk');
   const [result] = report.results;
   expect(result!.vault.hash).toMatch(/^[0-9a-f]{64}$/);
   expect(result!.runs).toHaveLength(2);
