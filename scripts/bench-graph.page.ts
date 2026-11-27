@@ -157,7 +157,7 @@ function pipeline(width: number, height: number, glow: number, pixelRatio: numbe
       gl.drawArrays(gl.TRIANGLES, 0, 3);
     };
     // Units 1 and 2: unit 0 is the backend's.
-    const bind = (unit: number, texture: WebGLTexture) => {
+    const bind = (unit: number, texture: WebGLTexture | null) => {
       gl.activeTexture(gl.TEXTURE0 + unit);
       gl.bindTexture(gl.TEXTURE_2D, texture);
     };
@@ -188,7 +188,7 @@ function pipeline(width: number, height: number, glow: number, pixelRatio: numbe
         gl.uniform1i(compositeBloom, 2);
       });
       // No texture stays bound while it is drawn into.
-      for (const unit of [1, 2]) bind(unit, null as unknown as WebGLTexture);
+      for (const unit of [1, 2]) bind(unit, null);
     };
   }
   return {

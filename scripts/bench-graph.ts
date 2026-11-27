@@ -14,7 +14,8 @@
 // Glow: the library has no bloom yet. A stand-in in the page measures its cost.
 //
 // Budget (100k nodes, 2880x1800, glow at BUDGET_GLOW, p95): GPU <= 1.5 ms, CPU <= 4 ms.
-// Checked only on the GPU it is stated for; exits with 1 when over it.
+// Checked with the whole graph in view, only on the GPU it is stated for; exits with 1 when
+// over it. Zoomed views over the budget are printed and saved, and do not change the exit.
 //
 // Weak GPUs, a MODEL and not a measurement (expected error up to about 2x): per glow, fit
 // gpu_ms = a * pixels + b * (nodes + edges) + c over the measured grid, then scale `a` by
@@ -226,6 +227,17 @@ const sampleAt = (graph: GraphResult, [width, height]: [number, number], glow: n
 
 const glowName = (glow: number) => (glow === 0 ? 'off' : glow === 1 ? 'full' : `1/${1 / glow}`);
 
+/** The zoomed views of the budget frame whose p95 is over a limit of the budget, as text. */
+export function zoomedOverBudget(samples: Sample[]): string[] {
+  return samples
+    .filter((s) => s.zoom !== 1 && s.width === BUDGET.width && s.height === BUDGET.height && s.glow === BUDGET_GLOW)
+    .flatMap((s) => {
+      const gpu = worst(s.gpuMs, s.gpuWithUploadMs)?.p95 ?? 0;
+      const cpu = worst(s.cpuMs, s.cpuWithUploadMs)!.p95;
+      return gpu > BUDGET.gpuMs || cpu > BUDGET.cpuMs ? [`x${s.zoom} GPU ${gpu} ms, CPU ${cpu} ms`] : [];
+    });
+}
+
 /** The worst of a still frame and one that uploads a layout step first. */
 const worst = (a: Percentiles | null, b: Percentiles | null): Percentiles | null =>
   a && b ? { median: Math.max(a.median, b.median), p95: Math.max(a.p95, b.p95) } : null;
@@ -432,11 +444,14 @@ export async function benchGraph(args: string[]): Promise<void> {
     }
   }
 
+  const budgetGraph = graphs.find((graph) => graph.nodeCount === BUDGET.nodes);
+  const overBudgetZoomed = budgetGraph ? zoomedOverBudget(budgetGraph.samples) : null;
+
   await mkdir(dirname(out), { recursive: true });
   await writeFile(
     out,
     `${JSON.stringify(
-      { createdAt: new Date().toISOString(), label: values.label ?? null, seed, frames, pixelRatio: PIXEL_RATIO, ...machine, graphs, models, estimates },
+      { createdAt: new Date().toISOString(), label: values.label ?? null, seed, frames, pixelRatio: PIXEL_RATIO, ...machine, graphs, models, estimates, overBudgetZoomed },
       null,
       2,
     )}\n`,
@@ -444,7 +459,6 @@ export async function benchGraph(args: string[]): Promise<void> {
   );
   console.log(`${lines.join('\n')}\n\nsaved: ${out}`);
 
-  const budgetGraph = graphs.find((graph) => graph.nodeCount === BUDGET.nodes);
   if (!budgetGraph) return void console.log(`budget not checked: it needs ${BUDGET.nodes} nodes`);
   if (!reference.rendererMatch || !machine.renderer.includes(reference.rendererMatch)) {
     return void console.log(`budget not checked: it is stated for the ${reference.name}`);
@@ -456,8 +470,11 @@ export async function benchGraph(args: string[]): Promise<void> {
   const verdict =
     `${BUDGET.nodes} nodes at ${BUDGET.width}x${BUDGET.height}, glow ${glowName(BUDGET_GLOW)}, p95: ` +
     `GPU ${gpu} ms (budget ${BUDGET.gpuMs}), CPU ${cpu} ms (budget ${BUDGET.cpuMs})`;
-  if (gpu > BUDGET.gpuMs || cpu > BUDGET.cpuMs) throw new Error(`over budget: ${verdict}`);
-  console.log(`within budget: ${verdict}`);
+  if (gpu > BUDGET.gpuMs || cpu > BUDGET.cpuMs) throw new Error(`over budget with the whole graph in view: ${verdict}`);
+  console.log(`within budget with the whole graph in view: ${verdict}`);
+  if (overBudgetZoomed!.length > 0) {
+    console.log(`OVER BUDGET ZOOMED IN (same frame, p95): ${overBudgetZoomed!.join('; ')}`);
+  }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

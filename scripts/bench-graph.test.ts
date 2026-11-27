@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, test } from 'vitest';
-import { estimateMs, fitModel, type FitPoint, type GpuProfile } from './bench-graph.ts';
+import { estimateMs, fitModel, zoomedOverBudget, type FitPoint, type GpuProfile } from './bench-graph.ts';
+import type { Sample } from './bench-graph.types.ts';
 
 const grid = (model: (pixels: number, elements: number) => number): FitPoint[] =>
   [2_073_600, 3_686_400, 5_184_000].flatMap((pixels) =>
@@ -52,4 +53,19 @@ describe('the weak GPU model', () => {
       for (const source of profile.sources) expect(source).toMatch(/^https:\/\/www\.(intel|nvidia)\.com\//);
     }
   });
+});
+
+test('zoomed views over the budget are named; the whole view is checked apart', () => {
+  const sample = (zoom: number, gpu: number, cpu: number): Sample => {
+    const gpuMs = { median: gpu, p95: gpu };
+    const cpuMs = { median: cpu, p95: cpu };
+    return {
+      width: 2880, height: 1800, glow: 0.5, zoom, gpuMs, gpuWithUploadMs: gpuMs,
+      cpuMs, cpuWithUploadMs: cpuMs, syncedFrameMs: gpu, litShare: 1,
+    };
+  };
+  expect(zoomedOverBudget([sample(1, 9, 9), sample(2, 1.6, 0.3), sample(4, 1.4, 0.3), sample(16, 1, 5)])).toEqual([
+    'x2 GPU 1.6 ms, CPU 0.3 ms',
+    'x16 GPU 1 ms, CPU 5 ms',
+  ]);
 });
