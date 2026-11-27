@@ -3,9 +3,11 @@
 //
 //   repulsion   scalingRatio * (deg_a + 1) * (deg_b + 1) / distance
 //   attraction  weight * log(1 + distance)   (linLog) or weight * distance, along each edge
-//   gravity     gravity * (deg + 1), toward the origin, at any distance
+//   gravity     gravity * (deg + 1), toward the origin: constant, but linear near it
 //
 // The step size adapts to swing (a node's force changing) and traction (it persisting).
+// Beyond the paper: that softened gravity, cooling once the movement stops improving, and
+// no minimum of iterations for a graph with every position saved.
 
 import { QuadTree } from './quadtree.ts';
 import { mulberry32 } from './random.ts';
