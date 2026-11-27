@@ -42,11 +42,8 @@ interface Note {
   scroll: StateEffect<unknown> | null;
 }
 
-/** A leading byte order mark is not part of the text. */
-export const createNoteState = (text: string): EditorState =>
-  EditorState.create({ doc: text.replace(/^﻿/, ''), extensions });
-
-export function createNoteEditor(parent: HTMLElement): NoteEditor {
+/** `extra` is for the benchmark's probe. */
+export function createNoteEditor(parent: HTMLElement, extra: Extension = []): NoteEditor {
   const view = new EditorView({ parent });
   const notes = new Map<string, Note>();
   let shown: string | null = null;
@@ -64,7 +61,9 @@ export function createNoteEditor(parent: HTMLElement): NoteEditor {
   return {
     has: (path) => notes.has(path),
     load(path, text) {
-      notes.set(path, { state: createNoteState(text), scroll: null });
+      // A leading byte order mark is not part of the text.
+      const state = EditorState.create({ doc: text.replace(/^\uFEFF/, ''), extensions: [extensions, extra] });
+      notes.set(path, { state, scroll: null });
     },
     show(path) {
       if (path === shown) return;
