@@ -16,6 +16,8 @@ import { listFolder, scanFolder, scanVault } from './vault-scan.ts';
 /** Hints are handled in one batch: after a quiet moment, or this long after the first. */
 const QUIET_MS = 60;
 const MAX_WAIT_MS = 500;
+/** After Windows drops reports, the whole vault is scanned once they stop being dropped. */
+const LOST_QUIET_MS = 1000;
 /** Waits before reading again a note that another program was holding. */
 const RETRY_MS: readonly number[] = [200, 1000, 5000];
 /** File times can be a little behind the clock. */
@@ -206,6 +208,17 @@ export function watchVault(root: string, { openDb, emit, sync = syncIndex }: Vau
     deadline ??= setTimeout(flush, MAX_WAIT_MS);
   }
 
+  // Windows drops reports when they come faster than they are read, and says so each time:
+  // hundreds of times while the first sync of an old vault moves last-access times. chokidar
+  // finds what really changed meanwhile; one scan then covers what it cannot see.
+  let lost: NodeJS.Timeout | undefined;
+  function scanAfterLoss(): void {
+    clearTimeout(lost);
+    lost = setTimeout(() => {
+      serial(rescan).then(scheduleUpdate).catch(report('rescanning'));
+    }, LOST_QUIET_MS);
+  }
+
   const toRelative = (path: string) => relative(root, path).split(sep).join('/');
 
   const watcher = watch(root, {
@@ -226,7 +239,7 @@ export function watchVault(root: string, { openDb, emit, sync = syncIndex }: Vau
   watcher.on('raw', (_event, path, details) => {
     // No path means reports were lost.
     if (!path) {
-      serial(rescan).catch(report('rescanning'));
+      if (!signal.aborted) scanAfterLoss();
       return;
     }
     if (/\.tmp$/i.test(path)) return;
@@ -355,6 +368,7 @@ export function watchVault(root: string, { openDb, emit, sync = syncIndex }: Vau
     async close() {
       cancel.abort(new Error('indexing was cancelled'));
       stopBatchTimers();
+      clearTimeout(lost);
       for (const timer of retries) clearTimeout(timer);
       await watcher.close();
       await indexed.catch(() => {});
