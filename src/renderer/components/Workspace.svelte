@@ -3,7 +3,8 @@
   import type { VaultInfo } from '../../shared/ipc';
   import { DEFAULT_WIDTHS, fitWidths, loadWidths, maxWidth, MIN_WIDTHS, resizeSide, saveWidths, type Side } from '../panel-layout';
   import { shortcutFor } from '../shortcuts';
-  import { applyTabEvents, closeTab, cycleTab, moveTab, NO_TABS, openTab, tabName, type Tabs as TabsState } from '../tabs-model';
+  import { applyTabEvents, closeTab, cycleTab, moveTab, NO_TABS, openTab, type Tabs as TabsState } from '../tabs-model';
+  import Editor from './Editor.svelte';
   import FileTree from './FileTree.svelte';
   import Splitter from './Splitter.svelte';
   import StatusBar from './StatusBar.svelte';
@@ -12,7 +13,6 @@
   let { vault }: { vault: VaultInfo } = $props();
 
   let tabs = $state.raw<TabsState>(NO_TABS);
-  const active = $derived(tabs.list.find((tab) => tab.path === tabs.active) ?? null);
 
   // Marks the tabs of notes deleted outside the app.
   $effect(() => window.myelin.onVaultEvents((events) => (tabs = applyTabEvents(tabs, events))));
@@ -81,15 +81,7 @@
   />
 
   <main>
-    {#if active}
-      <!-- Placeholder until the editor exists: the note is not read yet. -->
-      <h2 class="prose">{tabName(active.path)}</h2>
-      <p class="path">{active.path}</p>
-      <p>{active.deleted ? 'This note was deleted.' : 'The editor is not here yet.'}</p>
-    {:else}
-      <p>Select a note in the file tree.</p>
-      <p class="path">{vault.root}</p>
-    {/if}
+    <Editor {vault} {tabs} />
   </main>
 
   <Splitter
@@ -167,26 +159,7 @@
 
   main {
     min-width: 0;
-    overflow: auto;
-    padding: 32px 48px;
-  }
-
-  main h2 {
-    margin: 0;
-    font-size: 28px;
-    font-weight: 500;
-    overflow-wrap: anywhere;
-  }
-
-  main p {
-    margin: 8px 0 0;
-    color: var(--text-muted);
-  }
-
-  .path {
-    font-family: var(--font-mono);
-    overflow-wrap: anywhere;
-    user-select: text;
+    min-height: 0;
   }
 
   aside header {

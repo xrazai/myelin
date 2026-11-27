@@ -78,6 +78,7 @@ Do not create tables, dependencies, queues or files for AI before the decision. 
 
 ## Benchmark (`scripts/bench.ts`)
 On `gen-vault` output (10k / 100k notes): graph FPS with glow, hover latency (warm and cold), FTS5 indexing time, first layout time.
+`--editor` (`scripts/bench-editor.ts`): typing latency of the editor, with real key events in the repo's Electron (needs a desktop session). Budget on a 10k-line note: p95 <= 16 ms from keydown to the DOM updated and laid out.
 
 ## Learning (what "Myelin" means in code)
 Now, no AI: myelination. Edges you use get stronger.
@@ -102,13 +103,15 @@ myelin/
 │           └── shaders/       # GLSL: glow, synaptic pulse, semantic zoom
 ├── scripts/
 │   ├── gen-vault.ts           # synthetic vaults (10k / 100k notes)
-│   └── bench.ts               # performance benchmark
+│   ├── bench.ts               # performance benchmark
+│   └── bench-editor*          # `bench --editor`: typing latency (runner, Electron main, page)
 ├── src/
 │   ├── main/
 │   │   ├── main.ts            # windows, menus, IPC routing
 │   │   ├── ipc.ts             # registers the contract's handlers, sends its events
 │   │   ├── vault-worker.ts    # file I/O (atomic), watcher, parsing, index.db, FTS5, usage events, heavy path
 │   │   ├── vault-config.ts    # .myelin/vault.json (used by vault-worker)
+│   │   ├── vault-path.ts      # validates note paths from the renderer (used by vault-worker)
 │   │   ├── vault-index.ts     # index.db: schema, sync and updates (used by vault-worker)
 │   │   ├── vault-watcher.ts   # chokidar watcher, loop guard, tree events (used by vault-worker)
 │   │   └── brain-adapter.ts   # AI slot: search(query), process(changedNote); FTS5 now
@@ -121,9 +124,13 @@ myelin/
 │       ├── styles.css         # palette and font variables (docs/identity.md)
 │       ├── fonts/             # Literata, Inter, JetBrains Mono (variable, OFL) + fonts.css
 │       ├── public/licenses/   # font licenses, copied into the build
-│       ├── components/        # Launcher, Workspace, FileTree, Tabs, CommandPalette, StatusBar, BrainPanel (.svelte)
+│       ├── components/        # Launcher, Workspace, FileTree, Tabs, Editor, CommandPalette, StatusBar, BrainPanel (.svelte)
 │       ├── editor/
-│       │   └── cm-editor.ts   # CodeMirror 6, live preview, [[link]] autocomplete, hover preview
+│       │   ├── cm-editor.ts   # CodeMirror 6 (one view, a state per tab); [[link]] autocomplete and hover plug in here
+│       │   ├── editor-tabs.ts # tabs -> editor: reads a note when its tab is first shown
+│       │   ├── live-preview.ts # hides Markdown syntax away from the cursor (visible ranges only)
+│       │   ├── wiki-link.ts   # [[link]] in the Lezer parser, same grammar as shared/links.ts
+│       │   └── theme.ts       # editor look, from the identity tokens
 │       ├── tree-model.ts      # file tree logic: visible rows, watcher events, keyboard
 │       ├── note-cache.ts      # LRU of short previews, viewport prefetch
 │       └── graph-view.ts      # glue: note path <-> node id, feeds @myelin/graph, wires events

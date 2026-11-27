@@ -187,6 +187,16 @@ function inlineBlocks(text: string): [number, number][] {
 
 const LINK = /\[\[([^[\]\r\n]+)\]\]/y;
 
+/**
+ * The `[[...]]` written at `at`, or `null`. `end` is where it ends; `link` is `null` for
+ * brackets that link nowhere (`[[ ]]`). Does not look at what is around, such as code.
+ */
+export function matchLink(text: string, at: number): { end: number; link: ParsedLink | null } | null {
+  LINK.lastIndex = at;
+  const match = LINK.exec(text);
+  return match && { end: at + match[0].length, link: readLink(match[1]!, at) };
+}
+
 /** Reads one block left to right: whichever of code span or link starts first wins. */
 function scanInline(text: string, start: number, end: number, links: ParsedLink[]): void {
   const block = text.slice(start, end);
@@ -215,14 +225,22 @@ function scanInline(text: string, start: number, end: number, links: ParsedLink[
       // Without a closer of the same length the run is plain text.
       special.lastIndex = (closer ?? i) + length;
     } else {
-      LINK.lastIndex = i;
-      const match = LINK.exec(block);
+      const match = matchLink(block, i);
       if (!match) continue;
-      const link = readLink(match[1]!, start + i);
-      if (link) links.push(link);
-      special.lastIndex = i + match[0].length;
+      if (match.link) links.push(shift(match.link, start));
+      special.lastIndex = match.end;
     }
   }
+}
+
+function shift(link: ParsedLink, by: number): ParsedLink {
+  return {
+    ...link,
+    from: link.from + by,
+    to: link.to + by,
+    targetFrom: link.targetFrom + by,
+    targetTo: link.targetTo + by,
+  };
 }
 
 /** `inner` is the text between the brackets of the link starting at `from`. */

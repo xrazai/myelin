@@ -27,6 +27,13 @@
     "chokidar": "^6.0.0"
   },
   "devDependencies": {
+    "@codemirror/commands": "^6.11.2",
+    "@codemirror/lang-markdown": "^6.5.2",
+    "@codemirror/language": "^6.13.1",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.44.2",
+    "@lezer/common": "^1.5.7",
+    "@lezer/markdown": "^1.8.2",
     "@sveltejs/vite-plugin-svelte": "^7.3.2",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^24.19.4",
