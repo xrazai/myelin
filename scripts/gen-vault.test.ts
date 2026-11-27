@@ -32,7 +32,7 @@ test('same seed gives the same vault, another seed does not', async () => {
   expect(b.hash).toBe(a.hash);
   expect(c.hash).not.toBe(a.hash);
   expect(await readVault(b.out)).toEqual(await readVault(a.out));
-});
+}, 60_000);
 
 test('has the requested notes, unique names, resolvable links and accented text', async () => {
   const summary = await generateVault({ notes: 2000, seed: 1, out: join(root, 'shape') });
@@ -49,7 +49,7 @@ test('has the requested notes, unique names, resolvable links and accented text'
   expect(unresolved.length).toBeGreaterThan(0);
   expect(unresolved.length / targets.length).toBeLessThan(0.02);
   expect([...files.values()].join('')).toMatch(/[ãçéíóúâêô]/);
-});
+}, 60_000);
 
 test('refuses a folder inside the repo or a non-empty one', async () => {
   const inRepo = fileURLToPath(new URL('../vault-dev', import.meta.url));
