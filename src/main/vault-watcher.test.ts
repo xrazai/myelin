@@ -483,17 +483,17 @@ describe('deleting', () => {
     expect(asked).toEqual([]);
   });
 
-  // The Windows shell reads `Plans.` as `Plans`, and would move that one.
+  // The Windows shell reads `Plans.` as `Plans`, and would move that one. Refused by the
+  // name alone, before the disk is looked at.
   test('refuses names the shell would read as another item', async () => {
     const asked: string[] = [];
-    for (const folder of ['Plans.', 'Trail ', 'A.']) await mkdir(`\\\\?\\${at(folder)}`);
-    await writeFile(`\\\\?\\${at('A.')}\\B.md`, 'x', 'utf8');
-    const refused: [string, 'note' | 'folder'][] = [['Plans.', 'folder'], ['Trail ', 'folder'], ['A./B.md', 'note']];
+    const refused: [string, 'note' | 'folder'][] = [
+      ['Plans.', 'folder'], ['Trail ', 'folder'], ['A./B.md', 'note'], ['aux', 'folder'], ['Plans/CON.md', 'note'],
+    ];
     for (const [path, kind] of refused) {
       await expect(watching.remove(path, kind, async (file) => void asked.push(file)), path).rejects.toThrow('safely');
     }
     expect(asked).toEqual([]);
-    for (const folder of ['Plans.', 'Trail ', 'A.']) await rm(`\\\\?\\${at(folder)}`, { recursive: true });
   });
 
   test('says which notes went to the bin', async () => {
