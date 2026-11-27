@@ -26,6 +26,7 @@ import {
   type SyncReport,
 } from './vault-index.ts';
 import {
+  existingExactPath,
   existingItemPath,
   existingNotePath,
   folderOnDiskInOtherCase,
@@ -180,6 +181,8 @@ function folderInOtherCase(tree: TreeEntry[], path: string): string | null {
   return null;
 }
 
+/** A name as links compare it: composition and case ignored. */
+const foldName = (name: string) => name.normalize('NFC').toLowerCase();
 const parentOf = (path: string) => path.slice(0, Math.max(0, path.lastIndexOf('/')));
 const nameOf = (path: string) => path.slice(path.lastIndexOf('/') + 1);
 const join2 = (dir: string, name: string) => (dir ? `${dir}/${name}` : name);
@@ -541,6 +544,8 @@ export function watchVault(root: string, { openDb, emit, sync = syncIndex }: Vau
     if (!paths.includes(from)) throw new Error(`no such note: ${from}`);
     const taken = `a note already exists at ${to}`;
     if (paths.includes(to) || (await isTaken(fromFile, toFile))) throw new Error(taken);
+    // Another spelling of the same accented name: links could not tell the two apart.
+    if (paths.some((path) => path !== from && foldName(path) === foldName(to))) throw new Error(taken);
     // Windows would put the note in that folder, under a path the app does not know.
     const folder = folderInOtherCase(tree, to);
     if (folder !== null) throw new Error(`the folder is named ${folder}`);
@@ -555,7 +560,7 @@ export function watchVault(root: string, { openDb, emit, sync = syncIndex }: Vau
   }
 
   async function renameFolderNow(from: string, to: string): Promise<FolderRenameResult> {
-    const fromFolder = await existingItemPath(root, from, 'folder');
+    const fromFolder = await existingExactPath(root, from, 'folder');
     if (from === to) return { notUpdated: [], moved: [] };
     if (typeof to === 'string' && to.toLowerCase().startsWith(`${from.toLowerCase()}/`)) {
       throw new Error('a folder cannot move into itself');
@@ -566,6 +571,12 @@ export function watchVault(root: string, { openDb, emit, sync = syncIndex }: Vau
     if (problem) throw new Error(problem);
     const taken = `something is already named ${to}`;
     if (await isTaken(fromFolder, toFolder)) throw new Error(taken);
+    // NTFS keeps two spellings of an accented name apart; links do not.
+    const siblings = await readdir(dirname(toFolder));
+    const twin = siblings.some(
+      (name) => foldName(name) === foldName(nameOf(to)) && !(parentOf(from) === parentOf(to) && name === nameOf(from)),
+    );
+    if (twin) throw new Error(taken);
     const other = await folderOnDiskInOtherCase(root, to);
     if (other !== null) throw new Error(`the folder is named ${other}`);
 
@@ -610,13 +621,17 @@ export function watchVault(root: string, { openDb, emit, sync = syncIndex }: Vau
     // Every rewrite is computed before the disk is touched. Files that are not UTF-8 are
     // never overwritten.
     const rewrites: { path: string; base: string; content: string }[] = [];
+    const unwritable: string[] = [];
     for (const path of candidates) {
       const bytes = await readFile(join(root, path));
-      if (!bytes.includes('[[') || !isUtf8(bytes)) continue;
+      if (!bytes.includes('[[')) continue;
+      // Decoded with losses if it is not UTF-8: enough to tell whether a link has to change.
       const base = bytes.toString('utf8');
       const bom = base.startsWith('\uFEFF') ? '\uFEFF' : '';
       const { text, count } = rewriteLinksForMoves(base.slice(bom.length), path, moves, oldResolve, newResolve);
-      if (count > 0) rewrites.push({ path: moves.get(path) ?? path, base, content: bom + text });
+      if (count === 0) continue;
+      if (isUtf8(bytes)) rewrites.push({ path: moves.get(path) ?? path, base, content: bom + text });
+      else unwritable.push(moves.get(path) ?? path);
     }
     signal.throwIfAborted();
 
@@ -631,7 +646,7 @@ export function watchVault(root: string, { openDb, emit, sync = syncIndex }: Vau
     });
 
     // From here on the notes have moved: a link that cannot be rewritten is reported, not thrown.
-    const notUpdated: string[] = [];
+    const notUpdated: string[] = [...unwritable];
     const rewritten: string[] = [];
     for (const { path, base, content } of rewrites) {
       const file = join(root, path);

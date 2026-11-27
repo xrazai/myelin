@@ -1,6 +1,6 @@
 <script lang="ts">
   import { untrack } from 'svelte';
-  import type { VaultInfo } from '../../shared/ipc';
+  import type { VaultEvent, VaultInfo } from '../../shared/ipc';
   import { createNoteEditor, type NoteEditor } from '../editor/cm-editor';
   import { connectEditor, type EditorStatus } from '../editor/editor-tabs';
   import { TOGGLE_PARAGRAPH_FOCUS_EVENT } from '../editor/focus-dim';
@@ -27,6 +27,7 @@
     onmetrics,
     onfocusmode,
     locked,
+    moving,
   }: {
     vault: VaultInfo;
     tabs: Tabs;
@@ -41,6 +42,8 @@
     onfollow: (path: string, source: string, newTab: boolean) => void;
     /** Why a link cannot be followed right now (it may create a note), or `null`. */
     locked: () => string | null;
+    /** The app is moving this path right now: its report as deleted is not news. */
+    moving: (path: string) => boolean;
     /** Debounced reading metrics for the active note, or `null` when none is shown. */
     onmetrics?: (metrics: NoteMetrics | null) => void;
     /** Toggles Focus Mode from the quiet editor chrome. */
@@ -131,7 +134,11 @@
         const pulse = list.isLoaded() ? linkPulse(path, before, after, list.resolve) : null;
         if (pulse) window.dispatchEvent(new CustomEvent(LINK_PULSE_EVENT, { detail: pulse }));
       });
-      const unsubscribe = [window.myelin.onVaultEvents(notes.external), notes.subscribe(onproblems)];
+      // A rename the app asked for moves its notes: `rename` follows them, and a banner
+      // saying "deleted" meanwhile could recreate the old path or discard the text.
+      const external = (events: VaultEvent[]) =>
+        notes.external(events.filter((event) => !(event.type === 'deleted' && moving(event.path))));
+      const unsubscribe = [window.myelin.onVaultEvents(external), notes.subscribe(onproblems)];
       const connected = connectEditor(editor, notes, (next) => {
         status = next;
         // Before the editor shows a note, so that it can measure and scroll it.

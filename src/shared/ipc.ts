@@ -79,7 +79,7 @@ export interface DeleteInfo {
 }
 
 export interface RenameResult {
-  /** Notes whose links could not be rewritten: held by another program or changed meanwhile. */
+  /** Notes whose links could not be rewritten: held, changed meanwhile or not UTF-8. */
   notUpdated: string[];
 }
 

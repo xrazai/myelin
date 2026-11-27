@@ -576,8 +576,32 @@ describe('renaming a folder', () => {
   test('a note that is not UTF-8 is left as it is', async () => {
     await writeFile(at('Latin.md'), Buffer.from([0x5b, 0x5b, 0x50, 0x6c, 0x61, 0x6e, 0x73, 0x2f, 0x41, 0x5d, 0x5d, 0xe9]));
     await until(() => expect(notes()).toContain('Latin.md'));
-    await watching.renameFolder('Plans', 'Ideas');
+    expect((await watching.renameFolder('Plans', 'Ideas')).notUpdated).toEqual(['Latin.md']);
     expect((await readFile(at('Latin.md'))).at(-1)).toBe(0xe9);
+  });
+
+  test('refuses a name that only another spelling of an accent tells apart', async () => {
+    await mkdir(at('Cafe\u0301'));
+    await expect(watching.renameFolder('Plans', 'Caf\u00e9')).rejects.toThrow('already named');
+    expect(await readdir(at('Plans'))).toContain('A.md');
+    // Its own other spelling is a rename of itself.
+    await watching.renameFolder('Cafe\u0301', 'Caf\u00e9');
+    expect(await readdir(root)).toContain('Caf\u00e9');
+  });
+
+  test.runIf(process.platform === 'win32')('renames a folder below one whose name ends in a dot, and only it', async () => {
+    const odd = (path: string) => `\\\\?\\${at(path)}`;
+    await mkdir(at('v1/Plans'), { recursive: true });
+    await mkdir(odd('v1.'));
+    await mkdir(`${odd('v1.')}\\Plans`);
+    await writeFile(`${odd('v1.')}\\Plans\\n.md`, 'n', 'utf8');
+    try {
+      await watching.renameFolder('v1./Plans', 'v1./Roadmap');
+      expect(await readdir(`${odd('v1.')}\\Roadmap`)).toEqual(['n.md']);
+      expect(await readdir(at('v1'))).toEqual(['Plans']);
+    } finally {
+      await rm(odd('v1.'), { recursive: true, force: true });
+    }
   });
 
   test('a save waiting behind the rename does not recreate the old note', async () => {

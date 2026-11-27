@@ -95,6 +95,14 @@ export async function existingItemPath(root: string, path: unknown, kind: 'note'
         'any name that ends in a dot or space or that Windows reserves',
     );
   }
+  return existingExactPath(root, path, kind);
+}
+
+/**
+ * The OS path of the note or folder at `path` that exists under exactly that name, with no
+ * link on the way, or a throw. What Node can safely move, whatever the name.
+ */
+export async function existingExactPath(root: string, path: unknown, kind: 'note' | 'folder'): Promise<string> {
   let file: string;
   if (kind === 'note') {
     file = await existingNotePath(root, path);

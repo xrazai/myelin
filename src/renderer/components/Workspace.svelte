@@ -40,6 +40,8 @@
   let tabs = $state.raw<TabsState>(NO_TABS);
   /** The pair being renamed: its tree batch arrives before the IPC result. */
   let pendingRename: { from: string; to: string } | null = null;
+  /** Settles when that rename ends, however it ends: the window waits for it to close. */
+  let renameEnds: Promise<void> | null = null;
 
   // Marks the tabs of notes deleted outside the app. A pending rename's tree batch
   // must not mark the old tab deleted: its editor state is about to be rekeyed.
@@ -88,6 +90,8 @@
     };
     const shared = { saveAll: () => notes.saveAll(), save: (path: string) => notes.save(path) };
     pendingRename = { from, to };
+    let ended!: () => void;
+    renameEnds = new Promise((resolve) => (ended = resolve));
     // Saves wait for a rename, long on a large vault: say so.
     const done = learning.begin(`Renaming ${tabName(from)}… saves wait`);
     try {
@@ -137,6 +141,8 @@
       return false;
     } finally {
       pendingRename = null;
+      renameEnds = null;
+      ended();
       done();
     }
   }
@@ -207,12 +213,13 @@
   let quitDialog = $state<HTMLDialogElement>();
 
   function onbeforeunload(event: BeforeUnloadEvent) {
-    if (abandon || !saver || saver.unsaved().length === 0) return;
+    if (abandon || !saver || (renameEnds === null && saver.unsaved().length === 0)) return;
     event.preventDefault();
     if (flushing) return;
     flushing = true;
     const notes = saver;
-    void notes.saveAll().then((saved) => {
+    // A window closed mid-rename would end the worker with links half rewritten.
+    void Promise.resolve(renameEnds).then(() => notes.saveAll()).then((saved) => {
       flushing = false;
       // Checked again on the way out: more may have been typed meanwhile.
       if (saved) return void window.myelin.resumeUnload();
@@ -503,6 +510,7 @@
       onmetrics={(next) => (metrics = next)}
       onfocusmode={toggleFocus}
       {locked}
+      moving={(path) => pendingRename !== null && isWithin(path, pendingRename.from)}
     />
   </main>
 
