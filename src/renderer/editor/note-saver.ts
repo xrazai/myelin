@@ -16,6 +16,8 @@ export interface SaverEditor {
   text(path: string): string;
   /** Replaces the text without counting as typing. `undoable`: undo brings the old one back. */
   replace(path: string, text: string, undoable: boolean): void;
+  /** Rekeys an open note after a rename, preserving its state and undo history. */
+  rename(from: string, to: string): void;
 }
 
 export interface NoteDisk {
@@ -76,6 +78,11 @@ export interface NoteSaver {
   unsaved(): string[];
   /** Changes made by other programs. */
   external(events: VaultEvent[]): void;
+  /**
+   * Rekeys a note after its rename, before returning; then reconciles its text with the
+   * disk, where its links may have been rewritten.
+   */
+  rename(from: string, to: string): Promise<void>;
   /** Writes the editor's text over what is on disk, or recreates a deleted note. */
   keepMine(path: string): Promise<boolean>;
   /** Replaces the editor's text with the disk's; undo brings it back. */
@@ -337,6 +344,29 @@ export function createNoteSaver(
           // If it cannot be read now, the next write still refuses to replace it.
         }).catch((error: unknown) => console.error(`[note-saver] reading ${path} failed:`, error));
       }
+    },
+
+    rename(from, to) {
+      const entry = entries.get(from);
+      if (!entry) return Promise.resolve();
+      forget(from);
+      // Still being read: the tab reads it again at its new path.
+      if (!entry.note) return Promise.resolve();
+      editor.rename(from, to);
+      // Work queued under the old path finds the entry gone from there and does nothing.
+      entries.set(to, entry);
+      notify();
+      return enqueue(entry, async () => {
+        const raw = await readDisk(to);
+        const note = held(to, entry);
+        if (!note) return;
+        // A report that the old path is gone may have come first.
+        note.gone = false;
+        apply(to, entry, note, raw);
+        // The old path's timer was stopped: what was typed meanwhile still has to be saved.
+        if (!note.gone && !note.changed && isDirty(to, note)) schedule(to, entry);
+        notify();
+      }).catch((error: unknown) => console.error(`[note-saver] renaming ${from} to ${to} failed:`, error));
     },
 
     keepMine(path) {

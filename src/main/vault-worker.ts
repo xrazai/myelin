@@ -10,6 +10,7 @@ import { loadVaultConfig } from './vault-config.ts';
 import { deleteIndex, indexPath, notePaths, openIndex } from './vault-index.ts';
 import { readNotePreview } from './note-preview.ts';
 import { existingNotePath, writableNotePath } from './vault-path.ts';
+import { appendUsageEvent } from './vault-usage.ts';
 import { watchVault, type VaultWatch } from './vault-watcher.ts';
 
 // Startup check: the native module loads in this thread and its SQLite has FTS5.
@@ -97,6 +98,18 @@ const handlers: Handlers = {
     // A note saved again after its folder was deleted.
     if (base === null) await mkdir(dirname(file), { recursive: true });
     return watch.write(path, content, base);
+  },
+  async renameNote(from, to) {
+    if (typeof from !== 'string' || typeof to !== 'string') throw new Error('both paths must be strings');
+    const { root, watch } = openSession();
+    const result = await watch.rename(from, to);
+    // The note has moved by now: failing to log it must not report the rename as failed.
+    if (from !== to) {
+      await appendUsageEvent(root, { type: 'renamed', from, to, at: new Date().toISOString() }).catch(
+        (error: unknown) => console.error('[vault-worker] logging a rename failed:', error),
+      );
+    }
+    return result;
   },
   async whenIndexed() {
     return openSession().watch.indexed;

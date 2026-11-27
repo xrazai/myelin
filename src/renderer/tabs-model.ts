@@ -35,6 +35,16 @@ export function replaceTab(tabs: Tabs, from: string, to: string): Tabs {
   return { list: tabs.list.with(index, { path: to, deleted: false }), active: to };
 }
 
+/** Renames the tab of `from` to `to`, keeping its place and the active tab. */
+export function renameTab(tabs: Tabs, from: string, to: string): Tabs {
+  const index = indexOf(tabs, from);
+  if (index < 0 || indexOf(tabs, to) >= 0) return tabs;
+  return {
+    list: tabs.list.with(index, { path: to, deleted: false }),
+    active: tabs.active === from ? to : tabs.active,
+  };
+}
+
 /** Closing the active tab activates the one on its right, or else the one on its left. */
 export function closeTab(tabs: Tabs, path: string): Tabs {
   const index = indexOf(tabs, path);

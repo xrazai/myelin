@@ -2,10 +2,19 @@
   import { tick } from 'svelte';
   import type { TreeEntry } from '../../shared/ipc';
   import { errorMessage } from '../error-message';
+  import { renamedPath } from '../rename-note';
   import { flatten, keyAction, pruneExpanded, scrollToShow, visibleRange, watchTree } from '../tree-model';
 
   /** `selected`: path of the open note. `onopen`: a note was clicked or chosen by keyboard. */
-  let { selected, onopen }: { selected: string | null; onopen: (path: string) => void } = $props();
+  let {
+    selected,
+    onopen,
+    onrename,
+  }: {
+    selected: string | null;
+    onopen: (path: string) => void;
+    onrename: (from: string, to: string) => void;
+  } = $props();
 
   /** Fixed, so only the rows in view need to be in the DOM. */
   const ROW_HEIGHT = 28;
@@ -18,6 +27,10 @@
   /** Path under the keyboard cursor. */
   let cursor = $state.raw<string | null>(null);
   let error = $state('');
+  /** Path currently being renamed, and the text in the inline input. */
+  let renaming = $state.raw<string | null>(null);
+  let renameText = $state('');
+  let input = $state<HTMLInputElement>();
 
   let list = $state<HTMLDivElement>();
   let scrollTop = $state(0);
@@ -47,6 +60,24 @@
     expanded = next;
   }
 
+  function startRename(path: string) {
+    renaming = path;
+    renameText = path.slice(path.lastIndexOf('/') + 1, -'.md'.length);
+    // Focus after the input is in the DOM.
+    queueMicrotask(() => {
+      input?.focus();
+      input?.select();
+    });
+  }
+
+  function commitRename() {
+    const from = renaming;
+    if (!from) return;
+    renaming = null;
+    const to = renamedPath(from, renameText);
+    if (to) onrename(from, to);
+  }
+
   function onclick(event: MouseEvent) {
     const element = (event.target as Element).closest<HTMLElement>('[data-index]');
     const entry = element && rows[Number(element.dataset['index'])]?.entry;
@@ -56,6 +87,17 @@
     else onopen(entry.path);
   }
 
+  function oncontextmenu(event: MouseEvent) {
+    // The rename input keeps its own menu.
+    if (event.target instanceof HTMLInputElement) return;
+    const element = (event.target as Element).closest<HTMLElement>('[data-index]');
+    const entry = element && rows[Number(element.dataset['index'])]?.entry;
+    if (!entry || entry.kind !== 'note') return;
+    event.preventDefault();
+    cursor = entry.path;
+    startRename(entry.path);
+  }
+
   async function onkeydown(event: KeyboardEvent) {
     if (event.ctrlKey || event.altKey || event.metaKey) return;
     const action = keyAction(rows, cursorIndex, event.key, expanded);
@@ -63,6 +105,9 @@
     event.preventDefault();
     if (action.type === 'move') {
       cursor = rows[action.index]!.entry.path;
+    } else if (action.type === 'rename') {
+      cursor = action.path;
+      startRename(action.path);
     } else {
       cursor = action.path;
       if (action.type === 'toggle') toggle(action.path);
@@ -91,6 +136,7 @@
     bind:clientHeight={viewHeight}
     onscroll={(event) => (scrollTop = event.currentTarget.scrollTop)}
     {onclick}
+    {oncontextmenu}
     {onkeydown}
   >
     <div class="sizer" role="none" style:height="{rows.length * ROW_HEIGHT}px">
@@ -123,7 +169,27 @@
                 <path d="M4 4.5h4M4 7h2.8" stroke-linecap="round" />
               </svg>
             {/if}
-            <span class="name">{row.entry.name}</span>
+            {#if renaming === row.entry.path}
+              <input
+                class="rename"
+                bind:this={input}
+                bind:value={renameText}
+                aria-label="Rename note"
+                onclick={(event) => event.stopPropagation()}
+                onkeydown={(event) => {
+                  // The tree would take space, arrows and Enter. Shortcuts still reach the window.
+                  if (!event.ctrlKey && !event.metaKey) event.stopPropagation();
+                  if (event.key !== 'Enter' && event.key !== 'Escape') return;
+                  event.preventDefault();
+                  if (event.key === 'Enter') commitRename();
+                  else renaming = null;
+                  list?.focus();
+                }}
+                onblur={commitRename}
+              />
+            {:else}
+              <span class="name">{row.entry.name}</span>
+            {/if}
           </div>
         {/each}
       </div>
@@ -251,6 +317,17 @@
   .name {
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .rename {
+    flex: 1;
+    min-width: 0;
+    padding: 1px 4px;
+    color: var(--text);
+    background: var(--bg-editor);
+    border: 1px solid var(--accent);
+    border-radius: 3px;
+    font: inherit;
   }
 
   .message {

@@ -126,6 +126,7 @@ function start(): void {
     readNote: (path) => vault.call('readNote', path),
     getPreviews: (paths) => vault.call('getPreviews', paths),
     writeNote: (path, content, base) => vault.call('writeNote', path, content, base),
+    renameNote: (from, to) => vault.call('renameNote', from, to),
     resumeUnload: () => {
       heldUnload?.();
       heldUnload = null;

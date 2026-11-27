@@ -21,7 +21,9 @@
     type SideWidths,
   } from '../panel-layout';
   import { shortcutFor } from '../shortcuts';
-  import { applyTabEvents, closeTab, cycleTab, moveTab, NO_TABS, openTab, replaceTab, tabName, type Tabs as TabsState } from '../tabs-model';
+  import { renameNote as coordinateRename } from '../rename-note';
+  import { applyTabEvents, closeTab, cycleTab, moveTab, NO_TABS, openTab, renameTab, replaceTab, tabName, type Tabs as TabsState } from '../tabs-model';
+  import { errorMessage } from '../error-message';
   import Editor from './Editor.svelte';
   import FileTree from './FileTree.svelte';
   import Splitter from './Splitter.svelte';
@@ -31,13 +33,69 @@
   let { vault }: { vault: VaultInfo } = $props();
 
   let tabs = $state.raw<TabsState>(NO_TABS);
+  /** The pair being renamed: its tree batch arrives before the IPC result. */
+  let pendingRename: { from: string; to: string } | null = null;
 
-  // Marks the tabs of notes deleted outside the app.
-  $effect(() => window.myelin.onVaultEvents((events) => (tabs = applyTabEvents(tabs, events))));
+  // Marks the tabs of notes deleted outside the app. A pending rename's tree batch
+  // must not mark the old tab deleted: its editor state is about to be rekeyed.
+  $effect(() =>
+    window.myelin.onVaultEvents((events) => {
+      const visible = pendingRename
+        ? events.filter(
+            (event) =>
+              !(
+                (event.type === 'deleted' && event.path === pendingRename!.from) ||
+                (event.type === 'created' && event.path === pendingRename!.to)
+              ),
+          )
+        : events;
+      tabs = applyTabEvents(tabs, visible);
+    }),
+  );
 
   let saver: NoteSaver | null = null;
   let problems = $state.raw<NoteProblems>(new Map());
   let metrics = $state.raw<NoteMetrics | null>(null);
+  let renameError = $state('');
+
+  /** Renames a note; its tab and editor state move with it, without reopening. */
+  async function requestRename(from: string, to: string) {
+    const notes = saver;
+    if (!notes) return;
+    if (pendingRename) {
+      renameError = 'Another rename is still running. Try again in a moment.';
+      return;
+    }
+    renameError = '';
+    const isOpen = (path: string) => tabs.list.some((tab) => tab.path === path);
+    pendingRename = { from, to };
+    try {
+      const result = await coordinateRename(
+        window.myelin,
+        {
+          hasDeletedTab: (path) => tabs.list.some((tab) => tab.path === path && tab.deleted),
+          saveAll: () => notes.saveAll(),
+          save: (path) => notes.save(path),
+          move: (oldPath, newPath) => {
+            void notes.rename(oldPath, newPath);
+            tabs = renameTab(tabs, oldPath, newPath);
+          },
+        },
+        from,
+        to,
+      );
+      // Not saved: its tab says why.
+      if (!result) {
+        if (isOpen(from)) tabs = openTab(tabs, from);
+      } else if (result.notUpdated.length > 0) {
+        renameError = `Renamed, but the links in these notes were not updated: ${result.notUpdated.join(', ')}`;
+      }
+    } catch (error) {
+      renameError = `Could not rename the note. ${errorMessage(error)}`;
+    } finally {
+      pendingRename = null;
+    }
+  }
 
   /** A tab closes once nothing of the user's would be lost; otherwise it stays, showing why. */
   async function requestClose(path: string) {
@@ -190,6 +248,7 @@
         onactivate={(path) => (tabs = openTab(tabs, path))}
         onclose={requestClose}
         onmove={(path, to) => (tabs = moveTab(tabs, path, to))}
+        onrename={requestRename}
       />
     </div>
 
@@ -247,7 +306,7 @@
       <kbd>Ctrl+P</kbd>
     </button>
     <div class="files">
-      <FileTree selected={tabs.active} onopen={(path) => (tabs = openTab(tabs, path))} />
+      <FileTree selected={tabs.active} onopen={(path) => (tabs = openTab(tabs, path))} onrename={requestRename} />
     </div>
   </nav>
 
@@ -324,6 +383,13 @@
   </div>
 </div>
 
+{#if renameError}
+  <div class="rename-error" role="alert">
+    <span>{renameError}</span>
+    <button type="button" onclick={() => (renameError = '')}>Dismiss</button>
+  </div>
+{/if}
+
 {#if unsavable}
   <dialog bind:this={quitDialog} onclose={() => (unsavable = null)} aria-labelledby="unsaved-title">
     <h2 id="unsaved-title">Some notes are not saved</h2>
@@ -337,6 +403,33 @@
 {/if}
 
 <style>
+  .rename-error {
+    position: fixed;
+    right: 12px;
+    bottom: 32px;
+    z-index: 10;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    max-width: min(480px, 90vw);
+    padding: 8px 12px;
+    color: var(--text);
+    background: var(--bg-panel);
+    border: 1px solid var(--divider);
+    border-radius: 8px;
+    box-shadow: 0 8px 24px rgb(0 0 0 / 30%);
+  }
+
+  .rename-error button {
+    flex: none;
+    padding: 2px 8px;
+    color: var(--text-muted);
+    background: none;
+    border: 1px solid var(--divider);
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
   dialog {
     max-width: min(480px, 90vw);
     padding: 20px 24px;

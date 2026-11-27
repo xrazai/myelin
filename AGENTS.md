@@ -58,7 +58,9 @@ Do not create tables, dependencies, queues or files for AI before the decision. 
    - Atomic write on Windows: write `<note>.md.tmp`, `fsync`, then rename over the original. Retry the rename on `EPERM`/`EBUSY`/`EACCES` (antivirus, OneDrive, indexer holding the file).
    - Watcher loop guard: ignore `*.tmp`; before writing, the worker records the expected content hash of each file it is about to write, and a watcher event whose file hash matches is dropped. Any event whose hash equals the indexed hash is a no-op.
    - Watcher (`main/vault-watcher.ts`): what chokidar reports (its events and `raw`) only marks paths to look at. `VaultEvent`s come from comparing folder listings with the last reported tree, and `changed` from content hashes. Never forward chokidar events: on Windows it misses repeated case-only renames. The tree is updated at once; the index waits for the first sync. The worker writes notes only through `VaultWatch.write`. An app write that creates a note (or its folders) is the one own write reported, as `created`.
-   - Rename is one batch: rename the file, rewrite the linking notes, reindex once. Those rewrites are marked as link-only and do not count as content changes for the heavy path.
+   - Rename is one batch: rename the file, rewrite the linking notes, reindex once. Those rewrites are marked as link-only and do not count as content changes for the heavy path (the renderer still gets `changed`, to reload open notes).
+     - Every link keeps leading where it did, those to a namesake the new name would capture included; `[[#Heading]]` is never rewritten. Open notes are saved first, and each rewrite follows the `writeNote` base rule: a note that cannot be rewritten is reported, not overwritten.
+     - Only the notes the index says can be affected are read, plus those it is behind on.
 3. The main thread never blocks: scanning, parsing, indexing and heavy processors run in workers.
 4. Golden rule: Svelte owns only the shell (file tree, tabs, palette, status bar, Brain panel). CodeMirror 6 and `@myelin/graph` run in plain TS inside containers mounted by Svelte, outside its reactivity.
 5. Graph data crosses boundaries as typed arrays (`Float32Array` / `Uint32Array`).
@@ -120,7 +122,8 @@ myelin/
 │   │   ├── vault-config.ts    # .myelin/vault.json (used by vault-worker)
 │   │   ├── vault-path.ts      # validates note paths from the renderer (used by vault-worker)
 │   │   ├── vault-index.ts     # index.db: schema, sync and updates (used by vault-worker)
-│   │   ├── vault-watcher.ts   # chokidar watcher, loop guard, tree events (used by vault-worker)
+│   │   ├── vault-watcher.ts   # chokidar watcher, loop guard, tree events, rename batch (used by vault-worker)
+│   │   ├── vault-usage.ts     # appends learning events to usage.jsonl (used by vault-worker)
 │   │   └── brain-adapter.ts   # AI slot: search(query), process(changedNote); FTS5 now
 │   ├── preload/preload.ts     # contextBridge, exposes window.myelin
 │   ├── shared/ipc.ts          # window.myelin contract: types and channel names
@@ -154,6 +157,7 @@ myelin/
 │       ├── note-list.ts       # every note path (no content), kept current by watcher events
 │       ├── note-search.ts     # fuzzy search over note names, ignoring case and accents
 │       ├── note-cache.ts      # LRU of short previews, viewport prefetch
+│       ├── rename-note.ts     # rename order: save, worker batch, move tab and editor state
 │       └── graph-view.ts      # glue: note path <-> node id, feeds @myelin/graph, wires events
 └── vault-dev/                 # local test vault
     ├── .myelin/

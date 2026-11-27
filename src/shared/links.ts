@@ -86,6 +86,69 @@ export function noteLinks(source: string, text: string, resolve: LinkResolver): 
   return parseLinks(text).map((link) => ({ ...link, source, ...resolve(link.target, source) }));
 }
 
+/**
+ * Why a note cannot be renamed to `path`, or `null`. Refuses names that `[[links]]` or
+ * Windows cannot hold.
+ */
+export function noteNameProblem(path: string): string | null {
+  const segments = stripExtension(path).split('/');
+  const name = segments[segments.length - 1]!;
+  if (/[[\]#|]/.test(name)) return 'a note name cannot contain [ ] # |';
+  if (segments.some((segment) => /[<>:"?*\\\x00-\x1f]/.test(segment))) {
+    return 'a name cannot contain < > : " ? * \\';
+  }
+  if (segments.some((segment) => segment !== segment.trim() || segment.endsWith('.'))) {
+    return 'a name cannot start or end with a space, or end with a dot';
+  }
+  if (/\.md$/i.test(name)) return 'a note name cannot end with .md';
+  return null;
+}
+
+/**
+ * Rewrites the links in `text`, the note at `source`, so that every one still leads where
+ * it did once `from` is renamed to `to`: the links to `from`, and also those to another
+ * note that the new name would capture. Only the target is replaced: alias, heading/block
+ * subpath, table escapes and line endings stay as they were, and so does `[[#Heading]]`.
+ * `oldResolve` is the resolver from before the rename, `newResolve` the one after. Returns
+ * the new text and the number of links changed; throws if a link cannot be written.
+ */
+export function rewriteLinksForRename(
+  text: string,
+  source: string,
+  from: string,
+  to: string,
+  oldResolve: LinkResolver,
+  newResolve: LinkResolver,
+): { text: string; count: number } {
+  const nextSource = source === from ? to : source;
+  const nameOf = (path: string) => stripExtension(path.slice(path.lastIndexOf('/') + 1));
+  const renamed = nameOf(from) !== nameOf(to);
+  const edits: { link: ParsedLink; target: string }[] = [];
+
+  for (const link of parseLinks(text)) {
+    // `[[#Heading]]` means the note it is in, whatever its name.
+    if (link.target === '') continue;
+    const before = oldResolve(link.target, source).path;
+    if (before === null) continue;
+    const wanted = before === from ? to : before;
+    // A link to the renamed note also follows a new name, even one that differs in case only.
+    const follows = before === from && renamed;
+    if (!follows && newResolve(link.target, nextSource).path === wanted) continue;
+    // The bare name, if the link was bare and the name still leads there; else the path.
+    const name = nameOf(wanted);
+    const bare = !link.target.includes('/') && newResolve(name, nextSource).path === wanted;
+    const target = bare ? name : stripExtension(wanted);
+    if (/[[\]#|]/.test(target)) throw new Error(`a link cannot point to ${wanted}: its path contains [ ] # |`);
+    if (target !== link.target) edits.push({ link, target });
+  }
+
+  let result = text;
+  for (const { link, target } of edits.reverse()) {
+    result = result.slice(0, link.targetFrom) + target + result.slice(link.targetTo);
+  }
+  return { text: result, count: edits.length };
+}
+
 /** Every link in a note's text, in text order. Accepts LF and CRLF. */
 export function parseLinks(text: string): ParsedLink[] {
   const links: ParsedLink[] = [];
