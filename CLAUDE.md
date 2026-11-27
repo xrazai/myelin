@@ -6,7 +6,7 @@ Goal priority:
 1. The personal vault that learns (Rafa's daily use). Scale and scope decisions serve this.
 2. `@myelin/graph` as an open-source library. Library-only ambitions go to "Later".
 
-Status: docs only. No code or git repository yet.
+Status: docs only, no code yet. Repo: https://github.com/xrazai/myelin (branch `main`).
 
 ## Language rule
 - Everything in the project is in English: code, identifiers, comments, file and folder names, UI text, docs.
