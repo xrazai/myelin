@@ -1,11 +1,13 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import type { VaultInfo } from '../../shared/ipc';
   import { errorMessage } from '../error-message';
 
-  let { onopen }: { onopen: (vault: VaultInfo) => void } = $props();
+  let { onopen, notice = '' }: { onopen: (vault: VaultInfo) => void; notice?: string } = $props();
 
   let busy = $state(false);
-  let error = $state('');
+  // Why the last vault did not reopen, until something else is tried.
+  let error = $state(untrack(() => notice));
 
   async function choose(action: 'createVault' | 'openVault') {
     busy = true;

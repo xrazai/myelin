@@ -4,6 +4,7 @@ import { fold, score } from './note-search';
 export type CommandId =
   | 'open-palette'
   | 'new-note'
+  | 'switch-vault'
   | 'find'
   | 'delete'
   | 'next-tab'
@@ -62,6 +63,12 @@ export const COMMANDS: readonly Command[] = [
     label: 'Find in note',
     shortcut: 'Ctrl+F',
     match: ctrl('f'),
+  },
+  {
+    id: 'switch-vault',
+    label: 'Switch vault…',
+    shortcut: '',
+    match: () => false,
   },
   {
     id: 'save',

@@ -12,6 +12,8 @@ export interface NoteList {
   resolve: LinkResolver;
   search: NoteSearch;
   has(path: string): boolean;
+  /** As `has`, with the same spelling. */
+  hasExact(path: string): boolean;
   /**
    * The folder of a note that `path` writes in another case, or `null`. Windows would put
    * the new note in it, under a path the app does not know.
@@ -104,6 +106,7 @@ export function watchNoteList(api: Pick<MyelinApi, 'listNotes' | 'onVaultEvents'
     search: (query, limit, recent) => (search ??= createNoteSearch(paths))(query, limit, recent),
     has: (path) => (lowerCounts.get(path.toLowerCase()) ?? 0) > 0,
     folderInOtherCase,
+    hasExact: (path) => paths.has(path),
     stop: unsubscribe,
   };
 }

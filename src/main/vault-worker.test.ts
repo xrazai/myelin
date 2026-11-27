@@ -173,6 +173,28 @@ test('a deletion asks main for the move and answers with its outcome', async () 
   }
 });
 
+test('remembers the vault opened last, for the next start', async () => {
+  const data = await mkdtemp(join(tmpdir(), 'myelin-last-'));
+  const folder = await mkdtemp(join(tmpdir(), 'myelin-last-vault-'));
+  const start = () => new Worker(new URL('./vault-worker.ts', import.meta.url), { workerData: { userData: data } });
+  const first = start();
+  try {
+    const client = createVaultClient(first);
+    expect(await client.call('lastVault')).toBeNull();
+    await client.call('open', folder);
+    await expect(client.call('open', join(folder, 'missing'))).rejects.toThrow();
+  } finally {
+    await first.terminate();
+  }
+  const second = start();
+  try {
+    expect(await createVaultClient(second).call('lastVault')).toBe(folder);
+  } finally {
+    await second.terminate();
+    for (const path of [data, folder]) await rm(path, { recursive: true, force: true });
+  }
+});
+
 // Rule 3: main only routes. Scanning and indexing code reaches it through no import.
 test('main and its vault client do no file I/O', () => {
   for (const name of ['main.ts', 'vault-client.ts']) {

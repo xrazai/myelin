@@ -88,6 +88,11 @@ export interface MyelinApi {
   createVault(): Promise<VaultInfo | null>;
   /** Shows the folder dialog and opens that vault. `null` if canceled. */
   openVault(): Promise<VaultInfo | null>;
+  /**
+   * Opens the vault opened last, without a dialog. `null` if there was none. Rejects if
+   * its folder is gone or cannot be used.
+   */
+  reopenVault(): Promise<VaultInfo | null>;
   /** Entries at the vault root. */
   getTree(): Promise<TreeEntry[]>;
   /** The path of every note in the tree, in tree order. No content. */
@@ -160,6 +165,7 @@ export type CallHandlers = {
 export const CALL_CHANNELS = {
   createVault: 'vault:create',
   openVault: 'vault:open',
+  reopenVault: 'vault:reopen',
   getTree: 'vault:tree',
   listNotes: 'note:list',
   readNote: 'note:read',
