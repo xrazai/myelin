@@ -2,6 +2,7 @@
 // vault-worker only. Loaded by Node as-is in tests (type stripping): erasable TypeScript.
 import { lstat, readdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
+import { isReservedName } from '../shared/links.ts';
 
 /**
  * The OS path of the note at `path`, or a throw. Only the contract form passes: relative,
@@ -86,6 +87,14 @@ export async function newFolderPath(root: string, path: unknown): Promise<string
  * throw. What deleting needs: nothing outside the vault, no link, never the vault itself.
  */
 export async function existingItemPath(root: string, path: unknown, kind: 'note' | 'folder'): Promise<string> {
+  // The Windows shell, which moves to the Recycle Bin, drops a dot or space that ends a
+  // name: `Plans.` would take the folder `Plans` instead. Device names are as unsafe.
+  if (typeof path === 'string' && path.split('/').some((segment) => /[. ]$/.test(segment) || isReservedName(segment))) {
+    throw new Error(
+      `Windows cannot move "${path}" to the Recycle Bin safely: first rename, outside Myelin, ` +
+        'any name that ends in a dot or space or that Windows reserves',
+    );
+  }
   let file: string;
   if (kind === 'note') {
     file = await existingNotePath(root, path);

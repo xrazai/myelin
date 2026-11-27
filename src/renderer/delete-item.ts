@@ -9,7 +9,8 @@ export interface DeleteTarget {
 }
 
 export interface DeleteDisk {
-  deleteItem(path: string, kind: TreeEntry['kind']): Promise<void>;
+  /** Resolves with the notes now in the bin. */
+  deleteItem(path: string, kind: TreeEntry['kind']): Promise<string[]>;
 }
 
 export interface DeleteState {
@@ -29,20 +30,25 @@ export function pathsUnder(paths: readonly string[], target: DeleteTarget): stri
   return paths.filter((open) => (kind === 'note' ? open === path : open.startsWith(`${path}/`)));
 }
 
-/** `discard`: the user chose to lose the text that cannot be saved. Rejects if the move fails. */
+/**
+ * `discard`: the open notes whose text the user agreed to lose; another one that cannot be
+ * saved asks again. Closes only the tabs of those and of the notes that went to the bin: a
+ * tab of a note already deleted may hold the only copy of its text (#107), and stays.
+ * Rejects if the move fails.
+ */
 export async function deleteItem(
   disk: DeleteDisk,
   state: DeleteState,
   target: DeleteTarget,
-  discard: boolean,
+  discard: readonly string[] = [],
 ): Promise<DeleteOutcome> {
   const unsaved: string[] = [];
   for (const path of pathsUnder(state.openPaths(), target)) {
     if (!(await state.save(path))) unsaved.push(path);
   }
-  if (unsaved.length > 0 && !discard) return { status: 'unsaved', paths: unsaved };
-  await disk.deleteItem(target.path, target.kind);
-  state.close(pathsUnder(state.openPaths(), target));
+  if (unsaved.some((path) => !discard.includes(path))) return { status: 'unsaved', paths: unsaved };
+  const gone = new Set([...(await disk.deleteItem(target.path, target.kind)), ...unsaved]);
+  state.close(pathsUnder(state.openPaths(), target).filter((path) => gone.has(path)));
   return { status: 'deleted' };
 }
 

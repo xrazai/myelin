@@ -483,6 +483,24 @@ describe('deleting', () => {
     expect(asked).toEqual([]);
   });
 
+  // The Windows shell reads `Plans.` as `Plans`, and would move that one.
+  test('refuses names the shell would read as another item', async () => {
+    const asked: string[] = [];
+    for (const folder of ['Plans.', 'Trail ', 'A.']) await mkdir(`\\\\?\\${at(folder)}`);
+    await writeFile(`\\\\?\\${at('A.')}\\B.md`, 'x', 'utf8');
+    const refused: [string, 'note' | 'folder'][] = [['Plans.', 'folder'], ['Trail ', 'folder'], ['A./B.md', 'note']];
+    for (const [path, kind] of refused) {
+      await expect(watching.remove(path, kind, async (file) => void asked.push(file)), path).rejects.toThrow('safely');
+    }
+    expect(asked).toEqual([]);
+    for (const folder of ['Plans.', 'Trail ', 'A.']) await rm(`\\\\?\\${at(folder)}`, { recursive: true });
+  });
+
+  test('says which notes went to the bin', async () => {
+    expect((await watching.remove('Plans', 'folder', trash)).sort()).toEqual(['Plans/A.md', 'Plans/deep/B.md']);
+    expect(await watching.remove('Home.md', 'note', trash)).toEqual(['Home.md']);
+  });
+
   test('a save waiting behind a deletion does not recreate the note', async () => {
     const removed = watching.remove('Plans/A.md', 'note', trash);
     const saved = watching.write('Plans/A.md', 'newer', '[[B]] [[Plans/A]]');

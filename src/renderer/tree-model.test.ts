@@ -1,14 +1,6 @@
 import { expect, test, vi } from 'vitest';
 import type { TreeEntry, VaultEvent } from '../shared/ipc';
-import {
-  applyEvents,
-  flatten,
-  keyAction,
-  pruneExpanded,
-  scrollToShow,
-  visibleRange,
-  watchTree,
-} from './tree-model';
+import { applyEvents, cursorAfter, flatten, keyAction, pruneExpanded, scrollToShow, visibleRange, watchTree } from './tree-model';
 
 const note = (path: string): TreeEntry => ({
   kind: 'note',
@@ -225,4 +217,16 @@ test('watchTree reports a failed load, and goes quiet once stopped', async () =>
   await stopped.reply([]);
   expect(stopped.subscribed()).toBe(false);
   expect(tree).not.toHaveBeenCalled();
+});
+
+test('a cursor whose row goes away takes its neighbour, never the top', () => {
+  const rows = (...paths: string[]) =>
+    flatten(paths.map((path) => ({ kind: 'note' as const, name: path, path })), new Set());
+  const before = rows('a', 'b', 'c', 'd');
+  expect(cursorAfter(before, 'c', rows('a', 'b', 'd'))).toBe('d');
+  expect(cursorAfter(before, 'd', rows('a', 'b', 'c'))).toBe('c');
+  expect(cursorAfter(before, 'b', rows('a'))).toBe('a');
+  expect(cursorAfter(before, 'b', before)).toBe('b');
+  expect(cursorAfter(before, 'a', [])).toBeNull();
+  expect(cursorAfter(before, null, before)).toBeNull();
 });

@@ -176,6 +176,21 @@ export function visibleRange(
   };
 }
 
+/**
+ * Where the keyboard cursor goes when the tree changes: it stays on its row, or, if that
+ * row is gone, takes the one now in its place. Never jumps to the top, where `Delete`
+ * would aim at something else.
+ */
+export function cursorAfter(before: TreeRow[], cursor: string | null, after: TreeRow[]): string | null {
+  const at = before.findIndex((row) => row.entry.path === cursor);
+  if (at === -1 || after.some((row) => row.entry.path === cursor)) return cursor;
+  // The first row that followed it and is still there, else the last one that preceded it.
+  const kept = new Set(after.map((row) => row.entry.path));
+  const next = before.slice(at + 1).find((row) => kept.has(row.entry.path));
+  const previous = before.slice(0, at).findLast((row) => kept.has(row.entry.path));
+  return (next ?? previous)?.entry.path ?? null;
+}
+
 /** The `scrollTop` that shows a row, moving as little as possible. */
 export function scrollToShow(index: number, scrollTop: number, viewHeight: number, rowHeight: number): number {
   const top = index * rowHeight;

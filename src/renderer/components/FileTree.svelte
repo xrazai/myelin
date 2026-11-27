@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { tick } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import type { TreeEntry } from '../../shared/ipc';
   import { errorMessage } from '../error-message';
   import { foldersAbove, menuItems, newItem, targetFolder, type ItemKind, type MenuItem } from '../new-item';
   import { renamedPath } from '../rename-note';
-  import { flatten, keyAction, pruneExpanded, scrollToShow, visibleRange, watchTree } from '../tree-model';
+  import { cursorAfter, flatten, keyAction, pruneExpanded, scrollToShow, visibleRange, watchTree } from '../tree-model';
   import TreeMenu from './TreeMenu.svelte';
 
   /** `selected`: path of the open note. `onopen`: a note was clicked, chosen or created. */
@@ -25,6 +25,7 @@
 
   export function focus() {
     list?.focus();
+    void scrollToCursor();
   }
 
   /** Fixed, so only the rows in view need to be in the DOM. */
@@ -69,8 +70,16 @@
   $effect(() =>
     watchTree(window.myelin, {
       tree(next, events) {
+        // Not tracked: this effect subscribes once.
+        const before = untrack(() => rows);
         tree = next;
         expanded = pruneExpanded(expanded, events);
+        untrack(() => {
+          const moved = cursorAfter(before, cursor, rows);
+          if (moved === cursor) return;
+          cursor = moved;
+          void scrollToCursor();
+        });
       },
       error(reason) {
         error = `Could not list the notes. ${errorMessage(reason)}`;

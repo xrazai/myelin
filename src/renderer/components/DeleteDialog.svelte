@@ -14,7 +14,7 @@
     onclose,
   }: {
     target: DeleteTarget;
-    ondelete: (discard: boolean) => Promise<DeleteOutcome>;
+    ondelete: (discard: readonly string[]) => Promise<DeleteOutcome>;
     onclose: (deleted: boolean) => void;
   } = $props();
 
@@ -44,7 +44,7 @@
     working = true;
     error = '';
     try {
-      const outcome = await ondelete(unsaved !== null);
+      const outcome = await ondelete(unsaved ?? []);
       if (outcome.status === 'deleted') {
         deleted = true;
         dialog?.close();
@@ -71,6 +71,9 @@
   }}
 >
   <h2 id="delete-title">Move “{name}” to the Recycle Bin?</h2>
+  {#if target.path.includes('/')}
+    <p class="where">{target.path}</p>
+  {/if}
   {#if info}
     {#each deleteWarnings(target.kind, info) as line (line)}
       <p>{line}</p>
@@ -115,6 +118,11 @@
   p {
     margin: 10px 0 0;
     overflow-wrap: anywhere;
+  }
+
+  .where {
+    color: var(--text-muted);
+    font-size: 12px;
   }
 
   .buttons {

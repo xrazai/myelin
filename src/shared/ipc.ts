@@ -113,10 +113,11 @@ export interface MyelinApi {
   deleteInfo(path: string, kind: TreeEntry['kind']): Promise<DeleteInfo>;
   /**
    * Moves the note or folder at `path` to the Recycle Bin, never deleting for good. Its
-   * events are sent before the call settles. Rejects if it cannot be moved; of a folder,
-   * part may be in the bin by then, and the events say what is left.
+   * events are sent before the call settles. Resolves with the notes that are in the bin.
+   * Rejects if it cannot be moved; of a folder, part may be there by then, and the events
+   * say what is left.
    */
-  deleteItem(path: string, kind: TreeEntry['kind']): Promise<void>;
+  deleteItem(path: string, kind: TreeEntry['kind']): Promise<string[]>;
   /**
    * Does the close or reload that the page held back (`beforeunload`) to save first. The
    * page cannot tell which one it was.

@@ -39,7 +39,7 @@ export interface VaultRequests {
   createFolder(path: string): void;
   deleteInfo(path: string, kind: TreeEntry['kind']): DeleteInfo;
   /** `deleteItem` of the contract; asks main for the move with a `trash` message. */
-  deleteItem(path: string, kind: TreeEntry['kind']): void;
+  deleteItem(path: string, kind: TreeEntry['kind']): string[];
   /**
    * Settles when the current vault's index sync ends. Rejects if the index cannot be
    * opened or synced, or if another `open` cancels it.

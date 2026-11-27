@@ -110,7 +110,7 @@
     else deleting ??= target;
   }
 
-  function confirmDelete(target: DeleteTarget, discard: boolean) {
+  function confirmDelete(target: DeleteTarget, discard: readonly string[]) {
     const notes = saver!;
     return deleteItem(
       window.myelin,
