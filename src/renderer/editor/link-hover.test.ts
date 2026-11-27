@@ -37,4 +37,39 @@ describe('visibleLinkPaths', () => {
     };
     expect(visibleLinkPaths(view, notes)).toEqual(['Alpha.md']);
   });
+
+  test('defers prefetch until notes.ready resolves and cancels if destroyed', async () => {
+    let resolveReady!: () => void;
+    let loaded = false;
+    const ready = new Promise<void>((resolve) => {
+      resolveReady = () => {
+        loaded = true;
+        resolve();
+      };
+    });
+    const resolver = createLinkResolver(['Alpha.md']);
+    const notes = { ready, isLoaded: () => loaded, resolve: resolver };
+
+    let prefetched: string[] = [];
+    const cache = {
+      peek: () => undefined,
+      fetch: async () => null,
+      prefetch: async (paths: readonly string[]) => {
+        prefetched.push(...paths);
+      },
+      invalidate: () => {},
+      size: () => 0,
+      stop: () => {},
+    };
+
+    const { linkHover } = await import('./link-hover');
+    const ext = linkHover({ notes, cache });
+    expect(ext).toBeDefined();
+
+    // Simulate deferred ready resolution.
+    resolveReady();
+    await ready;
+    expect(loaded).toBe(true);
+    expect(prefetched).toEqual([]);
+  });
 });

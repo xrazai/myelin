@@ -176,9 +176,9 @@ async function measure(vault: string, userData: string, notes: number): Promise<
   const [hoverColdMs] = firstNote ? await timed(() => cache.fetch(firstNote)) : [0];
   const warmStart = performance.now();
   if (firstNote) {
-    for (let i = 0; i < 1000; i++) cache.peek(firstNote);
+    for (let i = 0; i < 10_000; i++) cache.peek(firstNote);
   }
-  const hoverWarmMs = round((performance.now() - warmStart) / 1000);
+  const hoverWarmMs = Math.max(0.0001, round((performance.now() - warmStart) / 10_000));
   cache.stop();
 
   const memory = new Database(':memory:');
