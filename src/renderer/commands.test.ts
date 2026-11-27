@@ -44,3 +44,10 @@ test('searchCommands returns all commands on empty query and filters fuzzily', (
   const tab = searchCommands('ntab');
   expect(tab.map((c) => c.id)).toContain('next-tab');
 });
+
+test('Delete is a key of the file tree only: the window never takes it', () => {
+  for (const mods of [{ ctrl: false }, { ctrl: false, shift: true }, {}]) expect(press('Delete', mods)).toBeNull();
+  const remove = COMMANDS.find((command) => command.id === 'delete')!;
+  expect(remove.scope).toBe('tree');
+  expect(remove.match({ key: 'Delete', ctrlKey: false, shiftKey: false, altKey: false, metaKey: false })).toBe(true);
+});

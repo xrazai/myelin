@@ -18,6 +18,8 @@ Shortcuts: `Ctrl+P` single palette (notes by default, `>` for commands). `Ctrl+S
 
 File tree: "New note" and "New folder" buttons (also in an empty vault) create at the root. Right click, the Menu key or `Shift+F10` opens a menu: New note and New folder in the chosen folder (or the folder of the chosen note; blank space: the root), and Rename on a note. The name is typed above the tree; a refused name says why, and nothing existing is replaced. A new note opens ready to type. `Ctrl+N` creates at the root and shows the tree if it is hidden. `F2` renames.
 
+Deleting: "Delete…" in the menu or the `Delete` key in the tree (the `>` palette deletes the open note). A confirmation says what goes, how many other notes link to it (unknown while the vault is first indexed) and, for a folder, that files the tree does not show go with it. Open notes under the target are saved first; if one cannot be, nothing is deleted unless the user gives that text up. Everything goes to the Recycle Bin, never deleted for good; their tabs close; links to them keep their text and become unresolved (or lead to another note of the same name).
+
 ## Brain panel (vault query)
 Opened by the synapse/chat icon (top right) or `Ctrl+Shift+L`. The graph slides away and the panel takes its place.
 - Top: quick search/question box (e.g. "What have I written about GPU architecture?").

@@ -21,11 +21,13 @@
     type SideWidths,
   } from '../panel-layout';
   import { commandFor, type CommandId } from '../commands';
+  import { deleteItem, type DeleteTarget } from '../delete-item';
   import { watchNoteList } from '../note-list';
   import { renameNote as coordinateRename } from '../rename-note';
   import { applyTabEvents, closeTab, cycleTab, moveTab, NO_TABS, openTab, renameTab, replaceTab, tabName, type Tabs as TabsState } from '../tabs-model';
   import { errorMessage } from '../error-message';
   import CommandPalette from './CommandPalette.svelte';
+  import DeleteDialog from './DeleteDialog.svelte';
   import Editor from './Editor.svelte';
   import FileTree from './FileTree.svelte';
   import Splitter from './Splitter.svelte';
@@ -98,6 +100,37 @@
     } finally {
       pendingRename = null;
     }
+  }
+
+  /** What the confirmation is about, while it is open. */
+  let deleting = $state.raw<DeleteTarget | null>(null);
+
+  function requestDelete(target: DeleteTarget) {
+    if (pendingRename) noteError = 'A rename is still running. Try again in a moment.';
+    else deleting ??= target;
+  }
+
+  function confirmDelete(target: DeleteTarget, discard: boolean) {
+    const notes = saver!;
+    return deleteItem(
+      window.myelin,
+      {
+        openPaths: () => tabs.list.map((tab) => tab.path),
+        save: (path) => notes.save(path),
+        close: (paths) => {
+          for (const path of paths) tabs = closeTab(tabs, path);
+        },
+      },
+      target,
+      discard,
+    );
+  }
+
+  async function deleteClosed(deleted: boolean) {
+    deleting = null;
+    if (!deleted) return;
+    await tick();
+    fileTree?.focus();
   }
 
   /** A tab closes once nothing of the user's would be lost; otherwise it stays, showing why. */
@@ -259,6 +292,12 @@
       case 'new-note':
         void newNote();
         return;
+      case 'delete': {
+        // From the palette: the open note. A deleted one has nothing to delete.
+        const active = tabs.list.find((tab) => tab.path === tabs.active);
+        if (active && !active.deleted) requestDelete({ path: active.path, kind: 'note' });
+        return;
+      }
       case 'next-tab':
         tabs = cycleTab(tabs, 1);
         return;
@@ -287,6 +326,8 @@
     if (!command) return;
     // Also keeps `Ctrl+W` from reaching the window menu, which would close the window.
     event.preventDefault();
+    // The confirmation is modal: shortcuts wait too.
+    if (deleting) return;
     if (paletteOpen && command !== 'open-palette') return;
     runCommand(command);
   }
@@ -381,7 +422,7 @@
       <kbd>Ctrl+P</kbd>
     </button>
     <div class="files">
-      <FileTree bind:this={fileTree} hasTab={(path) => tabs.list.some((tab) => tab.path === path)} selected={tabs.active} onopen={(path) => (tabs = openTab(tabs, path))} onrename={requestRename} />
+      <FileTree bind:this={fileTree} ondelete={requestDelete} hasTab={(path) => tabs.list.some((tab) => tab.path === path)} selected={tabs.active} onopen={(path) => (tabs = openTab(tabs, path))} onrename={requestRename} />
     </div>
   </nav>
 
@@ -474,6 +515,11 @@
     <span>{noteError}</span>
     <button type="button" onclick={() => (noteError = '')}>Dismiss</button>
   </div>
+{/if}
+
+{#if deleting}
+  {@const target = deleting}
+  <DeleteDialog {target} ondelete={(discard) => confirmDelete(target, discard)} onclose={deleteClosed} />
 {/if}
 
 {#if unsavable}

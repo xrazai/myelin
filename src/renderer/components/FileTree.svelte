@@ -13,13 +13,19 @@
     onopen,
     onrename,
     hasTab,
+    ondelete,
   }: {
     selected: string | null;
     onopen: (path: string) => void;
     onrename: (from: string, to: string) => void;
     /** A note with no file but a tab was deleted: its tab may hold its text. */
     hasTab: (path: string) => boolean;
+    ondelete: (target: { path: string; kind: TreeEntry['kind'] }) => void;
   } = $props();
+
+  export function focus() {
+    list?.focus();
+  }
 
   /** Fixed, so only the rows in view need to be in the DOM. */
   const ROW_HEIGHT = 28;
@@ -188,7 +194,11 @@
   function pick(id: MenuItem['id']) {
     const entry = menu?.entry ?? null;
     menu = null;
-    if (id === 'rename') {
+    if (id === 'delete') {
+      // The dialog gives the focus back to what has it when it opens.
+      list?.focus();
+      if (entry) ondelete({ path: entry.path, kind: entry.kind });
+    } else if (id === 'rename') {
       if (entry) startRename(entry.path);
     } else {
       void startCreate(id === 'new-note' ? 'note' : 'folder', targetFolder(entry));
@@ -214,6 +224,13 @@
     event.preventDefault();
     if (action.type === 'move') {
       cursor = rows[action.index]!.entry.path;
+    } else if (action.type === 'delete') {
+      // Only from the tree itself: in a field, `Delete` edits text.
+      const entry = rows[cursorIndex]?.entry;
+      if (event.target === list && entry) {
+        cursor = entry.path;
+        ondelete({ path: entry.path, kind: entry.kind });
+      }
     } else if (action.type === 'rename') {
       cursor = action.path;
       startRename(action.path);
