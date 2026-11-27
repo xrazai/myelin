@@ -14,7 +14,7 @@ Extremely fluid, easy to navigate: tactile graph interactions, links, command pa
 
 Layout: tabs (top) | tree (left) | editor | right column (graph or Brain panel) | status bar (bottom) with the learning indicator.
 
-Shortcuts: `Ctrl+P` single palette (notes by default, `>` for commands). `Ctrl+Shift+L` toggles graph / Brain panel.
+Shortcuts: `Ctrl+P` single palette (notes by default, `>` for commands). `Ctrl+Shift+L` toggles graph / Brain panel. `Ctrl+\` toggles Focus Mode (collapsing both side panels and restoring them on exit). `Ctrl+Shift+B` toggles the file tree.
 
 ## Brain panel (vault query)
 Opened by the synapse/chat icon (top right) or `Ctrl+Shift+L`. The graph slides away and the panel takes its place.

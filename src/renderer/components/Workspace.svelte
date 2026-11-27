@@ -6,12 +6,17 @@
   import {
     chooseWidth,
     DEFAULT_WIDTHS,
-    fitWidths,
+    fitVisibleWidths,
+    loadCollapsed,
     loadWidths,
     maxWidth,
     MIN_WIDTHS,
     resizeStored,
+    saveCollapsed,
     saveWidths,
+    toggleCollapsed,
+    toggleFocusMode,
+    type CollapsedPanels,
     type Side,
     type SideWidths,
   } from '../panel-layout';
@@ -85,18 +90,41 @@
   /** What the user chose; `shown` is what fits the window now. */
   // The vault is fixed while the workspace is mounted.
   let widths = $state.raw(untrack(() => loadWidths(localStorage, vault.id)));
+  let collapsed = $state.raw<CollapsedPanels>(untrack(() => loadCollapsed(localStorage, vault.id)));
+  let beforeFocus = $state.raw<CollapsedPanels | null>(null);
+  let resizing = $state(false);
   let windowWidth = $state(window.innerWidth);
   /** The screen as the last resize left it, until the window width changes. */
   let resized = $state.raw<{ shown: SideWidths; total: number } | null>(null);
-  const shown = $derived(resized?.shown ?? fitWidths(widths, windowWidth));
+  const shown = $derived(resized?.shown ?? fitVisibleWidths(widths, collapsed, windowWidth));
+  const focusMode = $derived(collapsed.left && collapsed.right);
 
   function onwindowresize() {
     if (resized?.total !== window.innerWidth) resized = null;
   }
 
-  const remember = () => saveWidths(localStorage, vault.id, widths);
+  const remember = () => {
+    resizing = false;
+    saveWidths(localStorage, vault.id, widths);
+  };
+
+  function toggleSide(side: Side) {
+    beforeFocus = null;
+    resized = null;
+    collapsed = toggleCollapsed(collapsed, side);
+    saveCollapsed(localStorage, vault.id, collapsed);
+  }
+
+  function toggleFocus() {
+    resized = null;
+    const next = toggleFocusMode(collapsed, beforeFocus);
+    collapsed = next.collapsed;
+    beforeFocus = next.beforeFocus;
+    saveCollapsed(localStorage, vault.id, collapsed);
+  }
 
   function resize(side: Side, width: number) {
+    resizing = true;
     const next = resizeStored(widths, shown, side, width, windowWidth);
     widths = next.stored;
     resized = { shown: next.shown, total: windowWidth };
@@ -111,7 +139,10 @@
 
   /** The graph and the Brain panel share the right column. */
   let rightPanel = $state<'graph' | 'brain'>('graph');
-  const toggleRightPanel = () => (rightPanel = rightPanel === 'graph' ? 'brain' : 'graph');
+  const toggleRightPanel = () => {
+    if (collapsed.right) toggleSide('right');
+    rightPanel = rightPanel === 'graph' ? 'brain' : 'graph';
+  };
 
   function onkeydown(event: KeyboardEvent) {
     const shortcut = shortcutFor(event);
@@ -121,6 +152,8 @@
     if (shortcut === 'next-tab') tabs = cycleTab(tabs, 1);
     else if (shortcut === 'previous-tab') tabs = cycleTab(tabs, -1);
     else if (shortcut === 'toggle-right-panel') toggleRightPanel();
+    else if (shortcut === 'toggle-focus-mode') toggleFocus();
+    else if (shortcut === 'toggle-left-panel') toggleSide('left');
     else if (tabs.active === null) return;
     else if (shortcut === 'save') void saver?.save(tabs.active);
     else void requestClose(tabs.active);
@@ -129,18 +162,67 @@
 
 <svelte:window {onkeydown} {onbeforeunload} onblur={() => void saver?.saveAll()} onresize={onwindowresize} bind:innerWidth={windowWidth} />
 
-<div class="workspace" style:grid-template-columns="{shown.left}px 1px minmax(0, 1fr) 1px {shown.right}px">
+<div
+  class={['workspace', { resizing }]}
+  style:grid-template-columns="{collapsed.left ? 0 : shown.left}px {collapsed.left ? 0 : 1}px minmax(0, 1fr) {collapsed.right ? 0 : 1}px {collapsed.right ? 0 : shown.right}px"
+>
   <div class="tabs">
-    <Tabs
-      {tabs}
-      {problems}
-      onactivate={(path) => (tabs = openTab(tabs, path))}
-      onclose={requestClose}
-      onmove={(path, to) => (tabs = moveTab(tabs, path, to))}
-    />
+    <div class="bar-controls">
+      <button
+        type="button"
+        class="icon-btn"
+        aria-label="Toggle file tree"
+        aria-pressed={!collapsed.left}
+        title="Toggle file tree (Ctrl+Shift+B)"
+        onclick={() => toggleSide('left')}
+      >
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+          <rect x="2" y="2.5" width="12" height="11" rx="2" />
+          <line x1="6" y1="2.5" x2="6" y2="13.5" />
+        </svg>
+      </button>
+    </div>
+
+    <div class="tabs-strip">
+      <Tabs
+        {tabs}
+        {problems}
+        onactivate={(path) => (tabs = openTab(tabs, path))}
+        onclose={requestClose}
+        onmove={(path, to) => (tabs = moveTab(tabs, path, to))}
+      />
+    </div>
+
+    <div class="bar-controls">
+      <button
+        type="button"
+        class="icon-btn"
+        aria-label="Toggle focus mode"
+        aria-pressed={focusMode}
+        title="Focus mode (Ctrl+\)"
+        onclick={toggleFocus}
+      >
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true">
+          <path d="M2.5 5.5v-2a1 1 0 0 1 1-1h2M10.5 2.5h2a1 1 0 0 1 1 1v2M13.5 10.5v2a1 1 0 0 1-1 1h-2M5.5 13.5h-2a1 1 0 0 1-1-1v-2" />
+        </svg>
+      </button>
+      <button
+        type="button"
+        class="icon-btn"
+        aria-label="Toggle right panel"
+        aria-pressed={!collapsed.right}
+        title="Toggle right panel"
+        onclick={() => toggleSide('right')}
+      >
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true">
+          <rect x="2" y="2.5" width="12" height="11" rx="2" />
+          <line x1="10" y1="2.5" x2="10" y2="13.5" />
+        </svg>
+      </button>
+    </div>
   </div>
 
-  <nav aria-label="Files">
+  <nav class={{ collapsed: collapsed.left }} inert={collapsed.left} aria-label="Files">
     <header class="sidebar-header">
       <h1 title={vault.root}>
         <svg class="vault-mark" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -169,42 +251,48 @@
     </div>
   </nav>
 
-  <Splitter
-    side="left"
-    label="Resize the file tree"
-    value={shown.left}
-    min={MIN_WIDTHS.left}
-    max={maxWidth(shown, 'left', windowWidth)}
-    onresize={(width) => resize('left', width)}
-    oncommit={remember}
-    onreset={() => reset('left')}
-  />
+  <div class={['splitter-slot', { collapsed: collapsed.left }]} inert={collapsed.left}>
+    <Splitter
+      side="left"
+      label="Resize the file tree"
+      value={shown.left}
+      min={MIN_WIDTHS.left}
+      max={maxWidth(shown, 'left', windowWidth)}
+      onresize={(width) => resize('left', width)}
+      oncommit={remember}
+      onreset={() => reset('left')}
+    />
+  </div>
 
   <main>
     <Editor
       {vault}
       {tabs}
       {problems}
+      {focusMode}
       onsaver={(next) => (saver = next)}
       onproblems={(next) => (problems = next)}
       ondiscard={(path) => (tabs = closeTab(tabs, path))}
       onfollow={follow}
       onmetrics={(next) => (metrics = next)}
+      onfocusmode={toggleFocus}
     />
   </main>
 
-  <Splitter
-    side="right"
-    label="Resize the right column"
-    value={shown.right}
-    min={MIN_WIDTHS.right}
-    max={maxWidth(shown, 'right', windowWidth)}
-    onresize={(width) => resize('right', width)}
-    oncommit={remember}
-    onreset={() => reset('right')}
-  />
+  <div class={['splitter-slot', { collapsed: collapsed.right }]} inert={collapsed.right}>
+    <Splitter
+      side="right"
+      label="Resize the right column"
+      value={shown.right}
+      min={MIN_WIDTHS.right}
+      max={maxWidth(shown, 'right', windowWidth)}
+      onresize={(width) => resize('right', width)}
+      oncommit={remember}
+      onreset={() => reset('right')}
+    />
+  </div>
 
-  <aside aria-label={rightPanel === 'graph' ? 'Graph' : 'Brain panel'}>
+  <aside class={{ collapsed: collapsed.right }} inert={collapsed.right} aria-label={rightPanel === 'graph' ? 'Graph' : 'Brain panel'}>
     <header class="right-header">
       <div class="segmented" data-mode={rightPanel} role="group" aria-label="Right panel view">
         <span class="seg-thumb" aria-hidden="true"></span>
@@ -296,13 +384,57 @@
     grid-template-rows: 38px minmax(0, 1fr) 26px;
     height: 100vh;
     overflow: hidden;
+    transition: grid-template-columns var(--t-panel) var(--ease-out);
+  }
+
+  .workspace.resizing {
+    transition: none;
   }
 
   .tabs {
     grid-column: 1 / -1;
+    display: flex;
+    gap: 4px;
+    align-items: center;
     min-width: 0;
+    padding: 0 8px;
     background: var(--bg-panel);
     border-bottom: 1px solid var(--divider);
+  }
+
+  .tabs-strip {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+  }
+
+  .bar-controls {
+    display: flex;
+    flex: none;
+    gap: 2px;
+    align-items: center;
+  }
+
+  .icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border: 0;
+    border-radius: 6px;
+    background: none;
+    color: var(--text-muted);
+    cursor: pointer;
+  }
+
+  .icon-btn:hover {
+    background: var(--surface-hover);
+    color: var(--text);
+  }
+
+  .icon-btn[aria-pressed='true'] {
+    color: var(--text);
   }
 
   .status {
@@ -316,7 +448,23 @@
     flex-direction: column;
     min-width: 0;
     min-height: 0;
+    overflow: hidden;
     background: var(--bg-panel);
+    transition: opacity var(--t-base) ease;
+  }
+
+  .splitter-slot {
+    display: grid;
+    min-width: 0;
+    min-height: 0;
+    transition: opacity var(--t-fast) ease;
+  }
+
+  nav.collapsed,
+  aside.collapsed,
+  .splitter-slot.collapsed {
+    opacity: 0;
+    pointer-events: none;
   }
 
   .sidebar-header {
