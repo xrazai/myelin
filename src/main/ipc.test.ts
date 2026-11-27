@@ -29,7 +29,7 @@ beforeAll(async () => {
 
 test('preload exposes only window.myelin, with exactly the contract methods', () => {
   expect([...electron.exposed.keys()]).toEqual(['myelin']);
-  expect(Object.keys(api).sort()).toEqual([...Object.keys(CALL_CHANNELS), 'onVaultEvents'].sort());
+  expect(Object.keys(api).sort()).toEqual([...Object.keys(CALL_CHANNELS), 'onVaultEvents', 'onIndexing'].sort());
 });
 
 test('each call invokes its own channel with its arguments', () => {
@@ -58,6 +58,13 @@ test('subscription passes only the payload and unsubscribes its own wrapper', ()
   expect(listener.mock.calls).toEqual([[[{ type: 'changed', path: 'a.md' }]]]);
   unsubscribe();
   expect(electron.removeListener).toHaveBeenCalledWith(channel, wrapper);
+});
+
+test('each subscription listens on its own channel', () => {
+  electron.on.mockClear();
+  api.onVaultEvents(() => {});
+  api.onIndexing(() => {});
+  expect(electron.on.mock.calls.map(([channel]) => channel)).toEqual(Object.values(EVENT_CHANNELS));
 });
 
 test('main handles every call channel and drops the IPC event', () => {

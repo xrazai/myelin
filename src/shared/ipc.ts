@@ -61,6 +61,12 @@ export interface MyelinApi {
   search(query: string): Promise<SearchCard[]>;
   /** Watcher events, in batches. Returns the unsubscribe function. */
   onVaultEvents(listener: (events: VaultEvent[]) => void): () => void;
+  /**
+   * `true` when the index sync of a vault starts, `false` when it ends, failed or not.
+   * The first one is sent before `createVault`/`openVault` resolve. Returns the
+   * unsubscribe function.
+   */
+  onIndexing(listener: (active: boolean) => void): () => void;
 }
 
 /** Methods answered by main (request/response); the rest are subscriptions. */
@@ -86,8 +92,10 @@ export const CALL_CHANNELS = {
 /** Push channels, main -> renderer, with their payloads. */
 export interface EventPayloads {
   'vault:events': VaultEvent[];
+  'vault:indexing': boolean;
 }
 
 export const EVENT_CHANNELS = {
   vaultEvents: 'vault:events',
+  indexing: 'vault:indexing',
 } as const satisfies Record<string, keyof EventPayloads>;
