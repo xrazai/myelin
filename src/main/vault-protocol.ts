@@ -1,6 +1,6 @@
 // Messages between main and vault-worker (worker thread, not Electron IPC).
 // A new request is a line here and a handler in `vault-worker.ts`.
-import type { TreeEntry, VaultInfo } from '../shared/ipc';
+import type { TreeEntry, VaultEvent, VaultInfo } from '../shared/ipc';
 import type { SyncReport } from './vault-index';
 
 /** `workerData` of the worker. */
@@ -30,5 +30,7 @@ export type VaultRequest = {
 
 export type WorkerMessage =
   | { type: 'ready'; sqliteVersion: string }
+  /** External changes in the current vault, not tied to any request. */
+  | { type: 'events'; events: VaultEvent[] }
   | { type: 'result'; id: number; result: unknown }
   | { type: 'error'; id: number; message: string };
