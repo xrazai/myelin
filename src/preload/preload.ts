@@ -26,6 +26,7 @@ const api: MyelinApi = {
   writeNote: call('writeNote'),
   search: call('search'),
   onVaultEvents: subscribe(EVENT_CHANNELS.vaultEvents),
+  onIndexing: subscribe(EVENT_CHANNELS.indexing),
 };
 
 contextBridge.exposeInMainWorld('myelin', api);

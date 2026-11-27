@@ -2,11 +2,20 @@
 import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { app, BrowserWindow, dialog, type OpenDialogOptions } from 'electron';
-import type { VaultInfo } from '../shared/ipc';
-import { pendingHandlers, registerIpc } from './ipc';
+import { EVENT_CHANNELS, type VaultInfo } from '../shared/ipc';
+import { pendingHandlers, registerIpc, sendEvent } from './ipc';
 import { createVaultClient, type VaultClient } from './vault-client';
 import type { VaultWorkerData } from './vault-protocol';
 import vaultWorkerPath from './vault-worker?modulePath';
+
+/** Number of the latest index sync. A new open cancels the one before, which then stays quiet. */
+let indexRun = 0;
+
+function sendIndexing(active: boolean): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    sendEvent(window.webContents, EVENT_CHANNELS.indexing, active);
+  }
+}
 
 // The renderer never sends paths: the folder comes from this dialog.
 async function pickAndOpenVault(
@@ -22,11 +31,18 @@ async function pickAndOpenVault(
   const [root] = filePaths;
   if (canceled || !root) return null;
   const info = await vault.call('open', root);
+  const run = ++indexRun;
+  sendIndexing(true);
   // A failure is logged by the worker.
-  void vault.call('whenIndexed').then(
-    (report) => console.log('[main] vault indexed', report),
-    () => {},
-  );
+  void vault
+    .call('whenIndexed')
+    .then(
+      (report) => console.log('[main] vault indexed', report),
+      () => {},
+    )
+    .finally(() => {
+      if (run === indexRun) sendIndexing(false);
+    });
   return info;
 }
 
