@@ -88,7 +88,17 @@ function createWindow(): void {
   }
 }
 
-void app.whenReady().then(() => {
+/** A second launch: brings the window of this instance to the front. */
+function focusWindow(): void {
+  const [window] = BrowserWindow.getAllWindows();
+  // None only on macOS, after the last window closed.
+  if (!window) return createWindow();
+  if (window.isMinimized()) window.restore();
+  // Not visible yet: `ready-to-show` shows it.
+  window.focus();
+}
+
+function start(): void {
   const workerData: VaultWorkerData = { userData: app.getPath('userData') };
   const vault = createVaultClient(new Worker(vaultWorkerPath, { workerData }), (events) => {
     for (const window of BrowserWindow.getAllWindows()) {
@@ -113,8 +123,17 @@ void app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
-});
+  // Registered once the window exists: an earlier launch finds it opening anyway.
+  app.on('second-instance', focusWindow);
+}
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
-});
+// One instance per userData, so two processes never write the same index.db. A launch that
+// does not get the lock never creates a window or vault-worker.
+if (app.requestSingleInstanceLock()) {
+  void app.whenReady().then(start);
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') app.quit();
+  });
+} else {
+  app.quit();
+}
