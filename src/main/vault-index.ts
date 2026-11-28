@@ -6,7 +6,8 @@
 // every row of `links` is resolved against exactly those paths. A note whose content is not
 // indexed yet has a NULL `hash`, so an interrupted sync just continues on the next one.
 import { createHash } from 'node:crypto';
-import { closeSync, fstatSync, mkdirSync, openSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { mkdirSync, rmSync, statSync } from 'node:fs';
+import { open } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { setImmediate as nextTurn } from 'node:timers/promises';
 import Database from 'better-sqlite3';
@@ -259,11 +260,74 @@ interface Indexed {
   mtimeMs: number;
 }
 
+/** A note's bytes and the stamp they had. */
+type Read = { bytes: Buffer; mtimeMs: number; size: number } | 'failed';
+
+/** Notes read at a time, and how many of those reads are in flight. */
+const BATCH = 64;
+const CONCURRENT_READS = 16;
+
+/** Stamp and bytes come from one handle: a write during the read changes the stamp again. */
+async function readStamped(file: string): Promise<Read> {
+  try {
+    const handle = await open(file, 'r');
+    try {
+      const { mtimeMs, size } = await handle.stat();
+      return { bytes: await handle.readFile(), mtimeMs, size };
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    // Deleted since it was listed, held by another program, no permission...
+    return 'failed';
+  }
+}
+
 /**
- * Returns the function that brings one note listed in `notes` up to date. With
- * `trustStamp`, a note whose mtime and size did not move is not read and counts as
- * unchanged.
+ * Brings the notes listed in `notes` up to date: they are read a batch at a time, several
+ * at once, and written in short slices. With `trustStamp`, a note whose mtime and size
+ * did not move is not read and counts as unchanged; those come first. Rejects with
+ * `signal`'s reason if aborted, once no read is in flight.
  */
+async function indexNotes(
+  db: Database.Database,
+  root: string,
+  resolve: LinkResolver,
+  paths: string[],
+  trustStamp: boolean,
+  signal: AbortSignal,
+  done: (path: string, result: Indexed | 'failed') => void,
+): Promise<void> {
+  const indexer = noteIndexer(db, root, resolve);
+  let wanted = paths;
+  if (trustStamp) {
+    // Nothing to read for these: a pass of their own, in slices and so in few transactions.
+    wanted = [];
+    await inSlices(db, paths, signal, (path) => {
+      const result = indexer.unchanged(path);
+      if (result) done(path, result);
+      else wanted.push(path);
+    });
+  }
+  for (let start = 0; start < wanted.length; start += BATCH) {
+    const batch = wanted.slice(start, start + BATCH);
+    const reads = new Array<Read>(batch.length);
+    let next = 0;
+    const reader = async () => {
+      while (next < batch.length && !signal.aborted) {
+        const i = next++;
+        reads[i] = await readStamped(join(root, batch[i]!));
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(CONCURRENT_READS, batch.length) }, reader));
+    signal.throwIfAborted();
+    await inSlices(db, batch.map((path, i) => ({ path, read: reads[i]! })), signal, ({ path, read }) =>
+      done(path, indexer.save(path, read)),
+    );
+  }
+}
+
+/** The two sync steps of indexing a note listed in `notes`. */
 function noteIndexer(db: Database.Database, root: string, resolve: LinkResolver) {
   const select = db.prepare('SELECT id, hash, mtime_ms AS mtimeMs, size FROM notes WHERE path = ?');
   const stamp = db.prepare('UPDATE notes SET mtime_ms = ?, size = ? WHERE id = ?');
@@ -275,32 +339,24 @@ function noteIndexer(db: Database.Database, root: string, resolve: LinkResolver)
     INSERT INTO links (source, from_pos, to_pos, target_from, target_to, target, key, target_path, name, subpath, alias)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
 
-  return (path: string, trustStamp: boolean): Indexed | 'failed' => {
-    const row = select.get(path) as Row;
-    let bytes: Buffer;
-    let mtimeMs: number;
-    let size: number;
-    try {
-      const file = join(root, path);
-      if (trustStamp && row.hash !== null) {
-        const stats = statSync(file);
-        if (stats.mtimeMs === row.mtimeMs && stats.size === row.size) {
-          return { hash: row.hash, previous: row.hash, mtimeMs: stats.mtimeMs };
-        }
-      }
-      // Stamp and bytes come from one handle. A write during the read changes the stamp
-      // again, so the next sync reads the note once more.
-      const handle = openSync(file, 'r');
+  return {
+    /** Its result if its mtime and size are the ones indexed, else `null`: it must be read. */
+    unchanged(path: string): Indexed | null {
+      const row = select.get(path) as Row;
+      if (row.hash === null) return null;
       try {
-        ({ mtimeMs, size } = fstatSync(handle));
-        bytes = readFileSync(handle);
-      } finally {
-        closeSync(handle);
+        const stats = statSync(join(root, path));
+        if (stats.mtimeMs !== row.mtimeMs || stats.size !== row.size) return null;
+        return { hash: row.hash, previous: row.hash, mtimeMs: stats.mtimeMs };
+      } catch {
+        // Reading it will say that it failed.
+        return null;
       }
-    } catch {
-      // Deleted since it was listed, held by another program, no permission...
-      return 'failed';
-    }
+    },
+    save(path: string, read: Read): Indexed | 'failed' {
+      if (read === 'failed') return read;
+      const row = select.get(path) as Row;
+      const { bytes, mtimeMs, size } = read;
     const hash = contentHash(bytes);
     const result = { hash, previous: row.hash, mtimeMs };
     if (hash === row.hash) {
@@ -322,6 +378,7 @@ function noteIndexer(db: Database.Database, root: string, resolve: LinkResolver)
       );
     }
     return result;
+    },
   };
 }
 
@@ -353,8 +410,8 @@ export interface SyncOptions {
 
 /**
  * Brings the index up to date with the vault: everything on a new index, otherwise only
- * notes added, removed or modified (by mtime and size, then content hash). Reads with
- * sync calls in short slices. Rejects with `signal`'s reason if aborted; the caller may
+ * notes added, removed or modified (by mtime and size, then content hash). Writes in short
+ * slices. Rejects with `signal`'s reason if aborted; the caller may
  * close `db` once this settles.
  */
 export async function syncIndex(
@@ -368,12 +425,9 @@ export async function syncIndex(
   signal.throwIfAborted();
   const resolve = createLinkResolver(paths);
   const removed = applyPaths(db, paths, resolve);
-  const indexNote = noteIndexer(db, root, resolve);
-
   let indexed = 0;
   let failed = 0;
-  await inSlices(db, paths, signal, (path) => {
-    const result = indexNote(path, true);
+  await indexNotes(db, root, resolve, paths, true, signal, (path, result) => {
     if (result === 'failed') failed++;
     else if (result.hash !== result.previous) {
       indexed++;
@@ -433,10 +487,8 @@ export async function updateIndex(
     }
   }
 
-  const indexNote = noteIndexer(db, root, resolve);
   const failed: string[] = [];
-  await inSlices(db, present, signal, (path) => {
-    const result = indexNote(path, trustStamp);
+  await indexNotes(db, root, resolve, present, trustStamp, signal, (path, result) => {
     if (result === 'failed') failed.push(path);
     else onNote({ path, ...result, linkOnly: linkOnly.has(path) });
   });
