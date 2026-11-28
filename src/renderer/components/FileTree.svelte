@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { announceNoteHover } from '../note-hover';
   import { tick, untrack } from 'svelte';
   import type { TreeEntry } from '../../shared/ipc';
   import { errorMessage } from '../error-message';
@@ -357,6 +358,15 @@
     }
     await scrollToCursor();
   }
+
+  /** The note under the pointer, for the graph. */
+  let hoveredNote: string | null = null;
+  function hoverRow(target: EventTarget | null) {
+    const index = target instanceof Element ? target.closest('[data-index]')?.getAttribute('data-index') : null;
+    const entry = index == null ? undefined : rows[Number(index)]?.entry;
+    const path = entry?.kind === 'note' ? entry.path : null;
+    if (path !== hoveredNote) announceNoteHover((hoveredNote = path));
+  }
 </script>
 
 <svelte:window ondragend={enddrag} />
@@ -444,6 +454,9 @@
     onscroll={(event) => (scrollTop = event.currentTarget.scrollTop)}
     {onclick}
     {onkeydown}
+    onmouseover={(event) => hoverRow(event.target)}
+    onmouseleave={() => hoverRow(null)}
+    onfocus={() => {}}
   >
     <div class="sizer" role="none" style:height="{rows.length * ROW_HEIGHT}px">
       <div class="window" role="none" style:transform="translateY({range.start * ROW_HEIGHT}px)">

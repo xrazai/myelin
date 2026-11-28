@@ -137,6 +137,11 @@ function start(): void {
     },
     // Rejects, deleting nothing, where Windows has no Recycle Bin for the item.
     (path) => shell.trashItem(path),
+    () => {
+      for (const window of BrowserWindow.getAllWindows()) {
+        sendEvent(window.webContents, EVENT_CHANNELS.graphChange, null);
+      }
+    },
   );
   registerIpc({
     ...pendingHandlers,
@@ -156,6 +161,8 @@ function start(): void {
     deleteInfo: (path, kind) => vault.call('deleteInfo', path, kind),
     deleteItem: (path, kind) => vault.call('deleteItem', path, kind),
     search: (query) => vault.call('search', query),
+    getGraph: () => vault.call('getGraph'),
+    saveGraphPositions: (paths, positions) => vault.call('saveGraphPositions', paths, positions),
     resumeUnload: () => {
       heldUnload?.();
       heldUnload = null;

@@ -75,6 +75,7 @@ Data (done: incremental calls; `communities` comes with #42):
 Effects and events:
 - `graph.pulseEdge(sourceId, targetId, { duration: 900 })`: light beam along an edge, in `colors.pulse` (done). Hovering a node lights its edges one after the other.
 - Active nodes (`states`) breathe for 6 s after a state rises, and once after a load (done). Every effect ends: the graph then draws only on change (`effects.ts`).
+- `graph.highlightNode(nodeId | null)`: a node shown as hovered from outside the canvas (done).
 - `graph.focusNode(nodeId, { duration: 600 })`: smooth camera glide to a node (done); user input stops it.
 - Hover and labels (done): `nodeHover (id | null)` and `nodeClick (id)` come from a hash grid over the world positions (`hit-grid.ts`; hubs checked one by one), rebuilt only when positions changed and the pointer asks. Labels need `getLabel` and `labelCanvas`: a transparent canvas the host stacks exactly over the graph's, `pointer-events: none`; `labelStyle { color, font }`. At most 100, best linked first (degree, then summed weight), the hovered one first, overlaps skipped.
 - `graph.on('nodeHover', (id) => ...)`: hover hit-test in `< 0.1ms` (spatial hash).

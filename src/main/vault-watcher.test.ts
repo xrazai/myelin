@@ -912,3 +912,55 @@ describe('an index damaged where only a later read or write finds it', () => {
     await until(() => expect(seen.slice(from)).toContainEqual(event('changed', 'A.md')));
   });
 });
+
+describe('the graph', () => {
+  const placed = async () => {
+    const graph = (await watching.graph())!;
+    return Object.fromEntries(
+      graph.paths.map((path, i) => [path, [graph.positions[i * 2], graph.positions[i * 2 + 1]]]),
+    );
+  };
+
+  test('has one edge per linked pair, and none to itself or to a missing note', async () => {
+    await write('A.md', '[[B]] [[B|again]] [[A]] [[Nowhere]]');
+    await write('B.md', '[[A]]');
+    await write('C.md', '');
+    watching = start();
+    await watching.indexed;
+    const graph = (await watching.graph())!;
+    expect(graph.paths).toEqual(['A.md', 'B.md', 'C.md']);
+    expect([...graph.edges].sort()).toEqual([0, 1]);
+    expect(graph.positions.every(Number.isNaN)).toBe(true);
+  });
+
+  test('saved positions follow renames in the app and go with deleted notes', async () => {
+    await mkdir(at('f'));
+    await write('f/A.md', '');
+    await write('B.md', '');
+    await write('Gone.md', '');
+    watching = start();
+    await watching.indexed;
+    await watching.getTree();
+    await watching.savePositions(['f/A.md', 'B.md', 'Gone.md', 'Missing.md'], Float32Array.of(1, 2, 3, 4, 5, 6, 7, 8));
+    await watching.rename('B.md', 'b2.md');
+    await watching.renameFolder('f', 'g');
+    expect(await placed()).toEqual({ 'Gone.md': [5, 6], 'b2.md': [3, 4], 'g/A.md': [1, 2] });
+    await watching.rename('b2.md', 'B2.md');
+    expect((await placed())['B2.md']).toEqual([3, 4]);
+    await rm(at('Gone.md'));
+    await vi.waitFor(async () => expect(Object.keys(await placed())).toEqual(['B2.md', 'g/A.md']));
+    await write('Gone.md', '');
+    await vi.waitFor(async () => expect((await placed())['Gone.md']).toEqual([NaN, NaN]));
+  });
+
+  test('says when the index changes', async () => {
+    await write('A.md', '');
+    let updates = 0;
+    watching = start({ indexUpdated: () => updates++ });
+    await watching.indexed;
+    await watching.getTree();
+    const before = updates;
+    await watching.write('A.md', '[[B]]', '');
+    await vi.waitFor(() => expect(updates).toBeGreaterThan(before));
+  });
+});

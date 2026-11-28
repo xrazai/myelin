@@ -56,14 +56,14 @@ const dump = () => ({
     .all(),
 });
 
-test('uses WAL and creates only the note, link and search tables', () => {
+test('uses WAL and creates only the note, link, search and graph position tables', () => {
   expect(db.pragma('journal_mode', { simple: true })).toBe('wal');
   expect(db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION);
   const tables = db
     .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'notes_fts_%' ORDER BY name")
     .pluck()
     .all();
-  expect(tables).toEqual(['links', 'notes', 'notes_fts']);
+  expect(tables).toEqual(['links', 'notes', 'notes_fts', 'positions']);
 });
 
 test('indexes notes with their hash', async () => {

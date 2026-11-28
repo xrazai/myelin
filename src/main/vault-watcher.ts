@@ -11,9 +11,10 @@ import { dirname, join, relative, sep } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { watch } from 'chokidar';
 import type Database from 'better-sqlite3';
-import type { Backlink, DeleteInfo, SearchCard, FolderRenameResult, RenameResult, TreeEntry, VaultEvent, WriteResult } from '../shared/ipc';
+import type { Backlink, DeleteInfo, GraphSnapshot, SearchCard, FolderRenameResult, RenameResult, TreeEntry, VaultEvent, WriteResult } from '../shared/ipc';
 import { createLinkResolver, folderNameProblem, noteNameProblem, rewriteLinksForMoves } from '../shared/links.ts';
 import { search as searchIndex } from './brain-adapter.ts';
+import { movePositions, readGraph, writePositions } from './vault-graph.ts';
 import { backlinkRows, readBacklinks } from './vault-backlinks.ts';
 import { renameWithRetry, writeFileAtomic, type AtomicWriteDeps } from './atomic-write.ts';
 import {
@@ -55,6 +56,8 @@ export interface VaultWatchOptions {
   openDb(damaged?: boolean): Promise<Database.Database>;
   /** Changes made outside the app. Never called after `close`. */
   emit(events: VaultEvent[]): void;
+  /** An update reached the index. Never called after `close`. */
+  indexUpdated?(): void;
   /** Replaced in tests to hold the first sync. */
   sync?: typeof syncIndex;
 }
@@ -81,6 +84,10 @@ export interface VaultWatch {
   createFolder(path: string): Promise<void>;
   /** `search` of the contract. While the vault is first indexed it finds what is in so far. */
   search(query: string): Promise<SearchCard[]>;
+  /** `getGraph` of the contract. */
+  graph(): Promise<GraphSnapshot | null>;
+  /** `saveGraphPositions` of the contract; the caller validates the arguments. */
+  savePositions(paths: string[], positions: Float32Array): Promise<void>;
   /** `getBacklinks` of the contract; the caller validates `path`. */
   backlinks(path: string): Promise<Backlink[] | null>;
   /** `deleteInfo` of the contract. */
@@ -195,7 +202,10 @@ const join2 = (dir: string, name: string) => (dir ? `${dir}/${name}` : name);
 const depth = (path: string) => (path ? path.split('/').length : 0);
 const isHidden = (path: string) => path.split('/').some((segment) => segment.startsWith('.'));
 
-export function watchVault(root: string, { openDb, emit, sync = syncIndex }: VaultWatchOptions): VaultWatch {
+export function watchVault(
+  root: string,
+  { openDb, emit, indexUpdated, sync = syncIndex }: VaultWatchOptions,
+): VaultWatch {
   const cancel = new AbortController();
   const { signal } = cancel;
   const started = Date.now();
@@ -496,6 +506,7 @@ export function watchVault(root: string, { openDb, emit, sync = syncIndex }: Vau
     }
     for (const path of failed) retry(path);
     send(events);
+    if (!signal.aborted) indexUpdated?.();
   }
 
   /** Rebuilds an index an update found damaged. If it cannot, the vault goes on without one. */
@@ -651,6 +662,15 @@ export function watchVault(root: string, { openDb, emit, sync = syncIndex }: Vau
       sleep,
     });
 
+    // Right after the move, before any index update can drop the old paths.
+    if (ready) {
+      try {
+        movePositions(db!, moves);
+      } catch (error) {
+        console.error('[vault-watcher] the graph positions did not move:', error);
+      }
+    }
+
     // From here on the notes have moved: a link that cannot be rewritten is reported, not thrown.
     const notUpdated: string[] = [...unwritable];
     const rewritten: string[] = [];
@@ -715,6 +735,14 @@ export function watchVault(root: string, { openDb, emit, sync = syncIndex }: Vau
         scheduleUpdate();
         return { status: 'saved' };
       }),
+    async graph() {
+      signal.throwIfAborted();
+      return synced && db ? readGraph(db) : null;
+    },
+    async savePositions(paths, positions) {
+      signal.throwIfAborted();
+      if (synced && db) writePositions(db, paths, positions);
+    },
     async search(query) {
       signal.throwIfAborted();
       // Not behind `updates`: during the first sync that would wait for the whole vault.

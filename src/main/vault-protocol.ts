@@ -4,6 +4,7 @@ import type {
   Backlink,
   DeleteInfo,
   FolderRenameResult,
+  GraphSnapshot,
   NotePreview,
   RenameResult,
   SearchCard,
@@ -35,6 +36,8 @@ export interface VaultRequests {
   /** Full text of a note of the current vault. Rejects a path outside the contract. */
   readNote(path: string): string;
   search(query: string): SearchCard[];
+  getGraph(): GraphSnapshot | null;
+  saveGraphPositions(paths: string[], positions: Float32Array): void;
   getBacklinks(path: string): Backlink[] | null;
   /** Short previews for a batch of note paths; `null` for missing or unreadable notes. */
   getPreviews(paths: string[]): (NotePreview | null)[];
@@ -72,5 +75,7 @@ export type WorkerMessage =
   | { type: 'ready'; sqliteVersion: string }
   /** External changes in the current vault, not tied to any request. */
   | { type: 'events'; events: VaultEvent[] }
+  /** The index of the current vault changed. */
+  | { type: 'graph' }
   | { type: 'result'; id: number; result: unknown }
   | { type: 'error'; id: number; message: string };

@@ -29,7 +29,7 @@ beforeAll(async () => {
 
 test('preload exposes only window.myelin, with exactly the contract methods', () => {
   expect([...electron.exposed.keys()]).toEqual(['myelin']);
-  expect(Object.keys(api).sort()).toEqual([...Object.keys(CALL_CHANNELS), 'onVaultEvents', 'onIndexing'].sort());
+  expect(Object.keys(api).sort()).toEqual([...Object.keys(CALL_CHANNELS), 'onVaultEvents', 'onIndexing', 'onGraphChange'].sort());
 });
 
 test('each call invokes its own channel with its arguments', () => {
@@ -48,6 +48,8 @@ test('each call invokes its own channel with its arguments', () => {
   void api.deleteInfo('a.md', 'note');
   void api.deleteItem('folder', 'folder');
   void api.search('query');
+  void api.getGraph();
+  void api.saveGraphPositions(['a.md'], Float32Array.of(1, 2));
   void api.resumeUnload();
   expect(electron.invoke.mock.calls).toEqual([
     [CALL_CHANNELS.createVault],
@@ -65,6 +67,8 @@ test('each call invokes its own channel with its arguments', () => {
     [CALL_CHANNELS.deleteInfo, 'a.md', 'note'],
     [CALL_CHANNELS.deleteItem, 'folder', 'folder'],
     [CALL_CHANNELS.search, 'query'],
+    [CALL_CHANNELS.getGraph],
+    [CALL_CHANNELS.saveGraphPositions, ['a.md'], Float32Array.of(1, 2)],
     [CALL_CHANNELS.resumeUnload],
   ]);
 });
@@ -84,6 +88,7 @@ test('each subscription listens on its own channel', () => {
   electron.on.mockClear();
   api.onVaultEvents(() => {});
   api.onIndexing(() => {});
+  api.onGraphChange(() => {});
   expect(electron.on.mock.calls.map(([channel]) => channel)).toEqual(Object.values(EVENT_CHANNELS));
 });
 
