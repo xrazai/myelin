@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { NO_COMMUNITY } from './communities.ts';
-import { communityColors, constellations, NO_COLOR, zoomView } from './constellations.ts';
+import { communityColors, constellationAt, constellations, NO_COLOR, zoomView } from './constellations.ts';
 import { Effects, PULSE_MS } from './effects.ts';
 
 describe('semantic zoom', () => {
@@ -44,7 +44,9 @@ describe('constellations', () => {
     positions.set([0, 0, 3, 0, 0, 3]);
     const radii = new Float32Array(12).fill(14);
     radii[1] = 30;
-    expect(constellations(level, positions, radii)).toEqual([{ id: 0, size: 3, topNode: 1, x: 1, y: 1 }]);
+    expect(constellations(level, positions, radii)).toEqual([
+      { id: 0, size: 3, topNode: 1, x: 1, y: 1, spread: 2 },
+    ]);
   });
 });
 
@@ -81,5 +83,18 @@ describe('effects end', () => {
     expect(effects.beams(5000).count).toBe(2);
     effects.hover(null, [], 6000);
     expect(effects.beams(6000).count).toBe(0);
+  });
+});
+
+describe('pointing at a constellation', () => {
+  const at = (id: number, x: number, spread: number) => ({ id, size: 3, topNode: 0, x, y: 0, spread });
+  const list = [at(1, 0, 100), at(2, 400, 10)];
+
+  test('takes the one whose glow reaches the point, nearest for its size', () => {
+    expect(constellationAt(list, 120, 0, 24)?.id).toBe(1);
+    expect(constellationAt(list, 390, 0, 24)?.id).toBe(2);
+    expect(constellationAt(list, 250, 0, 24)).toBeNull();
+    // Far out, a small one is still reachable.
+    expect(constellationAt(list, 460, 0, 80)?.id).toBe(2);
   });
 });

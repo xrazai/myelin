@@ -97,6 +97,13 @@ export interface GraphSnapshot {
   edges: Uint32Array;
   /** The saved `[x0, y0, ...]` of each note; NaN where there is none. */
   positions: Float32Array;
+  /** When each note's file last changed, ms since the epoch; 0 where unknown. */
+  edited: Float64Array;
+  /**
+   * The saved community of each note, one array per level, the finest first. `null`
+   * unless every note has one, with as many levels: they are then computed again.
+   */
+  communities: Uint32Array[] | null;
 }
 
 export interface RenameResult {
@@ -172,6 +179,11 @@ export interface MyelinApi {
    * Paths the index does not have are ignored. A rename takes its positions along.
    */
   saveGraphPositions(paths: string[], positions: Float32Array): Promise<void>;
+  /**
+   * Saves which communities these notes are in: `levels[l][i]` is that of `paths[i]` at
+   * level `l`. Paths the index does not have are ignored. A rename takes them along.
+   */
+  saveGraphCommunities(paths: string[], levels: Uint32Array[]): Promise<void>;
   /** Cards ordered by relevance. */
   search(query: string): Promise<SearchCard[]>;
   /** Watcher events, in batches. Returns the unsubscribe function. */
@@ -215,6 +227,7 @@ export const CALL_CHANNELS = {
   search: 'brain:search',
   getGraph: 'graph:get',
   saveGraphPositions: 'graph:save-positions',
+  saveGraphCommunities: 'graph:save-communities',
   resumeUnload: 'window:resume-unload',
 } as const satisfies Record<CallName, string>;
 

@@ -953,6 +953,22 @@ describe('the graph', () => {
     await vi.waitFor(async () => expect((await placed())['Gone.md']).toEqual([NaN, NaN]));
   });
 
+  test('saved communities come back once every note has them, and follow a rename', async () => {
+    await write('A.md', '');
+    await write('B.md', '');
+    watching = start();
+    await watching.indexed;
+    await watching.getTree();
+    await watching.saveCommunities(['A.md'], [Uint32Array.of(3), Uint32Array.of(7)]);
+    expect((await watching.graph())!.communities).toBeNull();
+    await watching.saveCommunities(['B.md', 'Missing.md'], [Uint32Array.of(4, 0), Uint32Array.of(7, 0)]);
+    await watching.rename('A.md', 'C.md');
+    const graph = (await watching.graph())!;
+    expect(graph.paths).toEqual(['B.md', 'C.md']);
+    expect(graph.communities).toEqual([Uint32Array.of(4, 3), Uint32Array.of(7, 7)]);
+    expect([...graph.edited].every((time) => time > 0)).toBe(true);
+  });
+
   test('says when the index changes', async () => {
     await write('A.md', '');
     let updates = 0;

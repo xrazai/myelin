@@ -313,6 +313,12 @@
     if (rightPanel === 'graph' && !collapsed.right) graphStarted = true;
   });
 
+  // A note opened from anywhere shows in the graph, inside its constellation.
+  $effect(() => {
+    const active = tabs.active;
+    if (active !== null) untrack(() => rightPanel === 'graph' && !collapsed.right && graph?.focus(active));
+  });
+
   let noteListRev = $state(0);
   const noteList = watchNoteList(window.myelin);
   void noteList.ready.then(() => {

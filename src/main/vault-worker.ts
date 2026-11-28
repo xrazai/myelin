@@ -104,6 +104,15 @@ const handlers: Handlers = {
     }
     return openSession().watch.savePositions(paths, positions);
   },
+  async saveGraphCommunities(paths, levels) {
+    if (!Array.isArray(paths) || !paths.every((path) => typeof path === 'string')) {
+      throw new Error('paths must be an array of strings');
+    }
+    if (!Array.isArray(levels) || !levels.every((level) => level instanceof Uint32Array && level.length === paths.length)) {
+      throw new Error('each level must hold one community per path');
+    }
+    return openSession().watch.saveCommunities(paths, levels);
+  },
   async getBacklinks(path) {
     const { root, watch } = openSession();
     // The path of a note: it is only matched against the index.

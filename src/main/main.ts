@@ -163,6 +163,7 @@ function start(): void {
     search: (query) => vault.call('search', query),
     getGraph: () => vault.call('getGraph'),
     saveGraphPositions: (paths, positions) => vault.call('saveGraphPositions', paths, positions),
+    saveGraphCommunities: (paths, levels) => vault.call('saveGraphCommunities', paths, levels),
     resumeUnload: () => {
       heldUnload?.();
       heldUnload = null;

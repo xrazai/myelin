@@ -83,7 +83,7 @@ test('describeCommunity gives size, central nodes, family and neighbors', () => 
   const edges = Uint32Array.of(0, 1, 0, 2, 2, 3, 3, 4);
   const weights = Float32Array.of(1, 1, 2, 1);
   expect(describeCommunity(assignment, 0, edges, weights, 4)).toEqual({
-    id: 0, level: 0, size: 3, topNodes: [0, 1, 2], parent: 3, children: [], neighbors: [{ id: 1, weight: 2 }],
+    id: 0, level: 0, size: 3, members: [0, 1, 2], topNodes: [0, 1, 2], parent: 3, children: [], neighbors: [{ id: 1, weight: 2 }],
   });
   expect(describeCommunity(assignment, 3, edges, weights, 4)).toMatchObject({ level: 1, size: 4, children: [0, 1], parent: null });
   expect(describeCommunity(assignment, 99, edges, weights, 4)).toBeNull();

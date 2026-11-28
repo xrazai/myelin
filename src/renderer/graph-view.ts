@@ -3,6 +3,7 @@
 // events. Plain TS, outside Svelte's reactivity.
 import { MyelinGraph, type MyelinGraphOptions } from '@myelin/graph';
 import type { GraphSnapshot, MyelinApi } from '../shared/ipc';
+import { describeConstellation, type ConstellationInfo } from './constellation';
 import type { LinkPulse } from './editor/link-pulse';
 import { GraphModel } from './graph-model';
 
@@ -16,7 +17,10 @@ const PULSE_WAIT_MS = 15000;
 /** Nodes that were just linked stay active this long. */
 const ACTIVE_MS = 6000;
 
-export type GraphApi = Pick<MyelinApi, 'getGraph' | 'saveGraphPositions' | 'onGraphChange' | 'onIndexing'>;
+export type GraphApi = Pick<
+  MyelinApi,
+  'getGraph' | 'saveGraphPositions' | 'saveGraphCommunities' | 'onGraphChange' | 'onIndexing'
+>;
 
 /** What the view uses of `MyelinGraph`. */
 export type Graph = Pick<
@@ -29,6 +33,9 @@ export type Graph = Pick<
   | 'updateStates'
   | 'pulseEdge'
   | 'highlightNode'
+  | 'focusNode'
+  | 'focusCommunity'
+  | 'getCommunity'
   | 'on'
   | 'destroy'
 >;
@@ -41,6 +48,12 @@ export interface GraphViewOptions {
   labelStyle: NonNullable<MyelinGraphOptions['labelStyle']>;
   /** A node was clicked. */
   onopen: (path: string) => void;
+  /** The constellation under the pointer, or `null`. */
+  onhover?: (constellation: ConstellationInfo | null) => void;
+  /** A constellation was clicked. */
+  onselect?: (constellation: ConstellationInfo) => void;
+  /** The constellations or the notes changed: what was described may be out of date. */
+  onchange?: () => void;
   /** The graph cannot be drawn. */
   onerror: (message: string) => void;
   /** For tests. */
@@ -54,6 +67,11 @@ export interface GraphView {
   highlight(path: string | null): void;
   /** Light from a note along each new link, once the graph has it. */
   pulse(pulse: LinkPulse): void;
+  /** Glides to a note, if the graph has it. */
+  focus(path: string): void;
+  focusConstellation(id: number): void;
+  /** What a constellation holds now, or `null` once it is gone. */
+  constellation(id: number): ConstellationInfo | null;
   destroy(): void;
 }
 
@@ -80,6 +98,21 @@ export function createGraphView(options: GraphViewOptions): GraphView {
   let reading = false;
   let again = false;
   let pulses: (LinkPulse & { until: number })[] = [];
+  /** When each note last changed. */
+  let edited = new Map<string, number>();
+
+  const constellation = (id: number): ConstellationInfo | null =>
+    loaded
+      ? describeConstellation(
+          {
+            community: (of) => graph.getCommunity(of),
+            path: (node) => model.path(node),
+            title,
+            edited: (path) => edited.get(path) ?? 0,
+          },
+          id,
+        )
+      : null;
   const cooling = new Set<ReturnType<typeof setTimeout>>();
 
   function save(): void {
@@ -104,6 +137,18 @@ export function createGraphView(options: GraphViewOptions): GraphView {
   graph.on('nodeClick', (id) => {
     const path = model.path(id);
     if (path !== undefined) onopen(path);
+  });
+
+  graph.on('communityHover', (id) => options.onhover?.(id === null ? null : constellation(id)));
+  graph.on('communityClick', (id) => {
+    const found = constellation(id);
+    if (found) options.onselect?.(found);
+  });
+  graph.on('communityDoubleClick', (id) => graph.focusCommunity(id));
+  graph.on('communitiesChange', ({ levels }) => {
+    const { paths, levels: byPath } = model.grouped(levels);
+    api.saveGraphCommunities(paths, byPath).catch((error: unknown) => console.error('[graph] saving communities:', error));
+    options.onchange?.();
   });
 
   /** A node that was just linked breathes, then goes quiet. */
@@ -133,12 +178,15 @@ export function createGraphView(options: GraphViewOptions): GraphView {
   }
 
   function apply(snapshot: GraphSnapshot): void {
+    edited = new Map(snapshot.paths.map((path, i) => [path, snapshot.edited[i]!]));
     if (!loaded) {
       model.load(snapshot);
       graph.setGraph({
         nodeCount: snapshot.paths.length,
         edges: snapshot.edges,
         positions: snapshot.positions,
+        // Saved: the constellations are there at once.
+        communities: snapshot.communities ? { levels: snapshot.communities } : undefined,
       });
       loaded = true;
       return;
@@ -167,6 +215,7 @@ export function createGraphView(options: GraphViewOptions): GraphView {
         if (snapshot) {
           apply(snapshot);
           firePulses();
+          options.onchange?.();
         }
       } while (again);
     } catch (error) {
@@ -196,6 +245,14 @@ export function createGraphView(options: GraphViewOptions): GraphView {
       pulses.push({ ...pulse, until: Date.now() + PULSE_WAIT_MS });
       if (loaded) firePulses();
     },
+    focus(path) {
+      const id = loaded ? model.id(path) : undefined;
+      if (id !== undefined) graph.focusNode(id);
+    },
+    focusConstellation(id) {
+      if (loaded) graph.focusCommunity(id);
+    },
+    constellation,
     destroy() {
       if (destroyed) return;
       destroyed = true;

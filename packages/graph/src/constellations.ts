@@ -33,6 +33,24 @@ function smooth(value: number, [from, to]: [number, number]): number {
   return t * t * (3 - 2 * t);
 }
 
+/**
+ * The constellation at a world point: the nearest center whose glow reaches it, at least
+ * `reach` world units around each center. `null` for none.
+ */
+export function constellationAt(list: Constellation[], x: number, y: number, reach: number): Constellation | null {
+  let best: Constellation | null = null;
+  let closest = Infinity;
+  for (const entry of list) {
+    const distance = Math.hypot(entry.x - x, entry.y - y);
+    const relative = distance / Math.max(entry.spread * 1.5, reach);
+    if (relative <= 1 && relative < closest) {
+      best = entry;
+      closest = relative;
+    }
+  }
+  return best;
+}
+
 /** What shows at `zoom`: far, the subjects; between, their parts and the hubs; near, notes. */
 export function zoomView(zoom: number): ZoomView {
   const leaving = smooth(zoom, FAR);
@@ -109,6 +127,8 @@ export interface Constellation {
   /** World position of its center. */
   x: number;
   y: number;
+  /** How far its nodes are from the center, root mean square. */
+  spread: number;
 }
 
 /** The constellations of a level with at least one placed node, the largest first. */
@@ -120,17 +140,23 @@ export function constellations(level: Uint32Array, positions: Float32Array, radi
     const y = positions[node * 2 + 1]!;
     if (id === NO_COMMUNITY || !Number.isFinite(x) || !Number.isFinite(y)) continue;
     const entry = found.get(id);
-    if (!entry) found.set(id, { id, size: 1, topNode: node, x, y });
+    // `spread` holds the sum of squares until the end.
+    if (!entry) found.set(id, { id, size: 1, topNode: node, x, y, spread: x * x + y * y });
     else {
       entry.size++;
       entry.x += x;
       entry.y += y;
+      entry.spread += x * x + y * y;
       // The radius grows with the degree.
       if (radii[node]! > radii[entry.topNode]!) entry.topNode = node;
     }
   }
   return [...found.values()]
     .filter((entry) => entry.size >= MIN_CONSTELLATION)
-    .map((entry) => ({ ...entry, x: entry.x / entry.size, y: entry.y / entry.size }))
+    .map((entry) => {
+      const x = entry.x / entry.size;
+      const y = entry.y / entry.size;
+      return { ...entry, x, y, spread: Math.sqrt(Math.max(0, entry.spread / entry.size - x * x - y * y)) };
+    })
     .sort((a, b) => b.size - a.size || a.id - b.id);
 }

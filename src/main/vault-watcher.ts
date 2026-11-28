@@ -14,7 +14,7 @@ import type Database from 'better-sqlite3';
 import type { Backlink, DeleteInfo, GraphSnapshot, SearchCard, FolderRenameResult, RenameResult, TreeEntry, VaultEvent, WriteResult } from '../shared/ipc';
 import { createLinkResolver, folderNameProblem, noteNameProblem, rewriteLinksForMoves } from '../shared/links.ts';
 import { search as searchIndex } from './brain-adapter.ts';
-import { movePositions, readGraph, writePositions } from './vault-graph.ts';
+import { moveGraphData, readGraph, writeCommunities, writePositions } from './vault-graph.ts';
 import { backlinkRows, readBacklinks } from './vault-backlinks.ts';
 import { renameWithRetry, writeFileAtomic, type AtomicWriteDeps } from './atomic-write.ts';
 import {
@@ -88,6 +88,8 @@ export interface VaultWatch {
   graph(): Promise<GraphSnapshot | null>;
   /** `saveGraphPositions` of the contract; the caller validates the arguments. */
   savePositions(paths: string[], positions: Float32Array): Promise<void>;
+  /** `saveGraphCommunities` of the contract; the caller validates the arguments. */
+  saveCommunities(paths: string[], levels: Uint32Array[]): Promise<void>;
   /** `getBacklinks` of the contract; the caller validates `path`. */
   backlinks(path: string): Promise<Backlink[] | null>;
   /** `deleteInfo` of the contract. */
@@ -665,7 +667,7 @@ export function watchVault(
     // Right after the move, before any index update can drop the old paths.
     if (ready) {
       try {
-        movePositions(db!, moves);
+        moveGraphData(db!, moves);
       } catch (error) {
         console.error('[vault-watcher] the graph positions did not move:', error);
       }
@@ -742,6 +744,10 @@ export function watchVault(
     async savePositions(paths, positions) {
       signal.throwIfAborted();
       if (synced && db) writePositions(db, paths, positions);
+    },
+    async saveCommunities(paths, levels) {
+      signal.throwIfAborted();
+      if (synced && db) writeCommunities(db, paths, levels);
     },
     async search(query) {
       signal.throwIfAborted();

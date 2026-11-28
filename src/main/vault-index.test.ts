@@ -63,7 +63,7 @@ test('uses WAL and creates only the note, link, search and graph position tables
     .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'notes_fts_%' ORDER BY name")
     .pluck()
     .all();
-  expect(tables).toEqual(['links', 'notes', 'notes_fts', 'positions']);
+  expect(tables).toEqual(['communities', 'links', 'notes', 'notes_fts', 'positions']);
 });
 
 test('indexes notes with their hash', async () => {

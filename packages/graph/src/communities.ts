@@ -14,6 +14,8 @@ export interface Community {
   /** 0 is the finest level. */
   level: number;
   size: number;
+  /** Every node in it. */
+  members: number[];
   /** The most central nodes: those with most weight to the rest of the community. */
   topNodes: number[];
   parent: number | null;
@@ -110,6 +112,7 @@ export function describeCommunity(
     id,
     level,
     size: members.length,
+    members,
     topNodes: [...inside].sort((a, b) => b[1] - a[1] || a[0] - b[0]).slice(0, TOP_NODES).map(([node]) => node),
     parent: parent === undefined || parent === NO_COMMUNITY ? null : parent,
     children: [...children],
