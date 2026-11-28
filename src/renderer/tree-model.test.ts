@@ -230,3 +230,13 @@ test('a cursor whose row goes away takes its neighbour, never the top', () => {
   expect(cursorAfter(before, 'a', [])).toBeNull();
   expect(cursorAfter(before, null, before)).toBeNull();
 });
+
+// Linear in the batch (#67: 34 ms on an i7-12700KF). The bound is loose for shared CI
+// machines; quadratic work takes seconds.
+test('a large batch in one folder is applied in one pass', () => {
+  const created = Array.from({ length: 30_000 }, (_, i) => ({ type: 'created' as const, kind: 'note' as const, path: `big/n${i}.md` }));
+  const start = performance.now();
+  const tree = applyEvents([], created);
+  applyEvents(tree, created.map((event) => ({ ...event, type: 'deleted' as const })));
+  expect(performance.now() - start).toBeLessThan(1500);
+});
