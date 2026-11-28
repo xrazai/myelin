@@ -53,6 +53,10 @@ class FakeBackend implements Backend {
     this.scene = scene;
     this.updates.push({ nodes, edges });
   }
+  colors: [number[], number[]] | null = null;
+  setColors(coarse: Float32Array, fine: Float32Array) {
+    this.colors = [[...coarse], [...fine]];
+  }
   setPositions(positions: Float32Array) {
     this.positions = [...positions];
   }
@@ -405,6 +409,51 @@ describe('adaptive quality in the graph', () => {
     expect(drawn).toBeLessThan(60);
     expect(graph.glow).toBe(glow);
     expect(backend().rendered.at(-1)!.glow).toBeGreaterThan(0);
+    graph.destroy();
+  });
+});
+
+describe('effects in the graph', () => {
+  test('a pulse draws its beam frame after frame, then drawing stops', () => {
+    const now = vi.spyOn(performance, 'now').mockReturnValue(1000);
+    const { graph, backend } = setup();
+    resize(400, 300);
+    graph.setGraph(data([0, 0, 100, 0]));
+    nextFrame();
+    graph.pulseEdge(0, 1);
+    nextFrame();
+    expect(backend().rendered.at(-1)!.beams).toMatchObject({ count: 1 });
+    expect(frames.some(Boolean)).toBe(true);
+    now.mockReturnValue(5000);
+    nextFrame();
+    expect(backend().rendered.at(-1)!.beams).toMatchObject({ count: 0 });
+    nextFrame();
+    const drawn = backend().rendered.length;
+    nextFrame();
+    expect(backend().rendered).toHaveLength(drawn);
+    expect(() => graph.pulseEdge(0, 9)).toThrow(RangeError);
+    graph.destroy();
+    now.mockRestore();
+  });
+
+  test('saved communities color the nodes; a removed node loses its color', async () => {
+    const { graph, backend } = setup();
+    resize(400, 300);
+    graph.setGraph({
+      nodeCount: 4,
+      edges: Uint32Array.of(0, 1, 1, 2, 2, 3),
+      positions: Float32Array.of(0, 0, 10, 0, 20, 0, 30, 0),
+      communities: { levels: [Uint32Array.of(1, 1, 1, 1)] },
+    });
+    nextFrame();
+    const [coarse, fine] = backend().colors!;
+    expect(coarse.slice(0, 4)).toEqual([1, 1, 1, 1]);
+    expect(fine).toEqual(coarse);
+    expect(backend().rendered.at(-1)!.constellations).toBeDefined();
+    graph.removeNodes([3]);
+    await Promise.resolve();
+    nextFrame();
+    expect(backend().colors![0].slice(0, 4)).toEqual([1, 1, 1, 255]);
     graph.destroy();
   });
 });

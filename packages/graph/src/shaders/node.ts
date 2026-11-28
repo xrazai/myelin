@@ -13,6 +13,7 @@ layout(location = 2) in float state; // 0..1, per instance
 
 uniform vec2 uMinMaxRadius; // device pixels
 uniform float uBaseRadius; // world units
+uniform float uBreath; // -1..1, size change of active nodes
 
 out vec2 vOffset; // device pixels from the center
 flat out float vRadius;
@@ -22,6 +23,7 @@ void main() {
   // The floor grows with the node, so that hubs still stand out from far away.
   float floorRadius = uMinMaxRadius.x * sqrt(radius / uBaseRadius);
   float pixels = clamp(radius * uCamera.z, floorRadius, uMinMaxRadius.y);
+  pixels *= 1.0 + 0.3 * uBreath * state;
   // One more pixel for the soft edge.
   vOffset = corner * (pixels + 1.0);
   vRadius = pixels;

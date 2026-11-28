@@ -43,7 +43,8 @@ Layout alone, no canvas (done; `MyelinGraph` composes it):
 
 Graph on a canvas (done: drawing and camera):
 - `new MyelinGraph(canvas, { colors?, layout?, createWorker? })`; `destroy()`. The page gives the canvas a CSS size; the library sets its backing size (DPR-aware).
-- `colors`: `background`, `node`, `activeNode` (by `states`), `edge`, `strongEdge` (by weight), `#rgb` or `#rrggbb`; neutral defaults.
+- `colors`: `background`, `node`, `activeNode` (by `states`), `edge`, `strongEdge` (by weight), `pulse`, `constellations` (up to 16, neighbors take different ones), `#rgb` or `#rrggbb`; neutral defaults.
+- Semantic zoom (done, `constellations.ts`), by CSS px per world unit: below ~0.1 the coarsest communities glow and are named; to ~0.45 the finest ones, with up to 30 hub labels; closer, only nodes and edges with their labels. Names: `getCommunityLabel({ id, size, topNode })`, the title of `topNode` when absent. Communities under 3 nodes are not constellations. The glow is computed at 1/8 resolution (`backend/glow.ts`).
 - `fit()` shows the whole graph and follows the layout again; the camera follows it until the user (or the host) moves it. `camera` get / set: `{ x, y, zoom }` (world center, CSS px per world unit).
 - Input: drag or one finger pans, two fingers pinch; mouse wheel zooms at the pointer; trackpad scroll pans, trackpad pinch zooms. Browsers do not name the device: a wheel gesture that starts sideways or with a step under 40 px is a trackpad (`src/controls.ts`).
 - Draws only when something changed. A lost WebGL context is restored.
@@ -72,7 +73,8 @@ Data (done: incremental calls; `communities` comes with #42):
 - `graph.updateStates(ids, values)`.
 
 Effects and events:
-- `graph.pulseEdge(sourceId, targetId)`: light beam between two nodes.
+- `graph.pulseEdge(sourceId, targetId, { duration: 900 })`: light beam along an edge, in `colors.pulse` (done). Hovering a node lights its edges one after the other.
+- Active nodes (`states`) breathe for 6 s after a state rises, and once after a load (done). Every effect ends: the graph then draws only on change (`effects.ts`).
 - `graph.focusNode(nodeId, { duration: 600 })`: smooth camera glide to a node (done); user input stops it.
 - Hover and labels (done): `nodeHover (id | null)` and `nodeClick (id)` come from a hash grid over the world positions (`hit-grid.ts`; hubs checked one by one), rebuilt only when positions changed and the pointer asks. Labels need `getLabel` and `labelCanvas`: a transparent canvas the host stacks exactly over the graph's, `pointer-events: none`; `labelStyle { color, font }`. At most 100, best linked first (degree, then summed weight), the hovered one first, overlaps skipped.
 - `graph.on('nodeHover', (id) => ...)`: hover hit-test in `< 0.1ms` (spatial hash).

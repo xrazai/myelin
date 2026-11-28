@@ -87,6 +87,7 @@ export class Bloom {
     gl.uniform1i(this.composite.uniform('uImage'), 1);
     gl.uniform1i(this.composite.uniform('uBloom'), 2);
     gl.uniform1f(this.composite.uniform('uIntensity'), INTENSITY);
+    gl.uniform3f(this.composite.uniform('uBackground'), ...background);
     pass(destination, scene);
     // No texture stays bound while it is drawn into.
     bind(2, null);

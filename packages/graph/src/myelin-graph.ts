@@ -4,11 +4,13 @@
 import type { Backend, BackendFactory, Frame } from './backend/backend.ts';
 import { WebGL2Backend } from './backend/webgl2.ts';
 import { boundsOf, fit, pan, screenToWorld, zoomAt, type Camera } from './camera.ts';
+import { communityColors, constellations, zoomView, type Constellation, type ZoomView } from './constellations.ts';
 import { describeCommunity, keepIds, NO_COMMUNITY, type Assignment, type Community } from './communities.ts';
 import { HitGrid, type HitStyle } from './hit-grid.ts';
-import { drawLabels, placeLabels, type LabelStyle } from './labels.ts';
+import { drawLabels, NAME_PIXELS, placeLabels, type LabelStyle } from './labels.ts';
 import { AdaptiveQuality } from './quality.ts';
 import { attachControls } from './controls.ts';
+import { Effects } from './effects.ts';
 import { GraphLayout, type GraphLayoutOptions, type LayoutEvents } from './layout/graph-layout.ts';
 import { checkGraph, type LayoutOptions } from './layout/forceatlas2.ts';
 import { observeCanvasSize, type CanvasSize } from './resize.ts';
@@ -63,6 +65,11 @@ export interface MyelinGraphOptions {
   /** The title of a node; only asked for nodes that may show. An array is `id => labels[id]`. */
   getLabel?: ((id: number) => string) | string[];
   /**
+   * The name of a constellation, drawn on the label layer; the title of its best linked
+   * node when absent. Only asked for constellations that may show.
+   */
+  getCommunityLabel?: (community: { id: number; size: number; topNode: number }) => string;
+  /**
    * A transparent canvas stacked exactly over the graph's, with `pointer-events: none`:
    * labels are drawn on it. Needed for `getLabel`.
    */
@@ -114,6 +121,13 @@ export class MyelinGraph {
     communitiesChange: new Set<CommunityEvents['communitiesChange']>(),
   };
   private communities: Assignment | null = null;
+  private readonly paletteSize: number;
+  /** The constellation colors on the GPU are behind the graph or its communities. */
+  private staleColors = true;
+  /** Centers of the constellations being named; rebuilt when positions or levels change. */
+  private centers: { level: Uint32Array; list: Constellation[] } | null = null;
+  private readonly communityLabel: ((community: Constellation) => string) | null;
+  private readonly effects = new Effects();
   private nextCommunity = 0;
   private communityTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly changeListeners = new Set<LayoutEvents['layoutChange']>();
@@ -143,6 +157,8 @@ export class MyelinGraph {
     this.createBackend = () => factory(canvas, style);
     this.backend = this.createBackend();
     this.hitStyle = style;
+    this.paletteSize = style.constellations.length;
+    this.communityLabel = options.getCommunityLabel ?? null;
     const glow = options.glow ?? 'auto';
     if (glow !== 'auto' && !(glow >= 0 && glow <= 1)) throw new RangeError('glow must be "auto" or between 0 and 1');
     this.quality = glow === 'auto' ? new AdaptiveQuality() : null;
@@ -245,8 +261,9 @@ export class MyelinGraph {
   private hover(id: number | null): void {
     if (id === this.hovered) return;
     this.hovered = id;
-    // Its label shows first.
-    if (this.labels) this.invalidate();
+    this.effects.hover(id, id === null ? [] : this.store.neighbors(id), performance.now());
+    // Its label shows first, and its edges light up.
+    this.invalidate();
     for (const listener of this.pointerListeners.nodeHover) listener(id);
   }
 
@@ -310,7 +327,17 @@ export class MyelinGraph {
     context.clearRect(0, 0, canvas.width, canvas.height);
     if (!this.placed) return;
     context.font = `12px ${style.font}`;
+    const view = zoomView(frame.camera.zoom);
+    const named = view.names && this.communities ? this.namesAt(view.names) : [];
     const boxes = placeLabels({
+      names: named,
+      max: named.length > 0 ? (view.nodeLabels ?? undefined) : undefined,
+      measureName: (text) => {
+        context.font = `600 ${NAME_PIXELS}px ${style.font}`;
+        const { width } = context.measureText(text);
+        context.font = `12px ${style.font}`;
+        return width;
+      },
       order: this.labelOrder(),
       positions: this.store.positions,
       radii: this.store.radii,
@@ -321,6 +348,46 @@ export class MyelinGraph {
       measure: (text) => context.measureText(text).width,
     });
     drawLabels(context, boxes, frame, style);
+  }
+
+  /** The constellations of a level with their names, as the label layer places them. */
+  private namesAt(depth: NonNullable<ZoomView['names']>): { id: number; text: string; x: number; y: number }[] {
+    const { levels } = this.communities!;
+    const level = levels[depth === 'coarse' ? levels.length - 1 : 0]!;
+    if (this.centers?.level !== level) {
+      this.centers = { level, list: constellations(level, this.store.positions, this.store.radii) };
+    }
+    const name = this.communityLabel ?? ((community: Constellation) => this.labels!.label(community.topNode));
+    const reach = { x: this.size.width / 2 / this.view.zoom, y: this.size.height / 2 / this.view.zoom };
+    const asked: { id: number; text: string; x: number; y: number }[] = [];
+    for (const community of this.centers.list) {
+      // Only what is in view is named, the largest first.
+      if (Math.abs(community.x - this.view.x) > reach.x || Math.abs(community.y - this.view.y) > reach.y) continue;
+      asked.push({ id: community.id, text: name(community), x: community.x, y: community.y });
+      if (asked.length >= 60) break;
+    }
+    return asked;
+  }
+
+  /** Light that travels along an edge from one node to another. */
+  pulseEdge(sourceId: number, targetId: number, { duration }: { duration?: number } = {}): void {
+    this.assertLoaded();
+    this.flush();
+    for (const id of [sourceId, targetId]) {
+      if (!this.store.isAlive(id)) throw new RangeError(`there is no node ${id}`);
+    }
+    this.effects.pulse(sourceId, targetId, performance.now(), duration);
+    this.invalidate();
+  }
+
+  private uploadColors(): void {
+    this.staleColors = false;
+    const { store } = this;
+    const capacity = store.scene().radii.length;
+    const colors = (level: Uint32Array | undefined) =>
+      communityColors(level ?? new Uint32Array(0), store.ends, store.weights, store.edgeCount, this.paletteSize, capacity);
+    const levels = this.communities?.levels;
+    this.backend.setColors(colors(levels?.at(-1)), colors(levels?.[0]));
   }
 
   /** Full load. Resets node ids; the caller keeps its arrays. */
@@ -340,6 +407,11 @@ export class MyelinGraph {
     this.staleHits = this.staleOrder = true;
     this.hovered = null;
     this.glide = null;
+    this.effects.clear();
+    this.centers = null;
+    this.staleColors = true;
+    // Nodes loaded as active breathe once.
+    if (data.states?.some((state) => state > 0)) this.effects.breathe(performance.now());
     clearTimeout(this.communityTimer);
     this.communities = data.communities ? { levels: data.communities.levels.map((level) => level.slice()) } : null;
     this.nextCommunity = 0;
@@ -405,7 +477,10 @@ export class MyelinGraph {
 
   updateStates(ids: ArrayLike<number>, values: Float32Array): void {
     this.assertLoaded();
+    // A state that rises is something that just happened: it breathes for a while.
+    const rose = Array.from(ids).some((id, i) => values[i]! > this.store.states[id]!);
     this.store.updateStates(ids, values);
+    if (rose) this.effects.breathe(performance.now());
     this.schedule();
   }
 
@@ -438,6 +513,9 @@ export class MyelinGraph {
     const { assignment, nextId } = keepIds(this.communities, labels, this.nextCommunity);
     this.communities = assignment;
     this.nextCommunity = nextId;
+    this.centers = null;
+    this.staleColors = true;
+    this.invalidate();
     for (const listener of this.pointerListeners.communitiesChange) {
       listener({ levels: assignment.levels.map((level) => level.slice()) });
     }
@@ -520,6 +598,10 @@ export class MyelinGraph {
     else this.backend.updateGraph(scene, nodes, edges);
     if (this.placed && (grown || nodes)) this.upload();
     this.staleHits = this.staleOrder = true;
+    this.effects.forget((id) => this.store.isAlive(id));
+    this.centers = null;
+    // New slots and removed nodes change who is colored.
+    if (grown || nodes) this.staleColors = true;
     if (this.hovered !== null && !this.store.isAlive(this.hovered)) this.hover(null);
     this.arrange();
     this.invalidate();
@@ -601,6 +683,7 @@ export class MyelinGraph {
   private showPositions(): void {
     this.placed = true;
     this.staleHits = true;
+    this.centers = null;
     this.upload();
     if (this.following) this.refit();
     this.invalidate();
@@ -657,19 +740,27 @@ export class MyelinGraph {
     const { pixelWidth, pixelHeight, width } = this.size;
     if (this.lost || this.destroyed || pixelWidth === 0 || pixelHeight === 0) return;
     this.advanceGlide();
+    if (this.staleColors && this.loaded) this.uploadColors();
+    const now = performance.now();
+    const breath = this.effects.breath(now);
+    const beams = this.effects.beams(now);
+    const zoom = zoomView(this.view.zoom);
     const frame = {
       width: pixelWidth,
       height: pixelHeight,
       pixelRatio: pixelWidth / width,
       camera: this.view,
       glow: this.glow,
+      constellations: this.communities ? { coarse: zoom.coarse, fine: zoom.fine } : undefined,
+      breath,
+      beams,
     };
     this.backend.render(frame);
     // The same camera, in the same frame: labels never float behind their nodes.
     this.drawLabelLayer(frame);
     const measuring = this.probe > 0;
     if (measuring) this.probe--;
-    if (this.glide || measuring) {
+    if (this.glide || measuring || this.effects.moving(now)) {
       this.invalidate();
       this.chained = time ?? null;
     }
@@ -682,6 +773,7 @@ export class MyelinGraph {
     if (this.loaded) {
       this.store.takeChanges();
       this.backend.setGraph(this.store.scene());
+      this.staleColors = true;
     }
     if (this.placed) this.upload();
     this.invalidate();

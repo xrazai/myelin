@@ -2,6 +2,7 @@
 // can be added behind it without touching the public API.
 
 import type { Camera } from '../camera.ts';
+import type { Beams } from '../effects.ts';
 
 export type Rgb = readonly [number, number, number];
 
@@ -20,6 +21,10 @@ export interface Style {
   edgeWidth: readonly [number, number];
   /** Opacity at strength 0 and 1. */
   edgeAlpha: readonly [number, number];
+  /** Light along edges. */
+  pulse: Rgb;
+  /** The colors constellations glow in. */
+  constellations: readonly Rgb[];
 }
 
 /**
@@ -48,6 +53,11 @@ export interface Frame {
   camera: Camera;
   /** Bloom resolution as a share of the frame's; 0 or absent: no glow. */
   glow?: number;
+  /** Strength of the constellation glow of each level, 0 to 1. */
+  constellations?: { coarse: number; fine: number };
+  /** The size change of active nodes, -1 to 1. */
+  breath?: number;
+  beams?: Beams;
 }
 
 export interface Backend {
@@ -58,6 +68,12 @@ export interface Backend {
    * `[from, to)` of nodes and of edges, and the new counts.
    */
   updateGraph(scene: Scene, nodes: [number, number] | null, edges: [number, number] | null): void;
+  /**
+   * The constellation color of each node at the coarsest and the finest level, as an
+   * index into `style.constellations` (255: none). As long as the scene's node arrays;
+   * given again after every `setGraph`.
+   */
+  setColors(coarse: Float32Array, fine: Float32Array): void;
   /** `[x0, y0, ...]` for every node of the graph, all finite. The array may be reused. */
   setPositions(positions: Float32Array): void;
   render(frame: Frame): void;

@@ -11,7 +11,8 @@
 // in a hidden window of the repo's Electron. Needs a GPU. The whole graph is in view, which
 // draws every node and edge; zoomed views (ZOOMS) are measured over the same grid.
 //
-// Glow: the library's bloom, at each of its resolutions.
+// Glow: the library's bloom, at each of its resolutions. The constellation glow is drawn
+// as `zoomView` asks for at each camera.
 //
 // Budget (100k nodes, 2880x1800, glow at BUDGET_GLOW, p95): GPU <= 1.5 ms, CPU <= 4 ms.
 // Checked with the whole graph in view, only on the GPU it is stated for; exits with 1 when

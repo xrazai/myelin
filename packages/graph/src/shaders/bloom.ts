@@ -62,9 +62,13 @@ precision highp float;
 uniform sampler2D uImage;
 uniform sampler2D uBloom;
 uniform float uIntensity;
+uniform vec3 uBackground;
 in vec2 uv;
 out vec4 color;
 void main() {
-  color = vec4(texture(uImage, uv).rgb + texture(uBloom, uv).rgb * uIntensity, 1.0);
+  vec3 base = texture(uImage, uv).rgb;
+  // Only the halo: where the frame is already lit, its own color stays.
+  vec3 halo = max(texture(uBloom, uv).rgb - max(base - uBackground, 0.0), 0.0);
+  color = vec4(base + halo * uIntensity, 1.0);
 }
 `;

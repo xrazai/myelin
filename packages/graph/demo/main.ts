@@ -15,6 +15,8 @@ const graph = new MyelinGraph(canvas, {
     activeNode: '#52b788',
     edge: '#8a9992',
     strongEdge: '#52b788',
+    pulse: '#f1ead8',
+    constellations: ['#52b788', '#b59f6b', '#6f9fb5', '#a38bb0', '#8fae5d', '#b5806b'],
   },
 });
 

@@ -10,6 +10,10 @@ export interface GraphColors {
   edge: string;
   /** Edges mix toward this as their weight grows. */
   strongEdge: string;
+  /** Light along an edge: `pulseEdge` and the edges of the hovered node. */
+  pulse: string;
+  /** The colors constellations glow in, up to 16; neighbors take different ones. */
+  constellations: string[];
 }
 
 /** Neutral: the host brings its own palette. */
@@ -19,6 +23,8 @@ export const DEFAULT_COLORS: GraphColors = {
   activeNode: '#ffffff',
   edge: '#666666',
   strongEdge: '#cccccc',
+  pulse: '#ffffff',
+  constellations: ['#6f8fb0', '#b08f6f', '#7fa87f', '#a07fa8', '#b0a86f', '#6fa8a4'],
 };
 
 /** World radius of a node with no edges, in layout units. */
@@ -53,6 +59,8 @@ export function createStyle(colors: Partial<GraphColors> = {}): Style {
     activeNode: parseColor(all.activeNode),
     edge: parseColor(all.edge),
     strongEdge: parseColor(all.strongEdge),
+    pulse: parseColor(all.pulse),
+    constellations: all.constellations.map(parseColor),
   };
 }
 
