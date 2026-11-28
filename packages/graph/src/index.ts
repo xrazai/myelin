@@ -2,6 +2,8 @@
 export { MyelinGraph } from './myelin-graph.ts';
 export type { GraphData, GraphEvents, MyelinGraphOptions, PointerEvents } from './myelin-graph.ts';
 export type { LabelStyle } from './labels.ts';
+export type { CommunityEvents } from './myelin-graph.ts';
+export { NO_COMMUNITY, type Assignment, type Community } from './communities.ts';
 export type { GraphColors } from './scene.ts';
 export type { Camera } from './camera.ts';
 export { GraphLayout } from './layout/graph-layout.ts';

@@ -15,6 +15,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { DEFAULT_OPTIONS, ForceAtlas2, type LayoutGraph } from '../packages/graph/src/layout/forceatlas2.ts';
+import { leiden } from '../packages/graph/src/layout/leiden.ts';
 import { cpuBusyPercent, isInside, stats } from './bench.ts';
 import { generateVault } from './gen-vault.ts';
 
@@ -118,8 +119,19 @@ async function main(): Promise<void> {
       console.error(`${notes} notes, run ${run}/${runs}: ${JSON.stringify(result)}`);
       done.push(result);
     }
+    // Community detection (Leiden) on the same graph: the median of the same number of runs.
+    const timings = Array.from({ length: runs }, () => {
+      const start = performance.now();
+      const levels = leiden(graph);
+      return { ms: performance.now() - start, levels };
+    });
+    const communities = {
+      ms: Math.round(stats(timings.map((timing) => timing.ms)).median),
+      perLevel: timings[0]!.levels.map((labels) => new Set(labels).size),
+    };
     results.push({
       notes,
+      communities,
       edges: graph.edges.length / 2,
       vaultHash: hash,
       summary: stats(done.map((run) => run.ms)),
@@ -139,8 +151,8 @@ async function main(): Promise<void> {
   await mkdir(dirname(out), { recursive: true });
   await writeFile(out, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
   console.log(`${report.cpu}, Node ${report.node}, seed ${seed}${report.label ? `, ${report.label}` : ''}`);
-  console.log('first layout, solver only, one thread; vault generation not included');
-  for (const { notes, edges, summary, runs } of results) {
+  console.log('first layout and communities, solvers only, one thread; vault generation not included');
+  for (const { notes, edges, summary, runs, communities } of results) {
     const busy = stats(runs.map((run) => run.cpuBusyPercent));
     const { iterations, converged, edgeRatio } = runs[0]!;
     console.log(
@@ -149,6 +161,7 @@ async function main(): Promise<void> {
         `${iterations} iterations, ${converged ? 'settled' : 'NOT settled'}, edge ratio ${edgeRatio}, ` +
         `CPU busy before a run ${busy.min}-${busy.max}%`,
     );
+    console.log(`  communities: ${communities.ms} ms, per level ${communities.perLevel.join(' > ')}`);
   }
   console.log(`\nsaved: ${out}`);
 }

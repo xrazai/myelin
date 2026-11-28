@@ -4,6 +4,7 @@
 import type { Backend, BackendFactory, Frame } from './backend/backend.ts';
 import { WebGL2Backend } from './backend/webgl2.ts';
 import { boundsOf, fit, pan, screenToWorld, zoomAt, type Camera } from './camera.ts';
+import { describeCommunity, keepIds, NO_COMMUNITY, type Assignment, type Community } from './communities.ts';
 import { HitGrid, type HitStyle } from './hit-grid.ts';
 import { drawLabels, placeLabels, type LabelStyle } from './labels.ts';
 import { attachControls } from './controls.ts';
@@ -27,6 +28,8 @@ const CLICK_SLOP = 4;
 const FOCUS_MS = 600;
 /** Focusing a node zooms in at least this much. */
 const FOCUS_ZOOM = 1;
+/** Communities are computed again once the graph has been quiet this long. */
+const COMMUNITIES_IDLE_MS = 1000;
 
 export interface PointerEvents {
   /** The node under the pointer, or `null` when it leaves every node. */
@@ -34,7 +37,12 @@ export interface PointerEvents {
   nodeClick: (id: number) => void;
 }
 
-export type GraphEvents = LayoutEvents & PointerEvents;
+export interface CommunityEvents {
+  /** A new computation: save it by your own keys, and give it back to `setGraph`. */
+  communitiesChange: (assignment: Assignment) => void;
+}
+
+export type GraphEvents = Omit<LayoutEvents, 'communities'> & PointerEvents & CommunityEvents;
 
 export interface MyelinGraphOptions {
   /** `#rgb` or `#rrggbb`. */
@@ -56,6 +64,8 @@ export interface MyelinGraphOptions {
 }
 
 export interface GraphData extends SceneInput {
+  /** A saved assignment, by node id: drawn from at once, with no computation on load. */
+  communities?: Assignment;
   /** `[x0, y0, ...]` to start from. A node with a non-finite coordinate gets a new one. */
   positions?: Float32Array;
 }
@@ -93,7 +103,11 @@ export class MyelinGraph {
   private readonly pointerListeners = {
     nodeHover: new Set<PointerEvents['nodeHover']>(),
     nodeClick: new Set<PointerEvents['nodeClick']>(),
+    communitiesChange: new Set<CommunityEvents['communitiesChange']>(),
   };
+  private communities: Assignment | null = null;
+  private nextCommunity = 0;
+  private communityTimer: ReturnType<typeof setTimeout> | undefined;
   private readonly changeListeners = new Set<LayoutEvents['layoutChange']>();
   private size: CanvasSize = { width: 0, height: 0, pixelWidth: 0, pixelHeight: 0 };
   private view: Camera = { x: 0, y: 0, zoom: 1 };
@@ -132,6 +146,8 @@ export class MyelinGraph {
       const byId = this.store.positions.subarray(0, this.store.nodeCount * 2);
       for (const listener of this.changeListeners) listener(byId, status);
     });
+
+    this.layout.on('communities', (levels) => this.name(levels));
 
     this.detach.push(
       observeCanvasSize(canvas, (size) => this.resize(size)),
@@ -293,6 +309,9 @@ export class MyelinGraph {
     // The whole input is checked before anything changes.
     checkGraph(data);
     if (data.states && data.states.length !== data.nodeCount) throw new RangeError('states must hold one value per node');
+    if (data.communities?.levels.some((level) => level.length !== data.nodeCount)) {
+      throw new RangeError('each level of communities must hold one id per node');
+    }
     this.store.load(data, data.positions);
     this.store.takeChanges();
     this.backend.setGraph(this.store.scene());
@@ -301,7 +320,12 @@ export class MyelinGraph {
     this.staleHits = this.staleOrder = true;
     this.hovered = null;
     this.glide = null;
+    clearTimeout(this.communityTimer);
+    this.communities = data.communities ? { levels: data.communities.levels.map((level) => level.slice()) } : null;
+    this.nextCommunity = 0;
     this.layout.setGraph(data);
+    if (this.communities) this.layout.detectCommunities({ nodeCount: 0, edges: new Uint32Array(0) });
+    else this.scheduleCommunities();
     this.full = { ids: null, running: true };
     this.loaded = true;
     this.placed = false;
@@ -327,25 +351,33 @@ export class MyelinGraph {
   removeNodes(ids: ArrayLike<number>): void {
     this.assertLoaded();
     this.store.removeNodes(ids);
-    for (let i = 0; i < ids.length; i++) this.fresh.delete(ids[i]!);
+    for (let i = 0; i < ids.length; i++) {
+      this.fresh.delete(ids[i]!);
+      // The slot may be reused: whatever comes next belongs to nothing yet.
+      for (const level of this.communities?.levels ?? []) if (ids[i]! < level.length) level[ids[i]!] = NO_COMMUNITY;
+    }
+    this.scheduleCommunities();
     this.schedule();
   }
 
   addEdges(pairs: Uint32Array, weights?: Float32Array): void {
     this.assertLoaded();
     this.store.addEdges(pairs, weights);
+    this.scheduleCommunities();
     this.schedule();
   }
 
   removeEdges(pairs: Uint32Array): void {
     this.assertLoaded();
     this.store.removeEdges(pairs);
+    this.scheduleCommunities();
     this.schedule();
   }
 
   updateWeights(pairs: Uint32Array, weights: Float32Array): void {
     this.assertLoaded();
     this.store.updateWeights(pairs, weights);
+    this.scheduleCommunities();
     this.schedule();
   }
 
@@ -353,6 +385,40 @@ export class MyelinGraph {
     this.assertLoaded();
     this.store.updateStates(ids, values);
     this.schedule();
+  }
+
+  /** A community of the latest computation, or `null`. */
+  getCommunity(id: number): Community | null {
+    this.assertAlive();
+    if (!this.communities) return null;
+    return describeCommunity(this.communities, id, this.store.ends, this.store.weights, this.store.edgeCount);
+  }
+
+  private scheduleCommunities(): void {
+    clearTimeout(this.communityTimer);
+    this.communityTimer = setTimeout(() => {
+      const { store } = this;
+      // Removed slots are isolated here and marked as belonging to nothing on the way back.
+      this.layout.detectCommunities({
+        nodeCount: store.nodeCount,
+        edges: store.ends.slice(0, store.edgeCount * 2),
+        weights: store.weights.slice(0, store.edgeCount),
+      });
+    }, COMMUNITIES_IDLE_MS);
+  }
+
+  private name(labels: Uint32Array[]): void {
+    // The empty request that outdates an older computation after a load with saved ones.
+    if (labels[0]!.length === 0) return;
+    for (const level of labels) {
+      for (let id = 0; id < level.length; id++) if (!this.store.isAlive(id)) level[id] = NO_COMMUNITY;
+    }
+    const { assignment, nextId } = keepIds(this.communities, labels, this.nextCommunity);
+    this.communities = assignment;
+    this.nextCommunity = nextId;
+    for (const listener of this.pointerListeners.communitiesChange) {
+      listener({ levels: assignment.levels.map((level) => level.slice()) });
+    }
   }
 
   /** Where the camera is. Setting it stops it from following the layout. */
@@ -387,6 +453,7 @@ export class MyelinGraph {
     if (this.destroyed) return;
     this.destroyed = true;
     cancelAnimationFrame(this.frame);
+    clearTimeout(this.communityTimer);
     for (const detach of this.detach) detach();
     this.layout.destroy();
     this.backend.destroy();

@@ -2,6 +2,7 @@
 // publishes positions through two buffers that go back and forth (double buffering).
 
 import { ForceAtlas2 } from './forceatlas2.ts';
+import { leiden } from './leiden.ts';
 import { relax } from './relax.ts';
 import type { FromWorker, Port, ToWorker } from './protocol.ts';
 
@@ -74,6 +75,14 @@ export function createLayoutHost(port: Port<FromWorker>, options: HostOptions = 
       if (run?.id !== message.run) return;
       run.free.push(message.buffer);
       if (run.layout.done) report(run, performance.now());
+    } else if (message.type === 'communities') {
+      try {
+        const levels = leiden(message.graph).map((level) => level.buffer as ArrayBuffer);
+        port.postMessage({ type: 'communities', run: message.run, levels }, levels);
+      } catch (error) {
+        // Not the layout's: it goes on.
+        console.error('detecting communities failed:', error);
+      }
     } else if (message.type === 'relax') {
       run = null;
       try {
