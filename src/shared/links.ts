@@ -47,38 +47,68 @@ function stripExtension(name: string): string {
 
 export type LinkResolver = (target: string, source: string) => Resolution;
 
+/** A resolver that follows notes as they come and go, without being built again. */
+export type MutableLinkResolver = LinkResolver & {
+  /** A path that is not there yet. */
+  add(path: string): void;
+  /** A path that is not there is ignored. */
+  remove(path: string): void;
+};
+
 /**
- * Resolves targets against a fixed set of note paths (vault-relative, see `ipc.ts`); build
- * a new one when notes are created, deleted or renamed.
+ * Resolves targets against a set of note paths (vault-relative, see `ipc.ts`). Call `add`
+ * and `remove` as notes are created and deleted, or build a new one.
  * A target matches by file name without `.md`, case-insensitive; a folder prefix must match
  * the end of the path, whole folders only. Among several matches the shortest path wins:
  * fewest folders, then fewest characters, then code unit order.
  */
-export function createLinkResolver(notePaths: Iterable<string>): LinkResolver {
-  const byName = new Map<string, { path: string; key: string; depth: number }[]>();
-  for (const path of notePaths) {
+export function createLinkResolver(notePaths: Iterable<string>): MutableLinkResolver {
+  type Entry = { path: string; key: string; depth: number };
+  const byName = new Map<string, Entry[]>();
+  /** The first of several matches wins. */
+  const order = (a: Entry, b: Entry) =>
+    a.depth - b.depth || a.path.length - b.path.length || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+  const read = (path: string) => {
     const key = linkKey(path);
     const parts = key.split('/');
-    const name = parts[parts.length - 1]!;
-    const entry = { path, key: `/${key}`, depth: parts.length };
+    return { name: parts[parts.length - 1]!, entry: { path, key: `/${key}`, depth: parts.length } };
+  };
+  for (const path of notePaths) {
+    const { name, entry } = read(path);
     const list = byName.get(name);
     if (list) list.push(entry);
     else byName.set(name, [entry]);
   }
-  for (const list of byName.values()) {
-    list.sort(
-      (a, b) =>
-        a.depth - b.depth || a.path.length - b.path.length || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0),
-    );
-  }
+  for (const list of byName.values()) list.sort(order);
 
-  return (target, source) => {
+  const resolve = (target: string, source: string): Resolution => {
     if (target === '') return { path: source, key: '' };
     const key = linkKey(target);
     const candidates = byName.get(key.slice(key.lastIndexOf('/') + 1));
     const match = candidates?.find((c) => c.key.endsWith(`/${key}`));
     return match ? { path: match.path, key } : { path: null, name: stripExtension(target), key };
   };
+
+  return Object.assign(resolve, {
+    add(path: string) {
+      const { name, entry } = read(path);
+      const list = byName.get(name);
+      if (!list) {
+        byName.set(name, [entry]);
+        return;
+      }
+      const after = list.findIndex((other) => order(entry, other) < 0);
+      list.splice(after === -1 ? list.length : after, 0, entry);
+    },
+    remove(path: string) {
+      const { name } = read(path);
+      const list = byName.get(name);
+      const at = list?.findIndex((entry) => entry.path === path) ?? -1;
+      if (at === -1) return;
+      list!.splice(at, 1);
+      if (list!.length === 0) byName.delete(name);
+    },
+  });
 }
 
 /** Every link of the note at `source`, in text order, resolved. */
