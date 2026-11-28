@@ -4,7 +4,7 @@
 import type { Backend, BackendFactory, Frame } from './backend/backend.ts';
 import { WebGL2Backend } from './backend/webgl2.ts';
 import { boundsOf, fit, pan, screenToWorld, zoomAt, type Camera } from './camera.ts';
-import { communityColors, constellations, zoomView, type Constellation, type ZoomView } from './constellations.ts';
+import { communityColors, constellationAt, constellations, zoomView, type Constellation, type ZoomView } from './constellations.ts';
 import { describeCommunity, keepIds, NO_COMMUNITY, type Assignment, type Community } from './communities.ts';
 import { HitGrid, type HitStyle } from './hit-grid.ts';
 import { drawLabels, NAME_PIXELS, placeLabels, type LabelStyle } from './labels.ts';
@@ -26,6 +26,8 @@ const NEIGHBOR_TEMPERATURE = 0.3;
 const MAX_LOCAL = 2000;
 /** Where a node with no place yet is uploaded: far outside any view. */
 const NOWHERE = 1e30;
+/** A constellation reaches at least this far around its center, CSS px. */
+const COMMUNITY_REACH = 24;
 /** A press that moves less than this, in CSS pixels, is a click. */
 const CLICK_SLOP = 4;
 const FOCUS_MS = 600;
@@ -45,6 +47,10 @@ export interface PointerEvents {
 export interface CommunityEvents {
   /** A new computation: save it by your own keys, and give it back to `setGraph`. */
   communitiesChange: (assignment: Assignment) => void;
+  /** The constellation under the pointer where no node is, or `null`. Only while one shows. */
+  communityHover: (id: number | null) => void;
+  communityClick: (id: number) => void;
+  communityDoubleClick: (id: number) => void;
 }
 
 export type GraphEvents = Omit<LayoutEvents, 'communities'> & PointerEvents & CommunityEvents;
@@ -119,7 +125,11 @@ export class MyelinGraph {
     nodeHover: new Set<PointerEvents['nodeHover']>(),
     nodeClick: new Set<PointerEvents['nodeClick']>(),
     communitiesChange: new Set<CommunityEvents['communitiesChange']>(),
+    communityHover: new Set<CommunityEvents['communityHover']>(),
+    communityClick: new Set<CommunityEvents['communityClick']>(),
+    communityDoubleClick: new Set<CommunityEvents['communityDoubleClick']>(),
   };
+  private hoveredCommunity: number | null = null;
   private communities: Assignment | null = null;
   private readonly paletteSize: number;
   /** The constellation colors on the GPU are behind the graph or its communities. */
@@ -211,20 +221,29 @@ export class MyelinGraph {
   /** Hover and click. Panning and zooming are `attachControls`'. */
   private pointing(): () => void {
     let pressed: { id: number; x: number; y: number } | null = null;
-    const nodeAt = (event: PointerEvent): number | null => {
-      if (!this.placed) return null;
-      if (this.staleHits) {
-        this.hits.build(this.store.positions, this.store.radii, this.store.nodeCount);
-        this.staleHits = false;
-      }
+    const worldAt = (event: MouseEvent) => {
       const box = this.canvas.getBoundingClientRect();
-      const [x, y] = screenToWorld(
+      return screenToWorld(
         this.view,
         this.size,
         event.clientX - box.left - this.canvas.clientLeft,
         event.clientY - box.top - this.canvas.clientTop,
       );
+    };
+    const nodeAt = (event: MouseEvent): number | null => {
+      if (!this.placed) return null;
+      if (this.staleHits) {
+        this.hits.build(this.store.positions, this.store.radii, this.store.nodeCount);
+        this.staleHits = false;
+      }
+      const [x, y] = worldAt(event);
       return this.hits.at(x, y, this.view.zoom);
+    };
+    const communityAt = (event: MouseEvent): number | null => {
+      const depth = zoomView(this.view.zoom).names;
+      if (!this.placed || !depth || !this.communities) return null;
+      const [x, y] = worldAt(event);
+      return constellationAt(this.centersAt(depth), x, y, COMMUNITY_REACH / this.view.zoom)?.id ?? null;
     };
     const stops = [
       this.listen('pointerdown', (event) => {
@@ -242,7 +261,9 @@ export class MyelinGraph {
           return;
         }
         if (pointer.buttons) return;
-        this.hover(nodeAt(pointer));
+        const node = nodeAt(pointer);
+        this.hover(node);
+        this.hoverCommunity(node === null ? communityAt(pointer) : null);
       }),
       this.listen('pointerup', (event) => {
         const pointer = event as PointerEvent;
@@ -250,10 +271,24 @@ export class MyelinGraph {
         pressed = null;
         if (!click) return;
         const id = nodeAt(pointer);
-        if (id !== null) for (const listener of this.pointerListeners.nodeClick) listener(id);
+        if (id !== null) {
+          for (const listener of this.pointerListeners.nodeClick) listener(id);
+          return;
+        }
+        const community = communityAt(pointer);
+        if (community !== null) for (const listener of this.pointerListeners.communityClick) listener(community);
       }),
       this.listen('pointercancel', () => (pressed = null)),
-      this.listen('pointerleave', () => this.hover(null)),
+      this.listen('pointerleave', () => {
+        this.hover(null);
+        this.hoverCommunity(null);
+      }),
+      this.listen('dblclick', (event) => {
+        const mouse = event as MouseEvent;
+        if (nodeAt(mouse) !== null) return;
+        const community = communityAt(mouse);
+        if (community !== null) for (const listener of this.pointerListeners.communityDoubleClick) listener(community);
+      }),
     ];
     return () => stops.forEach((stop) => stop());
   }
@@ -262,6 +297,36 @@ export class MyelinGraph {
     if (id === this.hovered) return;
     this.show(id);
     for (const listener of this.pointerListeners.nodeHover) listener(id);
+  }
+
+  private hoverCommunity(id: number | null): void {
+    if (id === this.hoveredCommunity) return;
+    this.hoveredCommunity = id;
+    for (const listener of this.pointerListeners.communityHover) listener(id);
+  }
+
+  /** Glides the camera to show a whole community; nothing if it has no placed node. */
+  focusCommunity(id: number, { duration = FOCUS_MS }: { duration?: number } = {}): void {
+    this.assertLoaded();
+    this.flush();
+    const community = this.getCommunity(id);
+    if (!community || this.size.width <= 0 || this.size.height <= 0) return;
+    const points = new Float32Array(community.members.length * 2);
+    community.members.forEach((node, i) => {
+      points[i * 2] = this.store.positions[node * 2]!;
+      points[i * 2 + 1] = this.store.positions[node * 2 + 1]!;
+    });
+    const bounds = boundsOf(points);
+    if (bounds) this.glideTo(fit(bounds, this.size, 0.15), duration);
+  }
+
+  private glideTo(to: Camera, duration: number): void {
+    this.following = false;
+    if (duration <= 0) {
+      this.glide = null;
+      this.view = to;
+    } else this.glide = { from: this.camera, to, start: performance.now(), duration };
+    this.invalidate();
   }
 
   /** Its label shows first, and its edges light up. */
@@ -291,13 +356,7 @@ export class MyelinGraph {
     if (!this.store.isAlive(id)) throw new RangeError(`there is no node ${id}`);
     // Not placed yet: there is nowhere to go.
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-    this.following = false;
-    const to = { x, y, zoom: Math.max(this.view.zoom, FOCUS_ZOOM) };
-    if (duration <= 0) {
-      this.glide = null;
-      this.view = to;
-    } else this.glide = { from: this.camera, to, start: performance.now(), duration };
-    this.invalidate();
+    this.glideTo({ x, y, zoom: Math.max(this.view.zoom, FOCUS_ZOOM) }, duration);
   }
 
   private advanceGlide(): void {
@@ -365,17 +424,22 @@ export class MyelinGraph {
     drawLabels(context, boxes, frame, style);
   }
 
-  /** The constellations of a level with their names, as the label layer places them. */
-  private namesAt(depth: NonNullable<ZoomView['names']>): { id: number; text: string; x: number; y: number }[] {
+  private centersAt(depth: NonNullable<ZoomView['names']>): Constellation[] {
     const { levels } = this.communities!;
     const level = levels[depth === 'coarse' ? levels.length - 1 : 0]!;
     if (this.centers?.level !== level) {
       this.centers = { level, list: constellations(level, this.store.positions, this.store.radii) };
     }
+    return this.centers.list;
+  }
+
+  /** The constellations of a level with their names, as the label layer places them. */
+  private namesAt(depth: NonNullable<ZoomView['names']>): { id: number; text: string; x: number; y: number }[] {
+    const centers = this.centersAt(depth);
     const name = this.communityLabel ?? ((community: Constellation) => this.labels!.label(community.topNode));
     const reach = { x: this.size.width / 2 / this.view.zoom, y: this.size.height / 2 / this.view.zoom };
     const asked: { id: number; text: string; x: number; y: number }[] = [];
-    for (const community of this.centers.list) {
+    for (const community of centers) {
       // Only what is in view is named, the largest first.
       if (Math.abs(community.x - this.view.x) > reach.x || Math.abs(community.y - this.view.y) > reach.y) continue;
       asked.push({ id: community.id, text: name(community), x: community.x, y: community.y });
@@ -421,6 +485,7 @@ export class MyelinGraph {
     this.pending = false;
     this.staleHits = this.staleOrder = true;
     this.hovered = null;
+    this.hoveredCommunity = null;
     this.glide = null;
     this.effects.clear();
     this.centers = null;

@@ -38,6 +38,7 @@ export interface VaultRequests {
   search(query: string): SearchCard[];
   getGraph(): GraphSnapshot | null;
   saveGraphPositions(paths: string[], positions: Float32Array): void;
+  saveGraphCommunities(paths: string[], levels: Uint32Array[]): void;
   getBacklinks(path: string): Backlink[] | null;
   /** Short previews for a batch of note paths; `null` for missing or unreadable notes. */
   getPreviews(paths: string[]): (NotePreview | null)[];

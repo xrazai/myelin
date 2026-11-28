@@ -80,10 +80,10 @@ Effects and events:
 - Hover and labels (done): `nodeHover (id | null)` and `nodeClick (id)` come from a hash grid over the world positions (`hit-grid.ts`; hubs checked one by one), rebuilt only when positions changed and the pointer asks. Labels need `getLabel` and `labelCanvas`: a transparent canvas the host stacks exactly over the graph's, `pointer-events: none`; `labelStyle { color, font }`. At most 100, best linked first (degree, then summed weight), the hovered one first, overlaps skipped.
 - `graph.on('nodeHover', (id) => ...)`: hover hit-test in `< 0.1ms` (spatial hash).
 - `graph.on('layoutChange', (positions, { iteration, done, converged }) => ...)`: lets the host persist positions (by its own keys). `positions` is only valid until the next event (its buffer returns to the worker): copy what you keep. `done` marks the last one.
-- `graph.on('communityHover' | 'communityClick', (communityId, level) => ...)`, `graph.on('nodeClick', (id) => ...)`.
+- `graph.on('communityHover' | 'communityClick' | 'communityDoubleClick', (communityId) => ...)` (done): where no node is, while a level glows; `getCommunity(id)` gives its level. `communityHover` gets `null` on leaving.
 - Communities (done, #42): Leiden (`layout/leiden.ts`) in the layout worker, 1 s after the graph goes quiet; `communitiesChange` gives `{ levels: Uint32Array[] }` by node id, finest first (`NO_COMMUNITY` for a removed slot). Ids are unique across levels and kept by largest overlap. `setGraph({ communities })` uses a saved assignment with nothing computed on load.
-- `graph.getCommunity(id) => { level, size, topNodes, parent, children, neighbors: [{ id, weight }] }`: what the host needs for names, cards and "related subjects".
-- `graph.focusCommunity(id, { duration })`: camera fits the community.
+- `graph.getCommunity(id) => { level, size, members, topNodes, parent, children, neighbors: [{ id, weight }] }`: what the host needs for names, cards and "related subjects".
+- `graph.focusCommunity(id, { duration })`: camera fits the community (done).
 - `graph.on('communitiesChange', (assignment) => ...)`: lets the host persist the assignment.
 
 ## Later

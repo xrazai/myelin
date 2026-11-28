@@ -36,6 +36,7 @@ const api: MyelinApi = {
   search: call('search'),
   getGraph: call('getGraph'),
   saveGraphPositions: call('saveGraphPositions'),
+  saveGraphCommunities: call('saveGraphCommunities'),
   resumeUnload: call('resumeUnload'),
   onVaultEvents: subscribe(EVENT_CHANNELS.vaultEvents),
   onIndexing: subscribe(EVENT_CHANNELS.indexing),

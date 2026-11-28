@@ -457,3 +457,36 @@ describe('effects in the graph', () => {
     graph.destroy();
   });
 });
+
+describe('pointing at constellations', () => {
+  test('where no node is, a glowing one is hovered, clicked and double clicked; focus fits it', () => {
+    const { graph, event } = setup();
+    resize(400, 300);
+    graph.setGraph({
+      nodeCount: 3,
+      edges: Uint32Array.of(0, 1, 1, 2),
+      positions: Float32Array.of(-1000, 0, 1000, 0, 0, 900),
+      communities: { levels: [Uint32Array.of(5, 5, 5)] },
+    });
+    nextFrame();
+    const seen: unknown[] = [];
+    graph.on('communityHover', (id) => seen.push(['hover', id]));
+    graph.on('communityClick', (id) => seen.push(['click', id]));
+    graph.on('communityDoubleClick', (id) => seen.push(['double', id]));
+    // The center of the three, at the middle of the view.
+    const { camera } = graph;
+    const middle = { clientX: 200, clientY: 150 + (300 - camera.y) * camera.zoom, pointerId: 1, button: 0 };
+    event('pointermove', { ...middle, buttons: 0 });
+    event('pointerdown', middle);
+    event('pointerup', middle);
+    event('dblclick', middle);
+    event('pointerleave');
+    expect(seen).toEqual([['hover', 5], ['click', 5], ['double', 5], ['hover', null]]);
+
+    graph.camera = { x: 5000, y: 5000, zoom: 3 };
+    graph.focusCommunity(5, { duration: 0 });
+    expect(graph.camera.x).toBeCloseTo(0);
+    expect(graph.camera.zoom).toBeLessThan(0.2);
+    graph.destroy();
+  });
+});

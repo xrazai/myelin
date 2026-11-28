@@ -6,9 +6,12 @@ import type { GraphSnapshot } from '../shared/ipc';
 
 export function readGraph(db: Database.Database): GraphSnapshot {
   const rows = db
-    .prepare('SELECT n.path, p.x, p.y FROM notes n LEFT JOIN positions p ON p.path = n.path ORDER BY n.path')
+    .prepare(
+      `SELECT n.path, p.x, p.y, n.mtime_ms, c.levels FROM notes n
+       LEFT JOIN positions p ON p.path = n.path LEFT JOIN communities c ON c.path = n.path ORDER BY n.path`,
+    )
     .raw()
-    .all() as [string, number | null, number | null][];
+    .all() as [string, number | null, number | null, number | null, string | null][];
   const paths = rows.map(([path]) => path);
   const positions = new Float32Array(rows.length * 2);
   rows.forEach(([, x, y], i) => {
@@ -32,7 +35,27 @@ export function readGraph(db: Database.Database): GraphSnapshot {
     seen.add(key);
     edges.push(a, b);
   }
-  return { paths, positions, edges: Uint32Array.from(edges) };
+  const edited = Float64Array.from(rows, (row) => row[3] ?? 0);
+  return { paths, positions, edited, edges: Uint32Array.from(edges), communities: savedCommunities(rows.map((row) => row[4])) };
+}
+
+/** `null` unless every note has its communities, all with the same levels. */
+function savedCommunities(saved: (string | null)[]): Uint32Array[] | null {
+  if (saved.length === 0 || saved.some((text) => text === null)) return null;
+  const rows = saved.map((text) => JSON.parse(text!) as number[]);
+  const depth = rows[0]!.length;
+  if (depth === 0 || rows.some((row) => row.length !== depth)) return null;
+  return Array.from({ length: depth }, (_, level) => Uint32Array.from(rows, (row) => row[level]!));
+}
+
+export function writeCommunities(db: Database.Database, paths: string[], levels: Uint32Array[]): void {
+  const save = db.prepare(
+    `INSERT INTO communities (path, levels) SELECT path, ? FROM notes WHERE path = ?
+     ON CONFLICT (path) DO UPDATE SET levels = excluded.levels`,
+  );
+  db.transaction(() => {
+    paths.forEach((path, i) => save.run(JSON.stringify(levels.map((level) => level[i])), path));
+  })();
 }
 
 export function writePositions(db: Database.Database, paths: string[], positions: Float32Array): void {
@@ -49,10 +72,15 @@ export function writePositions(db: Database.Database, paths: string[], positions
   })();
 }
 
-/** Renamed or moved notes keep their place. Called before the index learns of the move. */
-export function movePositions(db: Database.Database, moves: ReadonlyMap<string, string>): void {
-  const move = db.prepare('UPDATE OR REPLACE positions SET path = ? WHERE path = ?');
+/**
+ * Renamed or moved notes keep their place and communities. Called before the index learns
+ * of the move.
+ */
+export function moveGraphData(db: Database.Database, moves: ReadonlyMap<string, string>): void {
+  const statements = ['positions', 'communities'].map((table) =>
+    db.prepare(`UPDATE OR REPLACE ${table} SET path = ? WHERE path = ?`),
+  );
   db.transaction(() => {
-    for (const [from, to] of moves) move.run(to, from);
+    for (const [from, to] of moves) for (const move of statements) move.run(to, from);
   })();
 }

@@ -6,6 +6,8 @@ import { createGraphView, type Graph } from './graph-view';
 
 const snapshot = (paths: string[], edges: number[], positions?: number[]): GraphSnapshot => ({
   paths,
+  edited: new Float64Array(paths.length),
+  communities: null,
   edges: Uint32Array.from(edges),
   positions: Float32Array.from(positions ?? paths.flatMap(() => [NaN, NaN])),
 });
@@ -54,6 +56,9 @@ describe('graph view', () => {
       updateStates: vi.fn(),
       pulseEdge: vi.fn(),
       highlightNode: vi.fn(),
+      focusNode: vi.fn(),
+      focusCommunity: vi.fn(),
+      getCommunity: vi.fn(() => null),
       destroy: vi.fn(),
       on: vi.fn((event: string, listener: never) => {
         if (event === 'layoutChange') layout = listener;
@@ -66,6 +71,7 @@ describe('graph view', () => {
       api: {
         getGraph: async () => next,
         saveGraphPositions,
+        saveGraphCommunities: async () => {},
         onGraphChange: (listener) => ((changed = listener), () => {}),
         onIndexing: () => () => {},
       },

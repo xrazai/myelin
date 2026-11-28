@@ -27,7 +27,7 @@ Status: stage 1 done; stage 2 in progress, with the manual base first (Roadmap).
 - Internal communication: IPC only (`contextBridge`, `contextIsolation: true`). Every channel is declared in `src/shared/ipc.ts`; only `preload.ts` and `main/ipc.ts` touch Electron IPC (enforced by `main/ipc.test.ts`).
 - Storage:
   - Inside the vault, `.myelin/` holds only text files: `vault.json` (`{ "id": <UUID>, "formatVersion": 1 }`; created when missing, never overwritten; the vault does not open if it is invalid or has another version) and `usage.jsonl` (learning events). Safe to sync with Git, Syncthing or cloud folders.
-  - The graph's node positions are in `index.db`, by note path (`main/vault-graph.ts`). Renames and moves done in the app take them along; a rebuilt index only means the graph lays out again.
+  - The graph's node positions and communities are in `index.db`, by note path (`main/vault-graph.ts`). Renames and moves done in the app take them along; a rebuilt index only means the graph lays out again.
   - Index: `better-sqlite3` (WAL, FTS5) at `<userData>/vaults/<vault-id>/index.db`, outside the vault. 100% rebuildable; never synced (SQLite + WAL in a synced folder risks corruption and binary conflicts). Native module: `better-sqlite3` >= 13 ships Node-API prebuilds, so one binary serves Node (tests) and Electron: no `@electron/rebuild`, and its install script stays denied (`allowScripts`).
   - Index code: `main/vault-index.ts`. Tables `notes` (with the content hash), `links` (one row per link, `target_path` or unresolved `name`) and `notes_fts`. Schema change = bump `SCHEMA_VERSION` (rebuilds). `open` returns at once and the index syncs in the background (new, changed by mtime + size then hash, removed); a failing index never keeps a vault from opening. Anything that adds or removes notes must re-resolve the affected links in the same transaction.
 - Search: FTS5, tokenizer `unicode61 remove_diacritics 2` (Portuguese-friendly; `porter` is English-only). `brain-adapter.ts`: typed text is never FTS5 syntax (each term quoted, the last also a prefix), `bm25` with the title above the body, `snippet` with match ranges.
@@ -143,7 +143,7 @@ myelin/
 │       ├── styles.css         # palette and font variables (docs/identity.md)
 │       ├── fonts/             # Literata, Inter, JetBrains Mono (variable, OFL) + fonts.css
 │       ├── public/licenses/   # font licenses, copied into the build
-│       ├── components/        # Launcher, Workspace, FileTree, Tabs, Editor, TreeMenu, BacklinksPanel, DeleteDialog, MoveDialog, CommandPalette, StatusBar, BrainPanel (.svelte)
+│       ├── components/        # Launcher, Workspace, FileTree, Tabs, Editor, TreeMenu, BacklinksPanel, DeleteDialog, MoveDialog, CommandPalette, StatusBar, BrainPanel, GraphPanel, ConstellationCard (.svelte)
 │       ├── editor/
 │       │   ├── cm-editor.ts   # CodeMirror 6 (one view, a state per tab); [[link]] autocomplete and hover plug in here
 │       │   ├── editor-tabs.ts # tabs -> editor: opens a note when its tab is first shown, saves the one left
@@ -178,6 +178,7 @@ myelin/
 │       ├── graph-view.ts      # glue: feeds @myelin/graph, keeps it current, saves positions, wires events
 │       ├── graph-model.ts     # note path <-> node id, and what changed against the index
 │       ├── graph-look.ts      # graph colors from the identity tokens
+│       ├── constellation.ts   # what a constellation tells: name, main, related and recent notes
 │       └── note-hover.ts      # the note pointed at in the tree or a link: the graph shows it
 └── vault-dev/                 # local test vault
     ├── .myelin/

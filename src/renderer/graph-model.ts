@@ -114,6 +114,15 @@ export class GraphModel {
     return Uint32Array.from(pairs);
   }
 
+  /** Every note with its communities, from levels by node id. */
+  grouped(byId: Uint32Array[]): { paths: string[]; levels: Uint32Array[] } {
+    const entries = [...this.ids].filter(([, id]) => byId.every((level) => id < level.length));
+    return {
+      paths: entries.map(([path]) => path),
+      levels: byId.map((level) => Uint32Array.from(entries, ([, id]) => level[id]!)),
+    };
+  }
+
   /** The paths and positions of the placed notes, from positions by node id. */
   placed(byId: Float32Array): { paths: string[]; positions: Float32Array } {
     const paths: string[] = [];

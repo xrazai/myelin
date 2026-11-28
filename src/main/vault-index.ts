@@ -15,7 +15,7 @@ import { createLinkResolver, linkKey, noteLinks, type LinkResolver, type Mutable
 import { scanVault } from './vault-scan.ts';
 
 /** Stored in `user_version`. Bump on any schema change: the index is dropped and rebuilt. */
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 // In `links`, a resolved link has `target_path`, an unresolved one has `name`. `key` is
 // `linkKey(target)`. Positions are UTF-16 offsets in the note's text without BOM.
@@ -49,10 +49,13 @@ const SCHEMA = `
   -- Where the graph put each note. Not derived from the vault: losing it only means
   -- the graph lays the notes out again.
   CREATE TABLE positions (path TEXT PRIMARY KEY, x REAL NOT NULL, y REAL NOT NULL) WITHOUT ROWID;
+  -- The graph's communities of each note, a JSON array of ids, the finest level first.
+  CREATE TABLE communities (path TEXT PRIMARY KEY, levels TEXT NOT NULL) WITHOUT ROWID;
   CREATE VIRTUAL TABLE notes_fts USING fts5 (title, body, tokenize = 'unicode61 remove_diacritics 2');
   CREATE TRIGGER notes_delete AFTER DELETE ON notes BEGIN
     DELETE FROM notes_fts WHERE rowid = old.id;
     DELETE FROM positions WHERE path = old.path;
+    DELETE FROM communities WHERE path = old.path;
   END;
   PRAGMA user_version = ${SCHEMA_VERSION};
 `;

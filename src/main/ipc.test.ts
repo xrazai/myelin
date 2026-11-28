@@ -50,6 +50,7 @@ test('each call invokes its own channel with its arguments', () => {
   void api.search('query');
   void api.getGraph();
   void api.saveGraphPositions(['a.md'], Float32Array.of(1, 2));
+  void api.saveGraphCommunities(['a.md'], [Uint32Array.of(1)]);
   void api.resumeUnload();
   expect(electron.invoke.mock.calls).toEqual([
     [CALL_CHANNELS.createVault],
@@ -69,6 +70,7 @@ test('each call invokes its own channel with its arguments', () => {
     [CALL_CHANNELS.search, 'query'],
     [CALL_CHANNELS.getGraph],
     [CALL_CHANNELS.saveGraphPositions, ['a.md'], Float32Array.of(1, 2)],
+    [CALL_CHANNELS.saveGraphCommunities, ['a.md'], [Uint32Array.of(1)]],
     [CALL_CHANNELS.resumeUnload],
   ]);
 });
