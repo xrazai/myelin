@@ -12,17 +12,6 @@ export function compareEntries(a: TreeEntry, b: TreeEntry): number {
 
 type Folder = Extract<TreeEntry, { kind: 'folder' }>;
 
-function insert(entries: TreeEntry[], entry: TreeEntry): TreeEntry[] {
-  let low = 0;
-  let high = entries.length;
-  while (low < high) {
-    const middle = (low + high) >> 1;
-    if (compareEntries(entries[middle]!, entry) < 0) low = middle + 1;
-    else high = middle;
-  }
-  return entries.toSpliced(low, 0, entry);
-}
-
 /** Dot entries are never listed, and the only files listed are `.md` notes. */
 function isListed(kind: TreeEntry['kind'], path: string): boolean {
   if (path.split('/').some((segment) => segment === '' || segment.startsWith('.'))) return false;
@@ -35,46 +24,106 @@ function newEntry(kind: TreeEntry['kind'], name: string, path: string): TreeEntr
     : { kind, name: name.slice(0, -'.md'.length), path };
 }
 
-/** `entries` is the content of the folder `segments[0..depth)`. Returns it as is if nothing changes. */
-function applyAt(
-  entries: TreeEntry[],
-  type: 'created' | 'deleted',
-  kind: TreeEntry['kind'],
-  segments: string[],
-  depth: number,
-): TreeEntry[] {
-  const path = segments.slice(0, depth + 1).join('/');
-  const last = depth === segments.length - 1;
-  const wanted = last ? kind : 'folder';
-  const index = entries.findIndex((entry) => entry.path === path && entry.kind === wanted);
-  const found = entries[index];
+/** One folder's content while a batch is applied: built once however many events touch it. */
+interface Listing {
+  original: TreeEntry[];
+  /** What the folder holds now, by `kind:path`. */
+  current: Map<string, TreeEntry>;
+  /** Keys of `original` entries that are gone. */
+  removed: Set<string>;
+  added: Map<string, TreeEntry>;
+  /** Child folders an event went into, by key. */
+  open: Map<string, Listing>;
+}
 
-  if (last) {
-    if (type === 'deleted') return found ? entries.toSpliced(index, 1) : entries;
-    return found ? entries : insert(entries, newEntry(kind, segments[depth]!, path));
+const keyOf = (kind: TreeEntry['kind'], path: string) => `${kind}:${path}`;
+
+function listing(entries: TreeEntry[]): Listing {
+  const current = new Map(entries.map((entry) => [keyOf(entry.kind, entry.path), entry]));
+  return { original: entries, current, removed: new Set(), added: new Map(), open: new Map() };
+}
+
+function add(into: Listing, key: string, entry: TreeEntry): void {
+  into.current.set(key, entry);
+  into.added.set(key, entry);
+}
+
+function remove(from: Listing, key: string): void {
+  from.current.delete(key);
+  from.open.delete(key);
+  if (!from.added.delete(key)) from.removed.add(key);
+}
+
+function applyOne(root: Listing, type: 'created' | 'deleted', kind: TreeEntry['kind'], segments: string[]): void {
+  let folder = root;
+  for (let depth = 0; depth < segments.length - 1; depth++) {
+    const path = segments.slice(0, depth + 1).join('/');
+    const key = keyOf('folder', path);
+    let child = folder.open.get(key);
+    if (!child) {
+      let entry = folder.current.get(key) as Folder | undefined;
+      if (!entry) {
+        // A watcher may report a nested entry before its folder: the missing parents are created.
+        if (type === 'deleted') return;
+        entry = newEntry('folder', segments[depth]!, path) as Folder;
+        add(folder, key, entry);
+      }
+      child = listing(entry.children);
+      folder.open.set(key, child);
+    }
+    folder = child;
   }
+  const path = segments.join('/');
+  const key = keyOf(kind, path);
+  if (type === 'deleted') {
+    if (folder.current.has(key)) remove(folder, key);
+  } else if (!folder.current.has(key)) add(folder, key, newEntry(kind, segments.at(-1)!, path));
+}
 
-  // A watcher may report a nested entry before its folder: the missing parents are created.
-  if (!found && type === 'deleted') return entries;
-  const folder = (found ?? newEntry('folder', segments[depth]!, path)) as Folder;
-  const children = applyAt(folder.children, type, kind, segments, depth + 1);
-  if (found && children === folder.children) return entries;
-  const next: Folder = { ...folder, children };
-  return found ? entries.with(index, next) : insert(entries, next);
+/** The folder's content after the batch: the same array if nothing changed. */
+function close({ original, removed, added, open }: Listing): TreeEntry[] {
+  const replaced = new Map<string, TreeEntry>();
+  for (const [key, child] of open) {
+    const entry = (added.get(key) ?? original.find((candidate) => keyOf(candidate.kind, candidate.path) === key)) as Folder;
+    const children = close(child);
+    if (children === entry.children) continue;
+    const next: Folder = { ...entry, children };
+    if (added.has(key)) added.set(key, next);
+    else replaced.set(key, next);
+  }
+  if (removed.size === 0 && added.size === 0 && replaced.size === 0) return original;
+  const kept: TreeEntry[] = [];
+  for (const entry of original) {
+    const key = keyOf(entry.kind, entry.path);
+    if (!removed.has(key)) kept.push(replaced.get(key) ?? entry);
+  }
+  if (added.size === 0) return kept;
+  // Both in order: merged in one pass.
+  const fresh = [...added.values()].sort(compareEntries);
+  const result: TreeEntry[] = [];
+  let at = 0;
+  for (const entry of fresh) {
+    while (at < kept.length && compareEntries(kept[at]!, entry) < 0) result.push(kept[at++]!);
+    result.push(entry);
+  }
+  while (at < kept.length) result.push(kept[at++]!);
+  return result;
 }
 
 /**
  * The tree after a batch of watcher events. Never mutates: unchanged parts keep their identity,
  * and the same array comes back if nothing changed. Applying a batch twice is harmless.
- * `changed` is about content, which the tree does not show.
+ * Each folder is rebuilt once, so a large batch stays linear. `changed` is about content,
+ * which the tree does not show.
  */
 export function applyEvents(tree: TreeEntry[], events: VaultEvent[]): TreeEntry[] {
-  let next = tree;
+  let root: Listing | null = null;
   for (const event of events) {
     if (event.type === 'changed' || !isListed(event.kind, event.path)) continue;
-    next = applyAt(next, event.type, event.kind, event.path.split('/'), 0);
+    root ??= listing(tree);
+    applyOne(root, event.type, event.kind, event.path.split('/'));
   }
-  return next;
+  return root ? close(root) : tree;
 }
 
 /** Forgets the expanded state of deleted folders, so one created later starts collapsed. */
