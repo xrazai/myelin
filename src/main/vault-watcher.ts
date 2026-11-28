@@ -426,6 +426,7 @@ export function watchVault(
     db!.close();
     db = null;
     db = await openDb(true);
+    graphFeed.reset();
     signal.throwIfAborted();
     return sync(db, root, signal, { onIndexed });
   }
@@ -503,7 +504,11 @@ export function watchVault(
     const trustStamp = hintedInSync !== null;
     let failed: string[];
     try {
-      failed = await updateIndex(db!, root, paths, exists, signal, onNote, { trustStamp, linkOnly });
+      failed = await updateIndex(db!, root, paths, exists, signal, onNote, {
+        trustStamp,
+        linkOnly,
+        touched: graphFeed.touched,
+      });
     } catch (error) {
       if (!isDamaged(error)) throw error;
       await replaceIndex(error, paths);

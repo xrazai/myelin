@@ -1,7 +1,7 @@
 // The main-thread side of the layout. It needs no canvas: MyelinGraph composes it.
 
 import { checkGraph, type LayoutGraph, type LayoutOptions } from './forceatlas2.ts';
-import type { FromWorker, Port, ToWorker } from './protocol.ts';
+import type { FromWorker, Naming, Port, ToWorker } from './protocol.ts';
 import type { RelaxGraph } from './relax.ts';
 
 export interface LayoutWorker extends Port<ToWorker> {
@@ -25,7 +25,7 @@ export interface LayoutEvents {
   layoutChange: (positions: Float32Array, status: LayoutStatus) => void;
   layoutError: (error: Error) => void;
   /** The answer to `detectCommunities`: labels per level, the finest first. */
-  communities: (levels: Uint32Array[]) => void;
+  communities: (levels: Uint32Array[], named: { nextId: number; colors: Float32Array[] }) => void;
 }
 
 export interface GraphLayoutOptions extends LayoutOptions {
@@ -97,10 +97,11 @@ export class GraphLayout {
   }
 
   /** Detects communities in the worker; the latest request wins. The arrays are transferred. */
-  detectCommunities(graph: { nodeCount: number; edges: Uint32Array; weights?: Float32Array }): void {
+  detectCommunities(graph: { nodeCount: number; edges: Uint32Array; weights?: Float32Array }, naming?: Naming): void {
     this.worker ??= this.connect();
-    const transfer = [graph.edges, graph.weights].flatMap((array) => (array ? [array.buffer as ArrayBuffer] : []));
-    this.send({ type: 'communities', run: ++this.communityRun, graph }, transfer);
+    const arrays = [graph.edges, graph.weights, naming?.alive, ...(naming?.previous ?? [])];
+    const transfer = arrays.flatMap((array) => (array ? [array.buffer as ArrayBuffer] : []));
+    this.send({ type: 'communities', run: ++this.communityRun, graph, naming }, transfer);
   }
 
   /** Stops the current layout; no more events come from it. */
@@ -144,7 +145,8 @@ export class GraphLayout {
     if (message.type === 'communities') {
       if (message.run !== this.communityRun) return;
       const levels = message.levels.map((buffer) => new Uint32Array(buffer));
-      for (const listener of this.listeners.communities) listener(levels);
+      const colors = message.colors.map((buffer) => new Float32Array(buffer));
+      for (const listener of this.listeners.communities) listener(levels, { nextId: message.nextId, colors });
       return;
     }
     // Late messages of a replaced or stopped layout.

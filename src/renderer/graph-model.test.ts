@@ -1,7 +1,7 @@
 import { describe, expect, test, vi } from 'vitest';
 import type { GraphDelta, GraphSnapshot } from '../shared/ipc';
 import { graphLook, mix } from './graph-look';
-import { GraphModel } from './graph-model';
+import { GraphModel, SavedCommunities } from './graph-model';
 import { createGraphView, type Graph } from './graph-view';
 
 const snapshot = (paths: string[], edges: number[], positions?: number[]): GraphSnapshot => ({
@@ -140,5 +140,22 @@ describe('graph view', () => {
     expect(look.colors.constellations).toHaveLength(6);
     expect(new Set(look.colors.constellations).size).toBe(6);
     expect(mix('#000000', '#ffffff')).toBe('#808080');
+  });
+});
+
+describe('SavedCommunities', () => {
+  test('after the first save, only what changed is saved, new nodes included', () => {
+    const saved = new SavedCommunities();
+    const levels = () => [Uint32Array.of(1, 1, 2), Uint32Array.of(3, 3, 3)];
+    expect(saved.changed(levels())).toEqual([0, 1, 2]);
+    expect(saved.changed(levels())).toEqual([]);
+    saved.forget([1]);
+    const next = levels();
+    next[0]![2] = 5;
+    expect(saved.changed(next)).toEqual([1, 2]);
+    // Another number of levels: all of them.
+    expect(saved.changed([next[0]!])).toEqual([0, 1, 2]);
+    saved.reset([Uint32Array.of(1, 1)]);
+    expect(saved.changed([Uint32Array.of(1, 1, 1)])).toEqual([2]);
   });
 });

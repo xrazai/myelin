@@ -46,50 +46,95 @@ function linkedPairs(db: Database.Database, paths: string[]): Map<string, [numbe
 interface Sent {
   /** Each note with when its file changed. */
   notes: Map<string, number>;
-  edges: Set<string>;
+  /** The notes each one is linked with, either way. */
+  linked: Map<string, Set<string>>;
 }
 
 /**
- * Remembers what the graph was last given, so that after it only what changed is sent:
- * the comparison runs here, off the interface's thread.
+ * Remembers what the graph was last given, so that after it only what changed is sent.
+ * It reads only the notes the index says it wrote (`touched`): the cost follows the
+ * change, not the vault.
  */
 export function createGraphFeed() {
   let sent: Sent | null = null;
+  const dirty = new Set<string>();
+
+  const neighbors = (of: Sent, path: string) => {
+    let set = of.linked.get(path);
+    if (!set) of.linked.set(path, (set = new Set()));
+    return set;
+  };
+
   return {
+    /** The index wrote this note: its links are compared at the next `changes`. */
+    touched(path: string): void {
+      if (sent) dirty.add(path);
+    },
+    /** The index was replaced: there is nothing to compare with. */
+    reset(): void {
+      sent = null;
+      dirty.clear();
+    },
     full(db: Database.Database): GraphSnapshot {
       const snapshot = readGraph(db);
       const { paths, edges, edited } = snapshot;
-      sent = { notes: new Map(paths.map((path, i) => [path, edited[i]!])), edges: new Set() };
+      const next: Sent = { notes: new Map(paths.map((path, i) => [path, edited[i]!])), linked: new Map() };
       for (let e = 0; e < edges.length; e += 2) {
         const a = paths[edges[e]!]!;
         const b = paths[edges[e + 1]!]!;
-        sent.edges.add(a < b ? `${a}\n${b}` : `${b}\n${a}`);
+        neighbors(next, a).add(b);
+        neighbors(next, b).add(a);
       }
+      sent = next;
+      dirty.clear();
       return snapshot;
     },
     changes(db: Database.Database): GraphDelta | null {
       if (!sent) return null;
-      const rows = db.prepare('SELECT path, mtime_ms FROM notes ORDER BY path').raw().all() as [string, number | null][];
-      const notes = new Map(rows.map(([path, time]) => [path, time ?? 0]));
-      const paths = [...notes.keys()];
-      const pairs = linkedPairs(db, paths);
-      const before = sent;
-      const removed = [...before.notes.keys()].filter((path) => !notes.has(path));
-      const added = paths.filter((path) => !before.notes.has(path));
+      const note = db.prepare('SELECT mtime_ms FROM notes WHERE path = ?').raw();
+      const links = db
+        .prepare(
+          `SELECT target_path FROM links WHERE source = @path AND target_path IS NOT NULL AND target_path <> @path
+           UNION SELECT source FROM links WHERE target_path = @path AND source <> @path`,
+        )
+        .pluck();
       const saved = db.prepare('SELECT x, y FROM positions WHERE path = ?').raw();
-      const positions = new Float32Array(added.length * 2).fill(NaN);
-      added.forEach((path, i) => {
-        const found = saved.get(path) as [number, number] | undefined;
-        if (found) positions.set(found, i * 2);
-      });
-      const removedEdges = [...before.edges]
-        .filter((key) => !pairs.has(key))
-        .map((key) => key.split('\n') as [string, string]);
+      const removed: string[] = [];
+      const added: string[] = [];
+      const places: number[] = [];
+      const removedEdges: [string, string][] = [];
       const addedEdges: [string, string][] = [];
-      for (const [key, [a, b]] of pairs) if (!before.edges.has(key)) addedEdges.push([paths[a]!, paths[b]!]);
-      const edited = [...notes].filter(([path, time]) => before.notes.get(path) !== time);
-      sent = { notes, edges: new Set(pairs.keys()) };
-      return { removed, added, positions, removedEdges, addedEdges, edited };
+      const edited: [string, number][] = [];
+      for (const path of dirty) {
+        const row = note.get(path) as [number | null] | undefined;
+        if (row) {
+          const time = row[0] ?? 0;
+          if (!sent.notes.has(path)) {
+            added.push(path);
+            places.push(...((saved.get(path) as [number, number] | undefined) ?? [NaN, NaN]));
+          }
+          if (sent.notes.get(path) !== time) edited.push([path, time]);
+          sent.notes.set(path, time);
+        } else if (sent.notes.delete(path)) removed.push(path);
+        const now = new Set(row ? (links.all({ path }) as string[]) : []);
+        const before = neighbors(sent, path);
+        // Both ends are updated at once, so that the other end finds nothing left to say.
+        for (const other of before) {
+          if (now.has(other)) continue;
+          before.delete(other);
+          neighbors(sent, other).delete(path);
+          removedEdges.push([path, other]);
+        }
+        for (const other of now) {
+          if (before.has(other)) continue;
+          before.add(other);
+          neighbors(sent, other).add(path);
+          addedEdges.push([path, other]);
+        }
+        if (!row) sent.linked.delete(path);
+      }
+      dirty.clear();
+      return { removed, added, positions: Float32Array.from(places), removedEdges, addedEdges, edited };
     },
   };
 }

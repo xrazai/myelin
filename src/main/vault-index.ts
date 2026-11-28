@@ -210,8 +210,15 @@ function applyPaths(db: Database.Database, paths: string[], resolve: MutableLink
 }
 
 /** Adds and removes these notes and re-resolves the links this affects, in one transaction. */
-function applyChanges(db: Database.Database, added: string[], removed: string[], resolve: LinkResolver): void {
+function applyChanges(
+  db: Database.Database,
+  added: string[],
+  removed: string[],
+  resolve: LinkResolver,
+  touched?: (path: string) => void,
+): void {
   if (added.length === 0 && removed.length === 0) return;
+  const relinked = new Set<string>();
 
   const insert = db.prepare('INSERT INTO notes (path, title) VALUES (?, ?)');
   const remove = db.prepare('DELETE FROM notes WHERE path = ?');
@@ -226,9 +233,11 @@ function applyChanges(db: Database.Database, added: string[], removed: string[],
       for (const link of affected.all(key) as { source: string; fromPos: number; target: string }[]) {
         const to = resolve(link.target, link.source);
         update.run(to.path, to.path === null ? to.name : null, link.source, link.fromPos);
+        relinked.add(link.source);
       }
     }
   })();
+  if (touched) for (const paths of [added, removed, relinked]) for (const path of paths) touched(path);
 }
 
 export interface SyncReport {
@@ -463,7 +472,16 @@ export async function updateIndex(
   exists: (path: string) => boolean,
   signal: AbortSignal,
   onNote: (update: NoteUpdate) => void,
-  { trustStamp = false, linkOnly = new Set<string>() }: { trustStamp?: boolean; linkOnly?: ReadonlySet<string> } = {},
+  {
+    trustStamp = false,
+    linkOnly = new Set<string>(),
+    touched,
+  }: {
+    trustStamp?: boolean;
+    linkOnly?: ReadonlySet<string>;
+    /** Each note that was added or removed, or whose text or links were written. */
+    touched?: (path: string) => void;
+  } = {},
 ): Promise<string[]> {
   signal.throwIfAborted();
   const row = db.prepare('SELECT 1 FROM notes WHERE path = ?');
@@ -479,7 +497,7 @@ export async function updateIndex(
     for (const path of removed) resolve.remove(path);
     for (const path of added) resolve.add(path);
     try {
-      applyChanges(db, added, [...removed], resolve);
+      applyChanges(db, added, [...removed], resolve, touched);
     } catch (error) {
       // The rows did not change: the resolver is ahead of them.
       resolvers.delete(db);
@@ -490,7 +508,10 @@ export async function updateIndex(
   const failed: string[] = [];
   await indexNotes(db, root, resolve, present, trustStamp, signal, (path, result) => {
     if (result === 'failed') failed.push(path);
-    else onNote({ path, ...result, linkOnly: linkOnly.has(path) });
+    else {
+      if (result.hash !== result.previous) touched?.(path);
+      onNote({ path, ...result, linkOnly: linkOnly.has(path) });
+    }
   });
   return failed;
 }

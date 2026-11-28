@@ -357,7 +357,11 @@ describe('communities', () => {
     expect(asked(sent)).toHaveLength(1);
     const seen: number[][] = [];
     graph.on('communitiesChange', ({ levels }) => seen.push([...levels[0]!]));
-    worker.onmessage!({ data: { type: 'communities', run: asked(sent)[0]!.run, levels: [Uint32Array.of(0, 0, 0).buffer] } });
+    // What the worker is given to keep ids and pick colors with.
+    expect(asked(sent)[0]!.naming).toMatchObject({ previous: null, nextId: 0, alive: Uint8Array.of(1, 1, 1) });
+    const levels = [Uint32Array.of(0, 0, 0).buffer];
+    const colors = [new Float32Array(16).buffer, new Float32Array(16).buffer];
+    worker.onmessage!({ data: { type: 'communities', run: asked(sent)[0]!.run, levels, nextId: 1, colors } });
     expect(seen).toEqual([[0, 0, 0]]);
     expect(graph.getCommunity(0)).toMatchObject({ size: 3, level: 0 });
     vi.useRealTimers();

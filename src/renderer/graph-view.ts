@@ -5,7 +5,7 @@ import { MyelinGraph, type MyelinGraphOptions } from '@myelin/graph';
 import type { GraphDelta, GraphSnapshot, MyelinApi } from '../shared/ipc';
 import { describeConstellation, type ConstellationInfo } from './constellation';
 import type { LinkPulse } from './editor/link-pulse';
-import { GraphModel } from './graph-model';
+import { GraphModel, SavedCommunities } from './graph-model';
 
 /** The graph is read again once the index has been quiet this long. */
 const REFRESH_MS = 800;
@@ -98,6 +98,7 @@ export function createGraphView(options: GraphViewOptions): GraphView {
   let reading = false;
   let again = false;
   let pulses: (LinkPulse & { until: number })[] = [];
+  const saved = new SavedCommunities();
   /** When each note last changed. */
   let edited = new Map<string, number>();
 
@@ -146,8 +147,14 @@ export function createGraphView(options: GraphViewOptions): GraphView {
   });
   graph.on('communityDoubleClick', (id) => graph.focusCommunity(id));
   graph.on('communitiesChange', ({ levels }) => {
-    const { paths, levels: byPath } = model.grouped(levels);
-    api.saveGraphCommunities(paths, byPath).catch((error: unknown) => console.error('[graph] saving communities:', error));
+    const { paths, levels: byPath } = model.grouped(levels, saved.changed(levels));
+    if (paths.length > 0) {
+      api.saveGraphCommunities(paths, byPath).catch((error: unknown) => {
+        console.error('[graph] saving communities:', error);
+        // Not saved after all: the next computation saves them all.
+        saved.reset(null);
+      });
+    }
     options.onchange?.();
   });
 
@@ -180,6 +187,7 @@ export function createGraphView(options: GraphViewOptions): GraphView {
   function load(snapshot: GraphSnapshot): void {
     edited = new Map(snapshot.paths.map((path, i) => [path, snapshot.edited[i]!]));
     model.load(snapshot);
+    saved.reset(snapshot.communities);
     graph.setGraph({
       nodeCount: snapshot.paths.length,
       edges: snapshot.edges,
@@ -199,6 +207,7 @@ export function createGraphView(options: GraphViewOptions): GraphView {
     if (changes.removeNodes.length > 0) graph.removeNodes(changes.removeNodes);
     const { paths, positions } = changes.addNodes;
     const ids = paths.length > 0 ? graph.addNodes(paths.length, { positions }) : new Uint32Array(0);
+    saved.forget(ids);
     const pairs = model.assign(delta, paths, ids);
     if (pairs.length > 0) graph.addEdges(pairs);
     return delta.edited.length > 0 || delta.removed.length > 0 || delta.removedEdges.length > 0 || pairs.length > 0;

@@ -4,8 +4,8 @@
 import type { Backend, BackendFactory, Frame } from './backend/backend.ts';
 import { WebGL2Backend } from './backend/webgl2.ts';
 import { boundsOf, fit, pan, screenToWorld, zoomAt, type Camera } from './camera.ts';
-import { communityColors, constellationAt, constellations, zoomView, type Constellation, type ZoomView } from './constellations.ts';
-import { describeCommunity, keepIds, NO_COMMUNITY, type Assignment, type Community } from './communities.ts';
+import { communityColors, constellationAt, constellations, NO_COLOR, zoomView, type Constellation, type ZoomView } from './constellations.ts';
+import { describeCommunity, NO_COMMUNITY, type Assignment, type Community } from './communities.ts';
 import { HitGrid, type HitStyle } from './hit-grid.ts';
 import { drawLabels, NAME_PIXELS, placeLabels, type LabelStyle } from './labels.ts';
 import { AdaptiveQuality } from './quality.ts';
@@ -134,6 +134,8 @@ export class MyelinGraph {
   private readonly paletteSize: number;
   /** The constellation colors on the GPU are behind the graph or its communities. */
   private staleColors = true;
+  /** `[coarsest, finest]` color of each node, kept so that no change recomputes them here. */
+  private colors: Float32Array[] | null = null;
   /** Centers of the constellations being named; rebuilt when positions or levels change. */
   private centers: { level: Uint32Array; list: Constellation[] } | null = null;
   private readonly communityLabel: ((community: Constellation) => string) | null;
@@ -193,7 +195,7 @@ export class MyelinGraph {
       for (const listener of this.changeListeners) listener(byId, status);
     });
 
-    this.layout.on('communities', (levels) => this.name(levels));
+    this.layout.on('communities', (levels, named) => this.name(levels, named));
 
     this.detach.push(
       observeCanvasSize(canvas, (size) => this.resize(size)),
@@ -461,12 +463,31 @@ export class MyelinGraph {
 
   private uploadColors(): void {
     this.staleColors = false;
-    const { store } = this;
+    const { store, communities } = this;
     const capacity = store.scene().radii.length;
-    const colors = (level: Uint32Array | undefined) =>
-      communityColors(level ?? new Uint32Array(0), store.ends, store.weights, store.edgeCount, this.paletteSize, capacity);
-    const levels = this.communities?.levels;
-    this.backend.setColors(colors(levels?.at(-1)), colors(levels?.[0]));
+    // Only a load with saved communities has none from the worker yet.
+    if (!this.colors && communities) {
+      this.colors = [communities.levels.at(-1)!, communities.levels[0]!].map((level) =>
+        communityColors(level, store.ends, store.weights, store.edgeCount, this.paletteSize, capacity),
+      );
+    }
+    const fitted = [0, 1].map((which) => {
+      const known = this.colors?.[which];
+      if (known && known.length >= capacity) return known.length === capacity ? known : known.slice(0, capacity);
+      const grown = new Float32Array(capacity).fill(NO_COLOR);
+      if (known) grown.set(known);
+      return grown;
+    });
+    if (this.colors) this.colors = fitted;
+    this.backend.setColors(fitted[0]!, fitted[1]!);
+  }
+
+  /** A slot that changed hands is in no constellation until the next computation. */
+  private uncolor(ids: ArrayLike<number>): void {
+    for (const colors of this.colors ?? []) {
+      for (let i = 0; i < ids.length; i++) if (ids[i]! < colors.length) colors[ids[i]!] = NO_COLOR;
+    }
+    this.staleColors = true;
   }
 
   /** Full load. Resets node ids; the caller keeps its arrays. */
@@ -489,6 +510,7 @@ export class MyelinGraph {
     this.glide = null;
     this.effects.clear();
     this.centers = null;
+    this.colors = null;
     this.staleColors = true;
     // Nodes loaded as active breathe once.
     if (data.states?.some((state) => state > 0)) this.effects.breathe(performance.now());
@@ -516,8 +538,7 @@ export class MyelinGraph {
   addNodes(count: number, options: { positions?: Float32Array; states?: Float32Array } = {}): Uint32Array {
     this.assertLoaded();
     const ids = this.store.addNodes(count, options);
-    // New slots and removed nodes change who is colored.
-    this.staleColors = true;
+    this.uncolor(ids);
     for (const id of ids) this.fresh.add(id);
     this.schedule();
     return ids;
@@ -527,7 +548,7 @@ export class MyelinGraph {
   removeNodes(ids: ArrayLike<number>): void {
     this.assertLoaded();
     this.store.removeNodes(ids);
-    this.staleColors = true;
+    this.uncolor(ids);
     for (let i = 0; i < ids.length; i++) {
       this.fresh.delete(ids[i]!);
       // The slot may be reused: whatever comes next belongs to nothing yet.
@@ -579,24 +600,35 @@ export class MyelinGraph {
     this.communityTimer = setTimeout(() => {
       const { store } = this;
       // Removed slots are isolated here and marked as belonging to nothing on the way back.
-      this.layout.detectCommunities({
-        nodeCount: store.nodeCount,
-        edges: store.ends.slice(0, store.edgeCount * 2),
-        weights: store.weights.slice(0, store.edgeCount),
-      });
+      this.layout.detectCommunities(
+        {
+          nodeCount: store.nodeCount,
+          edges: store.ends.slice(0, store.edgeCount * 2),
+          weights: store.weights.slice(0, store.edgeCount),
+        },
+        {
+          previous: this.communities?.levels.map((level) => level.slice()) ?? null,
+          nextId: this.nextCommunity,
+          alive: store.alive.slice(0, store.nodeCount),
+          palette: this.paletteSize,
+          capacity: store.scene().radii.length,
+        },
+      );
     }, COMMUNITIES_IDLE_MS);
   }
 
-  private name(labels: Uint32Array[]): void {
+  private name(levels: Uint32Array[], { nextId, colors }: { nextId: number; colors: Float32Array[] }): void {
     // The empty request that outdates an older computation after a load with saved ones.
-    if (labels[0]!.length === 0) return;
-    for (const level of labels) {
-      for (let id = 0; id < level.length; id++) if (!this.store.isAlive(id)) level[id] = NO_COMMUNITY;
+    if (levels[0]!.length === 0) return;
+    // Removed while the worker was at it.
+    for (let id = 0; id < levels[0]!.length; id++) {
+      if (!this.store.isAlive(id)) for (const level of levels) level[id] = NO_COMMUNITY;
     }
-    const { assignment, nextId } = keepIds(this.communities, labels, this.nextCommunity);
+    const assignment = { levels };
     this.communities = assignment;
     this.nextCommunity = nextId;
     this.centers = null;
+    this.colors = colors.length === 2 ? colors : null;
     this.staleColors = true;
     this.invalidate();
     for (const listener of this.pointerListeners.communitiesChange) {

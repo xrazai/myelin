@@ -991,13 +991,17 @@ describe('the graph', () => {
       if (delta.added.length === 0) delta = (await watching.graphChanges())!;
       expect(delta.added).toEqual(['Later.md']);
     });
-    expect([delta.addedEdges, delta.removedEdges, delta.removed]).toEqual([[['A.md', 'Later.md']], [], []]);
+    expect([delta.addedEdges.map((pair) => pair.sort()), delta.removedEdges, delta.removed]).toEqual([
+      [['A.md', 'Later.md']],
+      [],
+      [],
+    ]);
     expect(delta.edited.map(([path]) => path)).toEqual(['Later.md']);
 
     await watching.write('A.md', 'no links', '[[B]] [[Later]]');
     await vi.waitFor(async () => {
       delta = (await watching.graphChanges())!;
-      expect(delta.removedEdges.sort()).toEqual([['A.md', 'B.md'], ['A.md', 'Later.md']]);
+      expect(delta.removedEdges.map((pair) => pair.sort()).sort()).toEqual([['A.md', 'B.md'], ['A.md', 'Later.md']]);
     });
   });
 
