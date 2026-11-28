@@ -516,6 +516,8 @@ export class MyelinGraph {
   addNodes(count: number, options: { positions?: Float32Array; states?: Float32Array } = {}): Uint32Array {
     this.assertLoaded();
     const ids = this.store.addNodes(count, options);
+    // New slots and removed nodes change who is colored.
+    this.staleColors = true;
     for (const id of ids) this.fresh.add(id);
     this.schedule();
     return ids;
@@ -525,6 +527,7 @@ export class MyelinGraph {
   removeNodes(ids: ArrayLike<number>): void {
     this.assertLoaded();
     this.store.removeNodes(ids);
+    this.staleColors = true;
     for (let i = 0; i < ids.length; i++) {
       this.fresh.delete(ids[i]!);
       // The slot may be reused: whatever comes next belongs to nothing yet.
@@ -680,8 +683,8 @@ export class MyelinGraph {
     this.staleHits = this.staleOrder = true;
     this.effects.forget((id) => this.store.isAlive(id));
     this.centers = null;
-    // New slots and removed nodes change who is colored.
-    if (grown || nodes) this.staleColors = true;
+    // Bigger buffers need a color per slot. States do not change who is colored.
+    if (grown) this.staleColors = true;
     if (this.hovered !== null && !this.store.isAlive(this.hovered)) this.hover(null);
     this.arrange();
     this.invalidate();

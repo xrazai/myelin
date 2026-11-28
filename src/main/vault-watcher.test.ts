@@ -969,6 +969,38 @@ describe('the graph', () => {
     expect([...graph.edited].every((time) => time > 0)).toBe(true);
   });
 
+  test('after a full read, gives only what changed, links re-resolved by other notes included', async () => {
+    await write('A.md', '[[B]] [[Later]]');
+    await write('B.md', '');
+    watching = start();
+    await watching.indexed;
+    await watching.getTree();
+    expect(await watching.graphChanges()).toBeNull();
+    await watching.graph();
+    const none = { removed: [], added: [], removedEdges: [], addedEdges: [], edited: [] };
+    expect(await watching.graphChanges()).toMatchObject(none);
+
+    // A new note takes a link A already had.
+    await watching.write('Later.md', '', null);
+    await vi.waitFor(async () => expect((await watching.graph())!.paths).toContain('Later.md'));
+    await rm(at('Later.md'));
+    await vi.waitFor(async () => expect((await watching.graph())!.paths).not.toContain('Later.md'));
+    await watching.write('Later.md', '', null);
+    let delta = (await watching.graphChanges())!;
+    await vi.waitFor(async () => {
+      if (delta.added.length === 0) delta = (await watching.graphChanges())!;
+      expect(delta.added).toEqual(['Later.md']);
+    });
+    expect([delta.addedEdges, delta.removedEdges, delta.removed]).toEqual([[['A.md', 'Later.md']], [], []]);
+    expect(delta.edited.map(([path]) => path)).toEqual(['Later.md']);
+
+    await watching.write('A.md', 'no links', '[[B]] [[Later]]');
+    await vi.waitFor(async () => {
+      delta = (await watching.graphChanges())!;
+      expect(delta.removedEdges.sort()).toEqual([['A.md', 'B.md'], ['A.md', 'Later.md']]);
+    });
+  });
+
   test('says when the index changes', async () => {
     await write('A.md', '');
     let updates = 0;

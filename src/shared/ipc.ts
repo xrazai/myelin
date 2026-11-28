@@ -106,6 +106,19 @@ export interface GraphSnapshot {
   communities: Uint32Array[] | null;
 }
 
+/** What changed in the graph since it was last asked for. Everything is by note path. */
+export interface GraphDelta {
+  removed: string[];
+  /** New notes; `positions` holds their saved `[x0, y0, ...]`, NaN where there is none. */
+  added: string[];
+  positions: Float32Array;
+  /** Pairs of linked notes. */
+  removedEdges: [string, string][];
+  addedEdges: [string, string][];
+  /** Notes new or changed since, with when their files changed. */
+  edited: [string, number][];
+}
+
 export interface RenameResult {
   /** Notes whose links could not be rewritten: held, changed meanwhile or not UTF-8. */
   notUpdated: string[];
@@ -175,6 +188,11 @@ export interface MyelinApi {
   /** Every note and the links between them. `null` while the vault is first indexed. */
   getGraph(): Promise<GraphSnapshot | null>;
   /**
+   * What changed since the last `getGraph` or `getGraphChanges`. `null` if there is
+   * nothing to compare with: ask `getGraph` again.
+   */
+  getGraphChanges(): Promise<GraphDelta | null>;
+  /**
    * Saves where the graph put these notes (`[x0, y0, ...]`), to start there next time.
    * Paths the index does not have are ignored. A rename takes its positions along.
    */
@@ -226,6 +244,7 @@ export const CALL_CHANNELS = {
   deleteItem: 'item:delete',
   search: 'brain:search',
   getGraph: 'graph:get',
+  getGraphChanges: 'graph:changes',
   saveGraphPositions: 'graph:save-positions',
   saveGraphCommunities: 'graph:save-communities',
   resumeUnload: 'window:resume-unload',

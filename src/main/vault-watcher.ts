@@ -11,10 +11,10 @@ import { dirname, join, relative, sep } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { watch } from 'chokidar';
 import type Database from 'better-sqlite3';
-import type { Backlink, DeleteInfo, GraphSnapshot, SearchCard, FolderRenameResult, RenameResult, TreeEntry, VaultEvent, WriteResult } from '../shared/ipc';
+import type { Backlink, DeleteInfo, GraphDelta, GraphSnapshot, SearchCard, FolderRenameResult, RenameResult, TreeEntry, VaultEvent, WriteResult } from '../shared/ipc';
 import { createLinkResolver, folderNameProblem, noteNameProblem, rewriteLinksForMoves } from '../shared/links.ts';
 import { search as searchIndex } from './brain-adapter.ts';
-import { moveGraphData, readGraph, writeCommunities, writePositions } from './vault-graph.ts';
+import { createGraphFeed, moveGraphData, writeCommunities, writePositions } from './vault-graph.ts';
 import { backlinkRows, readBacklinks } from './vault-backlinks.ts';
 import { renameWithRetry, writeFileAtomic, type AtomicWriteDeps } from './atomic-write.ts';
 import {
@@ -86,6 +86,8 @@ export interface VaultWatch {
   search(query: string): Promise<SearchCard[]>;
   /** `getGraph` of the contract. */
   graph(): Promise<GraphSnapshot | null>;
+  /** `getGraphChanges` of the contract. */
+  graphChanges(): Promise<GraphDelta | null>;
   /** `saveGraphPositions` of the contract; the caller validates the arguments. */
   savePositions(paths: string[], positions: Float32Array): Promise<void>;
   /** `saveGraphCommunities` of the contract; the caller validates the arguments. */
@@ -410,6 +412,7 @@ export function watchVault(
   });
 
   let db: Database.Database | null = null;
+  const graphFeed = createGraphFeed();
   let rebuilt = false;
 
   /**
@@ -739,7 +742,11 @@ export function watchVault(
       }),
     async graph() {
       signal.throwIfAborted();
-      return synced && db ? readGraph(db) : null;
+      return synced && db ? graphFeed.full(db) : null;
+    },
+    async graphChanges() {
+      signal.throwIfAborted();
+      return synced && db ? graphFeed.changes(db) : null;
     },
     async savePositions(paths, positions) {
       signal.throwIfAborted();

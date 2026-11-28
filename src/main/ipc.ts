@@ -41,6 +41,7 @@ export const pendingHandlers: CallHandlers = {
   deleteItem: notImplemented('deleteItem'),
   search: notImplemented('search'),
   getGraph: notImplemented('getGraph'),
+  getGraphChanges: notImplemented('getGraphChanges'),
   saveGraphPositions: notImplemented('saveGraphPositions'),
   saveGraphCommunities: notImplemented('saveGraphCommunities'),
   resumeUnload: notImplemented('resumeUnload'),

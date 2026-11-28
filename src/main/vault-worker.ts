@@ -95,6 +95,9 @@ const handlers: Handlers = {
   async getGraph() {
     return openSession().watch.graph();
   },
+  async getGraphChanges() {
+    return openSession().watch.graphChanges();
+  },
   async saveGraphPositions(paths, positions) {
     if (!Array.isArray(paths) || !paths.every((path) => typeof path === 'string')) {
       throw new Error('paths must be an array of strings');

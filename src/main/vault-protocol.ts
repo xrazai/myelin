@@ -4,6 +4,7 @@ import type {
   Backlink,
   DeleteInfo,
   FolderRenameResult,
+  GraphDelta,
   GraphSnapshot,
   NotePreview,
   RenameResult,
@@ -37,6 +38,7 @@ export interface VaultRequests {
   readNote(path: string): string;
   search(query: string): SearchCard[];
   getGraph(): GraphSnapshot | null;
+  getGraphChanges(): GraphDelta | null;
   saveGraphPositions(paths: string[], positions: Float32Array): void;
   saveGraphCommunities(paths: string[], levels: Uint32Array[]): void;
   getBacklinks(path: string): Backlink[] | null;

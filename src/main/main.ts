@@ -162,6 +162,7 @@ function start(): void {
     deleteItem: (path, kind) => vault.call('deleteItem', path, kind),
     search: (query) => vault.call('search', query),
     getGraph: () => vault.call('getGraph'),
+    getGraphChanges: () => vault.call('getGraphChanges'),
     saveGraphPositions: (paths, positions) => vault.call('saveGraphPositions', paths, positions),
     saveGraphCommunities: (paths, levels) => vault.call('saveGraphCommunities', paths, levels),
     resumeUnload: () => {

@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from 'vitest';
-import type { GraphSnapshot } from '../shared/ipc';
+import type { GraphDelta, GraphSnapshot } from '../shared/ipc';
 import { graphLook, mix } from './graph-look';
 import { GraphModel } from './graph-model';
 import { createGraphView, type Graph } from './graph-view';
@@ -12,31 +12,54 @@ const snapshot = (paths: string[], edges: number[], positions?: number[]): Graph
   positions: Float32Array.from(positions ?? paths.flatMap(() => [NaN, NaN])),
 });
 
+const delta = (changes: Partial<GraphDelta>): GraphDelta => ({
+  removed: [],
+  added: [],
+  positions: new Float32Array(0),
+  removedEdges: [],
+  addedEdges: [],
+  edited: [],
+  ...changes,
+});
+
 describe('GraphModel', () => {
-  test('a change keeps the nodes that stay and says what else to do', () => {
+  test('a delta keeps the nodes that stay and says what else to do', () => {
     const model = new GraphModel();
     model.load(snapshot(['a.md', 'b.md', 'c.md'], [0, 1, 1, 2]));
-    const next = snapshot(['a.md', 'c.md', 'd.md'], [1, 0, 2, 0], [NaN, NaN, NaN, NaN, 5, 6]);
-    const changes = model.diff(next);
-    expect([...changes.removeEdges]).toEqual([0, 1, 1, 2]);
+    const next = delta({
+      removed: ['b.md'],
+      added: ['d.md'],
+      positions: Float32Array.of(5, 6),
+      removedEdges: [['a.md', 'b.md']],
+      addedEdges: [['c.md', 'a.md'], ['d.md', 'a.md']],
+    });
+    const changes = model.apply(next);
+    expect([...changes.removeEdges]).toEqual([0, 1]);
     expect(changes.removeNodes).toEqual([1]);
     expect(changes.addNodes.paths).toEqual(['d.md']);
     expect([...changes.addNodes.positions]).toEqual([5, 6]);
-    // The freed slot is reused.
+    // The freed slot is reused, and does not look linked to what its old note linked.
     expect([...model.assign(next, changes.addNodes.paths, [1])]).toEqual([2, 0, 1, 0]);
-    expect([model.id('d.md'), model.path(1), model.id('b.md')]).toEqual([1, 'd.md', undefined]);
-    // Read again, nothing changes; the other direction of a pair is the same edge.
-    const same = model.diff(snapshot(['a.md', 'c.md', 'd.md'], [0, 1, 0, 2]));
-    expect([same.removeEdges.length, same.removeNodes, same.addNodes.paths]).toEqual([0, [], []]);
+    expect([model.id('d.md'), model.path(1), model.id('b.md'), model.linked(1, 2)]).toEqual([1, 'd.md', undefined, false]);
+    // The other direction of a pair is the same edge.
+    expect(model.assign(delta({ addedEdges: [['a.md', 'c.md']] }), [], [])).toHaveLength(0);
   });
 
-  test('renamed notes keep their node, swaps of names included', () => {
+  test('renamed notes keep their node when the index reports them as new', () => {
     const model = new GraphModel();
     model.load(snapshot(['a.md', 'b.md'], [0, 1]));
     model.rename([['a.md', 'b.md'], ['b.md', 'c.md']]);
     expect([model.id('b.md'), model.id('c.md'), model.path(0)]).toEqual([0, 1, 'b.md']);
-    const changes = model.diff(snapshot(['b.md', 'c.md'], [0, 1]));
+    const next = delta({
+      removed: ['a.md'],
+      added: ['c.md'],
+      positions: Float32Array.of(NaN, NaN),
+      removedEdges: [['a.md', 'b.md']],
+      addedEdges: [['b.md', 'c.md']],
+    });
+    const changes = model.apply(next);
     expect([changes.removeEdges.length, changes.removeNodes, changes.addNodes.paths]).toEqual([0, [], []]);
+    expect(model.assign(next, [], [])).toHaveLength(0);
     expect(model.placed(Float32Array.of(1, 2, NaN, NaN))).toEqual({ paths: ['b.md'], positions: Float32Array.of(1, 2) });
   });
 });
@@ -44,7 +67,7 @@ describe('GraphModel', () => {
 describe('graph view', () => {
   test('loads, follows changes, pulses a new link once it is there and saves positions', async () => {
     vi.useFakeTimers();
-    let next = snapshot(['a.md', 'b.md'], []);
+    let next = delta({});
     let changed = () => {};
     let layout: (positions: Float32Array, status: { done: boolean }) => void = () => {};
     const graph = {
@@ -69,7 +92,8 @@ describe('graph view', () => {
       canvas: {} as HTMLCanvasElement,
       labelCanvas: {} as HTMLCanvasElement,
       api: {
-        getGraph: async () => next,
+        getGraph: async () => snapshot(['a.md', 'b.md'], []),
+        getGraphChanges: async () => next,
         saveGraphPositions,
         saveGraphCommunities: async () => {},
         onGraphChange: (listener) => ((changed = listener), () => {}),
@@ -90,7 +114,7 @@ describe('graph view', () => {
     // The save's pulse comes before the index has the link.
     view.pulse({ source: 'a.md', targets: ['b.md'] });
     expect(graph.pulseEdge).not.toHaveBeenCalled();
-    next = snapshot(['a.md', 'b.md'], [0, 1]);
+    next = delta({ addedEdges: [['a.md', 'b.md']] });
     changed();
     await vi.advanceTimersByTimeAsync(1000);
     expect(graph.addEdges).toHaveBeenCalledWith(Uint32Array.of(0, 1));

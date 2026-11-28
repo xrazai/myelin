@@ -1,6 +1,6 @@
-// The note path <-> graph node id map, and what the graph has to change to match the
+// The note path <-> graph node id map, and what the graph has to change to follow the
 // index. Ids are session-local (`docs/graph-lib.md`, rule 8); paths are the keys. Plain TS.
-import type { GraphSnapshot } from '../shared/ipc';
+import type { GraphDelta, GraphSnapshot } from '../shared/ipc';
 
 export interface GraphChanges {
   /** Pairs `[s0, t0, ...]` that are no longer links. Applied first, while their nodes live. */
@@ -58,36 +58,40 @@ export class GraphModel {
     }
   }
 
-  /** What differs in `snapshot`. The nodes it drops are forgotten here. */
-  diff(snapshot: GraphSnapshot): GraphChanges {
-    const present = new Set(snapshot.paths);
-    const removeNodes: number[] = [];
-    for (const [path, id] of this.ids) if (!present.has(path)) removeNodes.push(id);
-
-    const wanted = new Set<string>();
-    for (let e = 0; e < snapshot.edges.length; e += 2) {
-      const a = this.ids.get(snapshot.paths[snapshot.edges[e]!]!);
-      const b = this.ids.get(snapshot.paths[snapshot.edges[e + 1]!]!);
-      if (a !== undefined && b !== undefined) wanted.add(pairKey(a, b));
-    }
+  /** What a delta asks of the graph. The nodes it drops are forgotten here. */
+  apply(delta: GraphDelta): GraphChanges {
     const dropped: number[] = [];
-    for (const [key, pair] of this.edges) {
-      if (wanted.has(key)) continue;
+    for (const [from, to] of delta.removedEdges) {
+      const a = this.ids.get(from);
+      const b = this.ids.get(to);
+      if (a === undefined || b === undefined) continue;
+      const key = pairKey(a, b);
+      const pair = this.edges.get(key);
+      if (!pair) continue;
       dropped.push(...pair);
       this.edges.delete(key);
     }
-
-    for (const id of removeNodes) {
-      this.ids.delete(this.paths[id]!);
-      this.paths[id] = undefined;
+    const removeNodes: number[] = [];
+    for (const path of delta.removed) {
+      const id = this.ids.get(path);
+      if (id !== undefined) removeNodes.push(id);
     }
-
+    if (removeNodes.length > 0) {
+      // Their pairs go with them: a reused id must not look linked.
+      const gone = new Set(removeNodes);
+      for (const [key, [a, b]] of this.edges) if (gone.has(a) || gone.has(b)) this.edges.delete(key);
+      for (const id of removeNodes) {
+        this.ids.delete(this.paths[id]!);
+        this.paths[id] = undefined;
+      }
+    }
     const added: string[] = [];
     const positions: number[] = [];
-    snapshot.paths.forEach((path, i) => {
+    delta.added.forEach((path, i) => {
+      // A note renamed in the app already has its node.
       if (this.ids.has(path)) return;
       added.push(path);
-      positions.push(snapshot.positions[i * 2]!, snapshot.positions[i * 2 + 1]!);
+      positions.push(delta.positions[i * 2]!, delta.positions[i * 2 + 1]!);
     });
     return {
       removeEdges: Uint32Array.from(dropped),
@@ -96,16 +100,17 @@ export class GraphModel {
     };
   }
 
-  /** Takes the ids of the added nodes and returns the pairs to add, by id. */
-  assign(snapshot: GraphSnapshot, added: string[], ids: ArrayLike<number>): Uint32Array {
+  /** Takes the ids of the added nodes and returns the new pairs to add, by id. */
+  assign(delta: GraphDelta, added: string[], ids: ArrayLike<number>): Uint32Array {
     added.forEach((path, i) => {
       this.ids.set(path, ids[i]!);
       this.paths[ids[i]!] = path;
     });
     const pairs: number[] = [];
-    for (let e = 0; e < snapshot.edges.length; e += 2) {
-      const a = this.ids.get(snapshot.paths[snapshot.edges[e]!]!)!;
-      const b = this.ids.get(snapshot.paths[snapshot.edges[e + 1]!]!)!;
+    for (const [from, to] of delta.addedEdges) {
+      const a = this.ids.get(from);
+      const b = this.ids.get(to);
+      if (a === undefined || b === undefined) continue;
       const key = pairKey(a, b);
       if (this.edges.has(key)) continue;
       this.edges.set(key, [a, b]);

@@ -129,7 +129,7 @@ myelin/
 │   │   ├── last-vault.ts      # <userData>/last-vault.json: the vault reopened on start (used by vault-worker)
 │   │   ├── vault-path.ts      # validates note paths from the renderer (used by vault-worker)
 │   │   ├── vault-index.ts     # index.db: schema, sync and updates (used by vault-worker)
-│   │   ├── vault-graph.ts     # notes, links and saved positions for the graph (used by vault-worker)
+│   │   ├── vault-graph.ts     # the graph's notes and links (whole once, then deltas) and saved data (used by vault-worker)
 │   │   ├── vault-backlinks.ts # the notes linking to a note, with their lines (used by vault-worker)
 │   │   ├── vault-watcher.ts   # chokidar watcher, loop guard, tree events, rename batch (used by vault-worker)
 │   │   ├── vault-usage.ts     # appends learning events to usage.jsonl (used by vault-worker)
