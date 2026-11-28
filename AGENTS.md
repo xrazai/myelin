@@ -90,7 +90,7 @@ Do not create tables, dependencies, queues or files for AI before the decision. 
 - Link hover preview `< 1ms` for links visible in the editor: `note-cache.ts` is an LRU of short previews (title + first ~500 chars), prefetched for the `[[links]]` in the editor viewport. A cold hover (not prefetched) may take one IPC round-trip. Never hold full note texts for the whole vault in the renderer.
 
 ## Benchmark (`scripts/bench.ts`)
-On `gen-vault` output (10k / 100k notes): graph FPS with glow, hover latency (warm and cold), FTS5 indexing time, one `Ctrl+P` keystroke (`palette`; budget <= 16 ms at 100k notes), one vault search (`search`). First layout time is measured by `node scripts/bench-layout.ts`.
+On `gen-vault` output (10k / 100k notes): graph FPS with glow, hover latency (warm and cold), FTS5 indexing time, the app's own open (watcher included) and its peak memory, one `Ctrl+P` keystroke (`palette`; budget <= 16 ms at 100k notes), one vault search (`search`). First layout time is measured by `node scripts/bench-layout.ts`.
 `--editor` (`scripts/bench-editor.ts`): typing latency of the editor, with real key events in the repo's Electron (needs a desktop session). Budget on a 10k-line note: p95 <= 16 ms from keydown to the DOM updated and laid out.
 
 ## Learning (what "Myelin" means in code)
