@@ -260,11 +260,26 @@ export class MyelinGraph {
 
   private hover(id: number | null): void {
     if (id === this.hovered) return;
+    this.show(id);
+    for (const listener of this.pointerListeners.nodeHover) listener(id);
+  }
+
+  /** Its label shows first, and its edges light up. */
+  private show(id: number | null): void {
     this.hovered = id;
     this.effects.hover(id, id === null ? [] : this.store.neighbors(id), performance.now());
-    // Its label shows first, and its edges light up.
     this.invalidate();
-    for (const listener of this.pointerListeners.nodeHover) listener(id);
+  }
+
+  /**
+   * Shows a node as if the pointer were on it, for hosts that point at it from elsewhere
+   * (a list, a link); `null` ends it. No `nodeHover` is reported.
+   */
+  highlightNode(id: number | null): void {
+    this.assertLoaded();
+    this.flush();
+    if (id !== null && !this.store.isAlive(id)) throw new RangeError(`there is no node ${id}`);
+    if (id !== this.hovered) this.show(id);
   }
 
   /** Glides the camera to a node, zooming in if it is far out. */

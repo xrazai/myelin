@@ -27,6 +27,7 @@ Status: stage 1 done; stage 2 in progress, with the manual base first (Roadmap).
 - Internal communication: IPC only (`contextBridge`, `contextIsolation: true`). Every channel is declared in `src/shared/ipc.ts`; only `preload.ts` and `main/ipc.ts` touch Electron IPC (enforced by `main/ipc.test.ts`).
 - Storage:
   - Inside the vault, `.myelin/` holds only text files: `vault.json` (`{ "id": <UUID>, "formatVersion": 1 }`; created when missing, never overwritten; the vault does not open if it is invalid or has another version) and `usage.jsonl` (learning events). Safe to sync with Git, Syncthing or cloud folders.
+  - The graph's node positions are in `index.db`, by note path (`main/vault-graph.ts`). Renames and moves done in the app take them along; a rebuilt index only means the graph lays out again.
   - Index: `better-sqlite3` (WAL, FTS5) at `<userData>/vaults/<vault-id>/index.db`, outside the vault. 100% rebuildable; never synced (SQLite + WAL in a synced folder risks corruption and binary conflicts). Native module: `better-sqlite3` >= 13 ships Node-API prebuilds, so one binary serves Node (tests) and Electron: no `@electron/rebuild`, and its install script stays denied (`allowScripts`).
   - Index code: `main/vault-index.ts`. Tables `notes` (with the content hash), `links` (one row per link, `target_path` or unresolved `name`) and `notes_fts`. Schema change = bump `SCHEMA_VERSION` (rebuilds). `open` returns at once and the index syncs in the background (new, changed by mtime + size then hash, removed); a failing index never keeps a vault from opening. Anything that adds or removes notes must re-resolve the affected links in the same transaction.
 - Search: FTS5, tokenizer `unicode61 remove_diacritics 2` (Portuguese-friendly; `porter` is English-only). `brain-adapter.ts`: typed text is never FTS5 syntax (each term quoted, the last also a prefix), `bm25` with the title above the body, `snippet` with match ranges.
@@ -128,6 +129,7 @@ myelin/
 │   │   ├── last-vault.ts      # <userData>/last-vault.json: the vault reopened on start (used by vault-worker)
 │   │   ├── vault-path.ts      # validates note paths from the renderer (used by vault-worker)
 │   │   ├── vault-index.ts     # index.db: schema, sync and updates (used by vault-worker)
+│   │   ├── vault-graph.ts     # notes, links and saved positions for the graph (used by vault-worker)
 │   │   ├── vault-backlinks.ts # the notes linking to a note, with their lines (used by vault-worker)
 │   │   ├── vault-watcher.ts   # chokidar watcher, loop guard, tree events, rename batch (used by vault-worker)
 │   │   ├── vault-usage.ts     # appends learning events to usage.jsonl (used by vault-worker)
@@ -173,7 +175,10 @@ myelin/
 │       ├── commands.ts        # every workspace command and its shortcut; `>` in the palette lists them
 │       ├── note-cache.ts      # LRU of short previews, viewport prefetch
 │       ├── rename-note.ts     # rename order: save, worker batch, move tab and editor state
-│       └── graph-view.ts      # glue: note path <-> node id, feeds @myelin/graph, wires events
+│       ├── graph-view.ts      # glue: feeds @myelin/graph, keeps it current, saves positions, wires events
+│       ├── graph-model.ts     # note path <-> node id, and what changed against the index
+│       ├── graph-look.ts      # graph colors from the identity tokens
+│       └── note-hover.ts      # the note pointed at in the tree or a link: the graph shows it
 └── vault-dev/                 # local test vault
     ├── .myelin/
     │   ├── vault.json           # vault id, format version

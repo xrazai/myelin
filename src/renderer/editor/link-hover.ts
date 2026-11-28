@@ -8,6 +8,7 @@ import type { NoteCache } from '../note-cache';
 import type { NoteList } from '../note-list';
 import { linkAt, opensLink } from './link-syntax';
 import { notePath } from './note-path';
+import { announceNoteHover } from '../note-hover';
 
 export interface LinkHoverOptions {
   notes: Pick<NoteList, 'ready' | 'isLoaded' | 'resolve'>;
@@ -44,7 +45,7 @@ export function visibleLinkPaths(
   return paths;
 }
 
-function renderPreview(preview: NotePreview): { dom: HTMLElement } {
+function renderPreview(preview: NotePreview): { dom: HTMLElement; mount(): void; destroy(): void } {
   const dom = document.createElement('div');
   dom.className = 'cm-hover-preview';
 
@@ -68,7 +69,8 @@ function renderPreview(preview: NotePreview): { dom: HTMLElement } {
     dom.appendChild(excerpt);
   }
 
-  return { dom };
+  // While the card shows, the graph shows its note.
+  return { dom, mount: () => announceNoteHover(preview.path), destroy: () => announceNoteHover(null) };
 }
 
 export function linkHover({ notes, cache }: LinkHoverOptions): Extension {

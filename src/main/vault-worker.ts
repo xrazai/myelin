@@ -48,6 +48,7 @@ function startSession(root: string, id: string, after: Promise<void>): Session {
       return openIndex(file);
     },
     emit: (events) => post({ type: 'events', events }),
+    indexUpdated: () => post({ type: 'graph' }),
   });
   return { root, watch };
 }
@@ -90,6 +91,18 @@ const handlers: Handlers = {
   async search(query) {
     if (typeof query !== 'string') throw new Error('the query must be a string');
     return openSession().watch.search(query);
+  },
+  async getGraph() {
+    return openSession().watch.graph();
+  },
+  async saveGraphPositions(paths, positions) {
+    if (!Array.isArray(paths) || !paths.every((path) => typeof path === 'string')) {
+      throw new Error('paths must be an array of strings');
+    }
+    if (!(positions instanceof Float32Array) || positions.length !== paths.length * 2) {
+      throw new Error('positions must hold two numbers per path');
+    }
+    return openSession().watch.savePositions(paths, positions);
   },
   async getBacklinks(path) {
     const { root, watch } = openSession();

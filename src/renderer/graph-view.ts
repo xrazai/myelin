@@ -1,0 +1,209 @@
+// Glue between the vault and `@myelin/graph` (AGENTS.md, rule 4): feeds it the notes and
+// links of the index, keeps it current, saves its positions by note path and wires its
+// events. Plain TS, outside Svelte's reactivity.
+import { MyelinGraph, type MyelinGraphOptions } from '@myelin/graph';
+import type { GraphSnapshot, MyelinApi } from '../shared/ipc';
+import type { LinkPulse } from './editor/link-pulse';
+import { GraphModel } from './graph-model';
+
+/** The graph is read again once the index has been quiet this long. */
+const REFRESH_MS = 800;
+/** Positions are saved this long after the layout stops, and at least this often while it runs. */
+const SAVE_MS = 1000;
+const SAVE_EVERY_MS = 15000;
+/** A pulse waits this long at most for its link to reach the graph. */
+const PULSE_WAIT_MS = 15000;
+/** Nodes that were just linked stay active this long. */
+const ACTIVE_MS = 6000;
+
+export type GraphApi = Pick<MyelinApi, 'getGraph' | 'saveGraphPositions' | 'onGraphChange' | 'onIndexing'>;
+
+/** What the view uses of `MyelinGraph`. */
+export type Graph = Pick<
+  MyelinGraph,
+  | 'setGraph'
+  | 'addNodes'
+  | 'removeNodes'
+  | 'addEdges'
+  | 'removeEdges'
+  | 'updateStates'
+  | 'pulseEdge'
+  | 'highlightNode'
+  | 'on'
+  | 'destroy'
+>;
+
+export interface GraphViewOptions {
+  canvas: HTMLCanvasElement;
+  labelCanvas: HTMLCanvasElement;
+  api: GraphApi;
+  colors: NonNullable<MyelinGraphOptions['colors']>;
+  labelStyle: NonNullable<MyelinGraphOptions['labelStyle']>;
+  /** A node was clicked. */
+  onopen: (path: string) => void;
+  /** The graph cannot be drawn. */
+  onerror: (message: string) => void;
+  /** For tests. */
+  createGraph?: (canvas: HTMLCanvasElement, options: MyelinGraphOptions) => Graph;
+}
+
+export interface GraphView {
+  /** Notes about to show up under other paths keep their nodes. */
+  renamed(moves: Iterable<readonly [string, string]>): void;
+  /** Shows a note as if its node were hovered; `null` ends it. */
+  highlight(path: string | null): void;
+  /** Light from a note along each new link, once the graph has it. */
+  pulse(pulse: LinkPulse): void;
+  destroy(): void;
+}
+
+const title = (path: string) => path.slice(path.lastIndexOf('/') + 1, -'.md'.length);
+
+export function createGraphView(options: GraphViewOptions): GraphView {
+  const { api, canvas, labelCanvas, colors, labelStyle, onopen, onerror } = options;
+  const model = new GraphModel();
+  const create = options.createGraph ?? ((target, look) => new MyelinGraph(target, look));
+  const graph = create(canvas, {
+    colors,
+    labelStyle,
+    labelCanvas,
+    getLabel: (id) => title(model.path(id) ?? ''),
+  });
+
+  let destroyed = false;
+  let loaded = false;
+  /** The latest positions by node id, not yet saved. */
+  let unsaved: Float32Array | null = null;
+  let saveTimer: ReturnType<typeof setTimeout> | undefined;
+  let saveDeadline: ReturnType<typeof setTimeout> | undefined;
+  let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+  let reading = false;
+  let again = false;
+  let pulses: (LinkPulse & { until: number })[] = [];
+  const cooling = new Set<ReturnType<typeof setTimeout>>();
+
+  function save(): void {
+    clearTimeout(saveTimer);
+    clearTimeout(saveDeadline);
+    saveDeadline = undefined;
+    if (!unsaved) return;
+    const { paths, positions } = model.placed(unsaved);
+    unsaved = null;
+    if (paths.length === 0) return;
+    api.saveGraphPositions(paths, positions).catch((error: unknown) => console.error('[graph] saving positions:', error));
+  }
+
+  graph.on('layoutChange', (positions, { done }) => {
+    // The buffer goes back to the worker: what is kept is copied.
+    unsaved = positions.slice();
+    clearTimeout(saveTimer);
+    if (done) saveTimer = setTimeout(save, SAVE_MS);
+    else saveDeadline ??= setTimeout(save, SAVE_EVERY_MS);
+  });
+  graph.on('layoutError', (error) => onerror(error.message));
+  graph.on('nodeClick', (id) => {
+    const path = model.path(id);
+    if (path !== undefined) onopen(path);
+  });
+
+  /** A node that was just linked breathes, then goes quiet. */
+  function activate(paths: string[]): void {
+    const ids = () => paths.map((path) => model.id(path)).filter((id) => id !== undefined);
+    const lit = ids();
+    graph.updateStates(lit, new Float32Array(lit.length).fill(1));
+    const timer = setTimeout(() => {
+      cooling.delete(timer);
+      const still = ids();
+      graph.updateStates(still, new Float32Array(still.length));
+    }, ACTIVE_MS);
+    cooling.add(timer);
+  }
+
+  function firePulses(): void {
+    const now = Date.now();
+    pulses = pulses.filter(({ source, targets, until }) => {
+      if (now > until) return false;
+      const from = model.id(source);
+      const to = targets.map((target) => model.id(target));
+      if (from === undefined || to.some((id) => id === undefined || !model.linked(from, id))) return true;
+      for (const id of to) graph.pulseEdge(from, id!);
+      activate([source, ...targets]);
+      return false;
+    });
+  }
+
+  function apply(snapshot: GraphSnapshot): void {
+    if (!loaded) {
+      model.load(snapshot);
+      graph.setGraph({
+        nodeCount: snapshot.paths.length,
+        edges: snapshot.edges,
+        positions: snapshot.positions,
+      });
+      loaded = true;
+      return;
+    }
+    const changes = model.diff(snapshot);
+    if (changes.removeEdges.length > 0) graph.removeEdges(changes.removeEdges);
+    if (changes.removeNodes.length > 0) graph.removeNodes(changes.removeNodes);
+    const { paths, positions } = changes.addNodes;
+    const ids = paths.length > 0 ? graph.addNodes(paths.length, { positions }) : new Uint32Array(0);
+    const pairs = model.assign(snapshot, paths, ids);
+    if (pairs.length > 0) graph.addEdges(pairs);
+  }
+
+  async function refresh(): Promise<void> {
+    if (reading) {
+      again = true;
+      return;
+    }
+    reading = true;
+    try {
+      do {
+        again = false;
+        // `null` while the vault is first indexed: the end of that asks again.
+        const snapshot = await api.getGraph();
+        if (destroyed) return;
+        if (snapshot) {
+          apply(snapshot);
+          firePulses();
+        }
+      } while (again);
+    } catch (error) {
+      console.error('[graph] reading the graph:', error);
+    } finally {
+      reading = false;
+    }
+  }
+
+  function later(): void {
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(() => void refresh(), REFRESH_MS);
+  }
+
+  const stops = [api.onGraphChange(later), api.onIndexing((active) => !active && void refresh())];
+  void refresh();
+
+  return {
+    renamed(moves) {
+      model.rename(moves);
+      later();
+    },
+    highlight(path) {
+      if (loaded) graph.highlightNode(path === null ? null : (model.id(path) ?? null));
+    },
+    pulse(pulse) {
+      pulses.push({ ...pulse, until: Date.now() + PULSE_WAIT_MS });
+      if (loaded) firePulses();
+    },
+    destroy() {
+      if (destroyed) return;
+      destroyed = true;
+      for (const stop of stops) stop();
+      clearTimeout(refreshTimer);
+      for (const timer of cooling) clearTimeout(timer);
+      save();
+      graph.destroy();
+    },
+  };
+}

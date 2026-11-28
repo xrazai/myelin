@@ -20,6 +20,7 @@ export function createVaultClient(
   onEvents?: (events: VaultEvent[]) => void,
   /** Moves a path to the Recycle Bin; without it, the worker is told it cannot. */
   trash: (path: string) => Promise<void> = () => Promise.reject(new Error('no Recycle Bin here')),
+  onGraphChange?: () => void,
 ): VaultClient {
   const pending = new Map<number, Pending>();
   let lastId = 0;
@@ -38,6 +39,10 @@ export function createVaultClient(
     }
     if (message.type === 'events') {
       onEvents?.(message.events);
+      return;
+    }
+    if (message.type === 'graph') {
+      onGraphChange?.();
       return;
     }
     if (message.type === 'trash') {

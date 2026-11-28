@@ -90,6 +90,15 @@ export interface DeleteInfo {
   linkedFrom: number | null;
 }
 
+/** The notes and links of the index, as the graph takes them. */
+export interface GraphSnapshot {
+  paths: string[];
+  /** `[source0, target0, ...]` as indices into `paths`: one pair per two linked notes. */
+  edges: Uint32Array;
+  /** The saved `[x0, y0, ...]` of each note; NaN where there is none. */
+  positions: Float32Array;
+}
+
 export interface RenameResult {
   /** Notes whose links could not be rewritten: held, changed meanwhile or not UTF-8. */
   notUpdated: string[];
@@ -156,6 +165,13 @@ export interface MyelinApi {
    * page cannot tell which one it was.
    */
   resumeUnload(): Promise<void>;
+  /** Every note and the links between them. `null` while the vault is first indexed. */
+  getGraph(): Promise<GraphSnapshot | null>;
+  /**
+   * Saves where the graph put these notes (`[x0, y0, ...]`), to start there next time.
+   * Paths the index does not have are ignored. A rename takes its positions along.
+   */
+  saveGraphPositions(paths: string[], positions: Float32Array): Promise<void>;
   /** Cards ordered by relevance. */
   search(query: string): Promise<SearchCard[]>;
   /** Watcher events, in batches. Returns the unsubscribe function. */
@@ -166,6 +182,8 @@ export interface MyelinApi {
    * unsubscribe function.
    */
   onIndexing(listener: (active: boolean) => void): () => void;
+  /** Notes or links may have changed in the index. Returns the unsubscribe function. */
+  onGraphChange(listener: () => void): () => void;
 }
 
 /** Methods answered by main (request/response); the rest are subscriptions. */
@@ -195,6 +213,8 @@ export const CALL_CHANNELS = {
   deleteInfo: 'item:delete-info',
   deleteItem: 'item:delete',
   search: 'brain:search',
+  getGraph: 'graph:get',
+  saveGraphPositions: 'graph:save-positions',
   resumeUnload: 'window:resume-unload',
 } as const satisfies Record<CallName, string>;
 
@@ -202,9 +222,11 @@ export const CALL_CHANNELS = {
 export interface EventPayloads {
   'vault:events': VaultEvent[];
   'vault:indexing': boolean;
+  'graph:changed': null;
 }
 
 export const EVENT_CHANNELS = {
   vaultEvents: 'vault:events',
   indexing: 'vault:indexing',
+  graphChange: 'graph:changed',
 } as const satisfies Record<string, keyof EventPayloads>;

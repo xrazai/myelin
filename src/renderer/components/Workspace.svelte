@@ -35,6 +35,7 @@
   import DeleteDialog from './DeleteDialog.svelte';
   import Editor from './Editor.svelte';
   import FileTree from './FileTree.svelte';
+  import GraphPanel from './GraphPanel.svelte';
   import Splitter from './Splitter.svelte';
   import StatusBar from './StatusBar.svelte';
   import Tabs from './Tabs.svelte';
@@ -101,6 +102,7 @@
     const done = learning.begin(`Renaming ${tabName(from)}… saves wait`);
     try {
       let notUpdated: string[];
+      let moved: [string, string][] = [[from, to]];
       if (kind === 'note') {
         const result = await coordinateRename(
           window.myelin,
@@ -136,7 +138,9 @@
           return false;
         }
         notUpdated = outcome.result.notUpdated;
+        moved = outcome.result.moved;
       }
+      graph?.renamed(moved);
       if (notUpdated.length > 0) {
         noteError = `Renamed, but the links in these notes were not updated: ${notUpdated.join(', ')}`;
       }
@@ -301,6 +305,13 @@
     // Opened by keyboard: ready to type. A hidden panel is `inert` until the DOM follows.
     if (rightPanel === 'brain') void tick().then(() => tick()).then(() => brain?.focus());
   };
+
+  let graph = $state<ReturnType<typeof GraphPanel>>();
+  /** The graph starts when first shown, then stays, hidden or not: its layout is not redone. */
+  let graphStarted = $state(false);
+  $effect(() => {
+    if (rightPanel === 'graph' && !collapsed.right) graphStarted = true;
+  });
 
   let noteListRev = $state(0);
   const noteList = watchNoteList(window.myelin);
@@ -631,9 +642,10 @@
       </div>
       <kbd class="shortcut-hint" title="Switch between Graph and Brain panel (Ctrl+Shift+L)">Ctrl+Shift+L</kbd>
     </header>
-    <!-- Placeholder: `@myelin/graph` mounts here later. -->
-    {#if rightPanel === 'graph'}
-      <p>The graph is not here yet.</p>
+    {#if graphStarted}
+      <div class={['graph-slot', { off: rightPanel !== 'graph' }]}>
+        <GraphPanel bind:this={graph} onopen={openNote} />
+      </div>
     {/if}
     <!-- Kept while the graph shows: the query and its cards stay. -->
     <div class={['brain-slot', { off: rightPanel !== 'brain' }]}>
@@ -1015,13 +1027,15 @@
     min-height: 0;
   }
 
-  .brain-slot.off {
-    display: none;
+  .graph-slot {
+    display: flex;
+    flex: 2;
+    flex-direction: column;
+    min-height: 0;
   }
 
-  aside > p {
-    margin: 0;
-    padding: 6px 12px;
-    color: var(--text-muted);
+  .brain-slot.off,
+  .graph-slot.off {
+    display: none;
   }
 </style>

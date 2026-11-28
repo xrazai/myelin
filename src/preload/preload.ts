@@ -34,9 +34,12 @@ const api: MyelinApi = {
   deleteInfo: call('deleteInfo'),
   deleteItem: call('deleteItem'),
   search: call('search'),
+  getGraph: call('getGraph'),
+  saveGraphPositions: call('saveGraphPositions'),
   resumeUnload: call('resumeUnload'),
   onVaultEvents: subscribe(EVENT_CHANNELS.vaultEvents),
   onIndexing: subscribe(EVENT_CHANNELS.indexing),
+  onGraphChange: subscribe(EVENT_CHANNELS.graphChange),
 };
 
 contextBridge.exposeInMainWorld('myelin', api);
