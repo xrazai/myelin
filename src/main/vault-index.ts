@@ -11,7 +11,7 @@ import { dirname, join } from 'node:path';
 import { setImmediate as nextTurn } from 'node:timers/promises';
 import Database from 'better-sqlite3';
 import type { TreeEntry } from '../shared/ipc';
-import { createLinkResolver, linkKey, noteLinks, type LinkResolver } from '../shared/links.ts';
+import { createLinkResolver, linkKey, noteLinks, type LinkResolver, type MutableLinkResolver } from '../shared/links.ts';
 import { scanVault } from './vault-scan.ts';
 
 /** Stored in `user_version`. Bump on any schema change: the index is dropped and rebuilt. */
@@ -184,18 +184,26 @@ export function renameCandidates(
 }
 
 /** The resolver for the paths now in `notes`; building it is slow on a large vault. */
-const resolvers = new WeakMap<Database.Database, LinkResolver>();
+const resolvers = new WeakMap<Database.Database, MutableLinkResolver>();
 
 const allPaths = (db: Database.Database) => db.prepare('SELECT path FROM notes').pluck().all() as string[];
 
 /** Makes `notes` match the scanned paths and re-resolves the links this affects. */
-function applyPaths(db: Database.Database, paths: string[], resolve: LinkResolver): number {
-  resolvers.set(db, resolve);
+function applyPaths(db: Database.Database, paths: string[], resolve: MutableLinkResolver): number {
+  resolvers.delete(db);
   const known = new Set(allPaths(db));
   const found = new Set(paths);
   const added = paths.filter((path) => !known.has(path));
   const removed = [...known].filter((path) => !found.has(path));
-  if (added.length === 0 && removed.length === 0) return 0;
+  applyChanges(db, added, removed, resolve);
+  // Cached only once the rows match it.
+  resolvers.set(db, resolve);
+  return removed.length;
+}
+
+/** Adds and removes these notes and re-resolves the links this affects, in one transaction. */
+function applyChanges(db: Database.Database, added: string[], removed: string[], resolve: LinkResolver): void {
+  if (added.length === 0 && removed.length === 0) return;
 
   const insert = db.prepare('INSERT INTO notes (path, title) VALUES (?, ?)');
   const remove = db.prepare('DELETE FROM notes WHERE path = ?');
@@ -213,7 +221,6 @@ function applyPaths(db: Database.Database, paths: string[], resolve: LinkResolve
       }
     }
   })();
-  return removed.length;
 }
 
 export interface SyncReport {
@@ -404,13 +411,19 @@ export async function updateIndex(
   const kept = new Set(present);
   const removed = new Set(paths.filter((path) => !kept.has(path) && row.get(path) !== undefined));
 
+  // Built once for this index; then it follows the changes, whatever the size of the vault.
   let resolve = resolvers.get(db);
-  if (!resolve || added.length > 0 || removed.size > 0) {
-    const next = allPaths(db)
-      .filter((path) => !removed.has(path))
-      .concat(added);
-    resolve = createLinkResolver(next);
-    applyPaths(db, next, resolve);
+  if (!resolve) resolvers.set(db, (resolve = createLinkResolver(allPaths(db))));
+  if (added.length > 0 || removed.size > 0) {
+    for (const path of removed) resolve.remove(path);
+    for (const path of added) resolve.add(path);
+    try {
+      applyChanges(db, added, [...removed], resolve);
+    } catch (error) {
+      // The rows did not change: the resolver is ahead of them.
+      resolvers.delete(db);
+      throw error;
+    }
   }
 
   const indexNote = noteIndexer(db, root, resolve);

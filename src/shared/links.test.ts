@@ -308,3 +308,28 @@ describe('reserved Windows names', () => {
     }
   });
 });
+
+describe('a resolver that follows notes', () => {
+  it('resolves as one built from scratch after any additions and removals, ties included', () => {
+    const names = ['a', 'A', 'bb', 'Café', 'Cafe\u0301'];
+    const folders = ['', 'x/', 'y/', 'x/y/', 'long/'];
+    const every = folders.flatMap((folder) => names.map((name) => `${folder}${name}.md`));
+    const targets = [...every.map((path) => path.slice(0, -3)), 'a', 'y/a', 'missing', 'CAFÉ'];
+    let seed = 9;
+    const random = (n: number) => (seed = (seed * 48271) % 2147483647) % n;
+    const present = new Set<string>();
+    const resolver = createLinkResolver([]);
+    for (let step = 0; step < 600; step++) {
+      const path = every[random(every.length)]!;
+      if (present.delete(path)) resolver.remove(path);
+      else {
+        present.add(path);
+        resolver.add(path);
+      }
+      if (step % 20 !== 19) continue;
+      const fresh = createLinkResolver(present);
+      for (const target of targets) expect(resolver(target, 'x/a.md'), `${step} ${target}`).toEqual(fresh(target, 'x/a.md'));
+    }
+    resolver.remove('never/there.md');
+  });
+});
