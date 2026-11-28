@@ -3,6 +3,7 @@
 
 import { WebGL2Backend } from '../packages/graph/src/backend/webgl2.ts';
 import { boundsOf, fit, type Camera } from '../packages/graph/src/camera.ts';
+import { zoomView } from '../packages/graph/src/constellations.ts';
 import { buildScene, createStyle } from '../packages/graph/src/scene.ts';
 import type { PageJob, Percentiles, Sample } from './bench-graph.types.ts';
 
@@ -52,7 +53,8 @@ function pipeline(width: number, height: number, glow: number, pixelRatio: numbe
     output,
     draw(camera: Camera) {
       gl.bindFramebuffer(gl.FRAMEBUFFER, output.framebuffer);
-      backend.render({ width, height, pixelRatio, camera, glow });
+      const { coarse, fine } = zoomView(camera.zoom);
+      backend.render({ width, height, pixelRatio, camera, glow, constellations: { coarse, fine } });
     },
     destroy() {
       gl.deleteTexture(output.texture);
@@ -129,6 +131,9 @@ async function run(job: PageJob): Promise<{ edges: number; samples: Sample[] }> 
   const weights = new Float32Array(decode(job.weights));
   const positions = new Float32Array(decode(job.positions));
   backend.setGraph(buildScene({ nodeCount: job.nodeCount, edges, weights }));
+  // No communities are computed here: any color per node costs the same to splat.
+  const colors = Float32Array.from({ length: job.nodeCount }, (_, id) => id % STYLE.constellations.length);
+  backend.setColors(colors, colors);
   backend.setPositions(positions);
   const bounds = boundsOf(positions)!;
   // The upload alternates between two layouts, so that nothing can skip it as unchanged.

@@ -1,14 +1,27 @@
-// The WebGL2 backend: edges, then nodes over them, one instanced draw each.
+// The WebGL2 backend: the constellation glow, then edges, beams and nodes over it, one
+// instanced draw each.
 // `render` draws into whatever framebuffer is bound.
 
+import { BEAM_FRAGMENT, BEAM_VERTEX } from '../shaders/beam.ts';
+import { MAX_GLOW_COLORS } from '../shaders/glow.ts';
 import { EDGE_FRAGMENT, EDGE_VERTEX } from '../shaders/edge.ts';
 import { NODE_FRAGMENT, NODE_VERTEX } from '../shaders/node.ts';
 import { POSITION_TEXTURE_WIDTH } from '../shaders/positions.ts';
 import type { Backend, Frame, Scene, Style } from './backend.ts';
 import { Bloom } from './bloom.ts';
+import { ConstellationGlow } from './glow.ts';
 import { linkProgram, type Program } from './program.ts';
 
 const CORNERS = Float32Array.of(-1, -1, 1, -1, -1, 1, 1, 1);
+/** World radius a node lights in the glow of its constellation. */
+const GLOW_SPREAD = 200;
+/** Its limits, in pixels of the small image the glow is computed in. */
+const GLOW_PIXELS: [number, number] = [1.5, 12];
+const GLOW_OPACITY = 0.55;
+/** Half width of a beam, CSS pixels. */
+const BEAM_HALF_WIDTH = 1.2;
+
+type Level = 'coarse' | 'fine';
 
 export class WebGL2Backend implements Backend {
   readonly gl: WebGL2RenderingContext;
@@ -30,6 +43,16 @@ export class WebGL2Backend implements Backend {
   private placed = false;
   /** Made when a frame first asks for glow. */
   private bloom: Bloom | null = null;
+  private constellations: ConstellationGlow | null = null;
+  private readonly beams: Program;
+  private readonly beamEnds: WebGLBuffer;
+  private readonly beamProgress: WebGLBuffer;
+  private readonly beamArray: WebGLVertexArrayObject;
+  private readonly colors: Record<Level, WebGLBuffer>;
+  private readonly glowArrays: Record<Level, WebGLVertexArrayObject>;
+  /** Nodes the color buffers cover. */
+  private colored = 0;
+  private readonly palette: Float32Array;
 
   constructor(canvas: HTMLCanvasElement | OffscreenCanvas, style: Style) {
     const gl = canvas.getContext('webgl2', {
@@ -52,16 +75,29 @@ export class WebGL2Backend implements Backend {
     this.strengths = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, this.corners);
     gl.bufferData(gl.ARRAY_BUFFER, CORNERS, gl.STATIC_DRAW);
+    this.beams = linkProgram(gl, BEAM_VERTEX, BEAM_FRAGMENT);
+    this.beamEnds = gl.createBuffer();
+    this.beamProgress = gl.createBuffer();
+    this.beamArray = this.vertexArray(() => {
+      this.pairAttribute(this.beamEnds);
+      this.floatAttribute(2, this.beamProgress, 2);
+    });
+    this.colors = { coarse: gl.createBuffer(), fine: gl.createBuffer() };
+    const glowArray = (colors: WebGLBuffer) =>
+      this.vertexArray(() => {
+        this.floatAttribute(1, this.radii, 1);
+        this.floatAttribute(2, colors, 1);
+      });
+    this.glowArrays = { coarse: glowArray(this.colors.coarse), fine: glowArray(this.colors.fine) };
+    this.palette = new Float32Array(MAX_GLOW_COLORS * 3);
+    style.constellations.slice(0, MAX_GLOW_COLORS).forEach((color, i) => this.palette.set(color, i * 3));
 
     this.nodeArray = this.vertexArray(() => {
       this.floatAttribute(1, this.radii, 1);
       this.floatAttribute(2, this.states, 1);
     });
     this.edgeArray = this.vertexArray(() => {
-      gl.bindBuffer(gl.ARRAY_BUFFER, this.ends);
-      gl.enableVertexAttribArray(1);
-      gl.vertexAttribIPointer(1, 2, gl.UNSIGNED_INT, 0, 0);
-      gl.vertexAttribDivisor(1, 1);
+      this.pairAttribute(this.ends);
       this.floatAttribute(2, this.strengths, 1);
     });
   }
@@ -78,6 +114,7 @@ export class WebGL2Backend implements Backend {
     this.edgeCount = edgeCount;
     this.capacity = capacity;
     this.placed = false;
+    this.colored = 0;
 
     const upload = (buffer: WebGLBuffer, data: ArrayBufferView) => {
       gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
@@ -115,6 +152,15 @@ export class WebGL2Backend implements Backend {
     }
   }
 
+  setColors(coarse: Float32Array, fine: Float32Array): void {
+    const { gl } = this;
+    for (const [level, data] of [['coarse', coarse], ['fine', fine]] as const) {
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.colors[level]);
+      gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+    }
+    this.colored = Math.min(coarse.length, fine.length);
+  }
+
   setPositions(positions: Float32Array): void {
     const { gl, nodeCount } = this;
     if (positions.length !== nodeCount * 2) throw new RangeError('positions must hold two values per node');
@@ -135,24 +181,53 @@ export class WebGL2Backend implements Backend {
     const { glow = 0 } = frame;
     if (glow <= 0 || !this.placed || this.nodeCount === 0) {
       this.bloom?.release();
-      this.draw(frame);
+      this.draw(frame, gl.getParameter(gl.FRAMEBUFFER_BINDING) as WebGLFramebuffer | null);
       return;
     }
     // Whatever the caller bound gets the finished frame.
     const destination = gl.getParameter(gl.FRAMEBUFFER_BINDING) as WebGLFramebuffer | null;
     this.bloom ??= new Bloom(gl);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.bloom.begin(frame.width, frame.height, glow));
-    this.draw(frame);
+    const scene = this.bloom.begin(frame.width, frame.height, glow);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, scene);
+    this.draw(frame, scene);
     this.bloom.end(destination, glow, frame.pixelRatio, style.background);
   }
 
-  /** Edges, then nodes, into the bound framebuffer. */
-  private draw({ width, height, pixelRatio, camera }: Frame): void {
+  /** The glow of the constellations over what `into` holds. */
+  private glowBehind(frame: Frame, into: WebGLFramebuffer | null): void {
+    const { gl } = this;
+    const strengths = frame.constellations;
+    const levels = (['coarse', 'fine'] as const).filter((level) => (strengths?.[level] ?? 0) > 0.01);
+    // Without a color per node the draw would read past the buffers.
+    if (levels.length === 0 || this.style.constellations.length === 0 || this.colored < this.nodeCount) return;
+    this.constellations ??= new ConstellationGlow(gl);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, this.texture);
+    for (const level of levels) {
+      const opacity = strengths![level] * GLOW_OPACITY;
+      this.constellations.draw(into, frame.width, frame.height, opacity, ({ uniform }, width, height, scale) => {
+        gl.uniform1i(uniform('uPositions'), 0);
+        gl.uniform3f(uniform('uCamera'), frame.camera.x, frame.camera.y, frame.camera.zoom * frame.pixelRatio * scale);
+        gl.uniform2f(uniform('uViewport'), width, height);
+        gl.uniform1f(uniform('uSpread'), GLOW_SPREAD);
+        gl.uniform2f(uniform('uMinMaxSpread'), ...GLOW_PIXELS);
+        gl.uniform3fv(uniform('uPalette'), this.palette);
+        gl.bindVertexArray(this.glowArrays[level]);
+        gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, this.nodeCount);
+        gl.bindVertexArray(null);
+      });
+    }
+  }
+
+  /** The glow, edges, beams, then nodes, into `into`, which is bound. */
+  private draw(frame: Frame, into: WebGLFramebuffer | null): void {
+    const { width, height, pixelRatio, camera } = frame;
     const { gl, style } = this;
     gl.viewport(0, 0, width, height);
     gl.clearColor(...style.background, 1);
     gl.clear(gl.COLOR_BUFFER_BIT);
     if (!this.placed || this.nodeCount === 0) return;
+    this.glowBehind(frame, into);
 
     gl.enable(gl.BLEND);
     // Colors come premultiplied by alpha.
@@ -178,8 +253,22 @@ export class WebGL2Backend implements Backend {
       gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, this.edgeCount);
     }
 
+    const beams = frame.beams;
+    if (beams && beams.count > 0) {
+      use(this.beams);
+      gl.uniform1f(this.beams.uniform('uHalfWidth'), BEAM_HALF_WIDTH * pixelRatio);
+      gl.uniform3f(this.beams.uniform('uColor'), ...style.pulse);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.beamEnds);
+      gl.bufferData(gl.ARRAY_BUFFER, beams.ends, gl.STREAM_DRAW);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.beamProgress);
+      gl.bufferData(gl.ARRAY_BUFFER, beams.progress, gl.STREAM_DRAW);
+      gl.bindVertexArray(this.beamArray);
+      gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, beams.count);
+    }
+
     const { uniform } = this.nodes;
     use(this.nodes);
+    gl.uniform1f(uniform('uBreath'), frame.breath ?? 0);
     gl.uniform2f(uniform('uMinMaxRadius'), style.minNodeRadius * pixelRatio, style.maxNodeRadius * pixelRatio);
     gl.uniform1f(uniform('uBaseRadius'), style.nodeRadius);
     gl.uniform3f(uniform('uColor'), ...style.node);
@@ -191,10 +280,14 @@ export class WebGL2Backend implements Backend {
 
   destroy(): void {
     const { gl } = this;
-    for (const { program } of [this.nodes, this.edges]) gl.deleteProgram(program);
-    for (const buffer of [this.corners, this.radii, this.states, this.ends, this.strengths]) gl.deleteBuffer(buffer);
-    gl.deleteVertexArray(this.nodeArray);
-    gl.deleteVertexArray(this.edgeArray);
+    for (const { program } of [this.nodes, this.edges, this.beams]) gl.deleteProgram(program);
+    const buffers = [this.corners, this.radii, this.states, this.ends, this.strengths, this.beamEnds, this.beamProgress];
+    for (const buffer of [...buffers, this.colors.coarse, this.colors.fine]) gl.deleteBuffer(buffer);
+    for (const array of [this.nodeArray, this.edgeArray, this.beamArray, ...Object.values(this.glowArrays)]) {
+      gl.deleteVertexArray(array);
+    }
+    this.constellations?.destroy();
+    this.constellations = null;
     gl.deleteTexture(this.texture);
     this.bloom?.destroy();
     this.bloom = null;
@@ -211,6 +304,15 @@ export class WebGL2Backend implements Backend {
     instanced();
     gl.bindVertexArray(null);
     return array;
+  }
+
+  /** Location 1: two node ids per instance. */
+  private pairAttribute(buffer: WebGLBuffer): void {
+    const { gl } = this;
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribIPointer(1, 2, gl.UNSIGNED_INT, 0, 0);
+    gl.vertexAttribDivisor(1, 1);
   }
 
   private floatAttribute(location: number, buffer: WebGLBuffer, size: number, divisor = 1): void {
