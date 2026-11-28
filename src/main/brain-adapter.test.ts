@@ -12,6 +12,15 @@ describe('matchQuery', () => {
     expect(matchQuery('say "hi')).toBe('"say" """hi"*');
   });
 
+  test('a single letter or number is searched as a word, not as a prefix', () => {
+    expect(matchQuery('a')).toBe('"a"');
+    expect(matchQuery('plano 2')).toBe('"plano" "2"');
+    // The accent may come as a mark of its own: still one letter.
+    expect(matchQuery('é -')).toBe('"é"');
+    expect(matchQuery('de')).toBe('"de"*');
+    expect(matchQuery('v2')).toBe('"v2"*');
+  });
+
   test('asks for nothing when there is nothing to look for', () => {
     for (const typed of ['', '   ', '*', '"', '( ) - :']) expect(matchQuery(typed), typed).toBeNull();
   });

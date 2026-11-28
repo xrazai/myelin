@@ -17,16 +17,20 @@ const MAX_QUERY = 500;
 /**
  * The FTS5 query for what the user typed, or `null` if there is nothing to look for. Typed
  * text is never FTS5 syntax: each term is quoted, and the last one also matches as a
- * prefix, since it may not be finished.
+ * prefix, since it may not be finished. Not when it has a single letter or number: that
+ * prefix is in most notes, so it narrows nothing and costs the most (`a*`, 219 ms against
+ * 63 ms for the word alone at 100k notes).
  */
 export function matchQuery(typed: string): string | null {
   const terms = typed
     .slice(0, MAX_QUERY)
     .split(/\s+/)
     // The tokenizer keeps only letters and numbers: a term without them asks for nothing.
-    .filter((term) => /[\p{L}\p{N}]/u.test(term))
-    .map((term) => `"${term.replaceAll('"', '""')}"`);
-  return terms.length === 0 ? null : `${terms.join(' ')}*`;
+    .filter((term) => /[\p{L}\p{N}]/u.test(term));
+  const last = terms.at(-1);
+  if (last === undefined) return null;
+  const unfinished = (last.match(/[\p{L}\p{N}]/gu)?.length ?? 0) > 1;
+  return `${terms.map((term) => `"${term.replaceAll('"', '""')}"`).join(' ')}${unfinished ? '*' : ''}`;
 }
 
 /** Takes the markers out of a snippet, keeping where the matches were. */
