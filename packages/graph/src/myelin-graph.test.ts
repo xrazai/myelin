@@ -338,3 +338,35 @@ describe('pointing and focus', () => {
     now.mockRestore();
   });
 });
+
+describe('communities', () => {
+  const asked = (sent: ToWorker[]) => sent.flatMap((message) => (message.type === 'communities' ? [message] : []));
+
+  test('are computed once the graph is quiet, and ids and getCommunity follow', () => {
+    vi.useFakeTimers();
+    const { graph, sent, worker } = setup();
+    graph.setGraph({ nodeCount: 3, edges: Uint32Array.of(0, 1) });
+    graph.addEdges(Uint32Array.of(1, 2));
+    vi.advanceTimersByTime(999);
+    expect(asked(sent)).toHaveLength(0);
+    vi.advanceTimersByTime(1);
+    expect(asked(sent)).toHaveLength(1);
+    const seen: number[][] = [];
+    graph.on('communitiesChange', ({ levels }) => seen.push([...levels[0]!]));
+    worker.onmessage!({ data: { type: 'communities', run: asked(sent)[0]!.run, levels: [Uint32Array.of(0, 0, 0).buffer] } });
+    expect(seen).toEqual([[0, 0, 0]]);
+    expect(graph.getCommunity(0)).toMatchObject({ size: 3, level: 0 });
+    vi.useRealTimers();
+  });
+
+  test('a saved assignment is used at once, with nothing computed on load', () => {
+    vi.useFakeTimers();
+    const { graph, sent } = setup();
+    graph.setGraph({ nodeCount: 2, edges: Uint32Array.of(0, 1), communities: { levels: [Uint32Array.of(7, 7)] } });
+    vi.advanceTimersByTime(5000);
+    expect(asked(sent).filter((message) => message.graph.nodeCount > 0)).toHaveLength(0);
+    expect(graph.getCommunity(7)).toMatchObject({ size: 2 });
+    expect(() => graph.setGraph({ nodeCount: 2, edges: new Uint32Array(0), communities: { levels: [Uint32Array.of(1)] } })).toThrow(/one id per node/);
+    vi.useRealTimers();
+  });
+});

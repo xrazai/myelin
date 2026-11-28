@@ -24,6 +24,8 @@ export interface LayoutEvents {
    */
   layoutChange: (positions: Float32Array, status: LayoutStatus) => void;
   layoutError: (error: Error) => void;
+  /** The answer to `detectCommunities`: labels per level, the finest first. */
+  communities: (levels: Uint32Array[]) => void;
 }
 
 export interface GraphLayoutOptions extends LayoutOptions {
@@ -43,7 +45,9 @@ export class GraphLayout {
   private readonly listeners: { [K in keyof LayoutEvents]: Set<LayoutEvents[K]> } = {
     layoutChange: new Set(),
     layoutError: new Set(),
+    communities: new Set(),
   };
+  private communityRun = 0;
 
   constructor({ createWorker = defaultWorker, ...options }: GraphLayoutOptions = {}) {
     this.createWorker = createWorker;
@@ -92,6 +96,13 @@ export class GraphLayout {
     this.send({ type: 'relax', run: ++this.run, graph, options: this.options }, transfer);
   }
 
+  /** Detects communities in the worker; the latest request wins. The arrays are transferred. */
+  detectCommunities(graph: { nodeCount: number; edges: Uint32Array; weights?: Float32Array }): void {
+    this.worker ??= this.connect();
+    const transfer = [graph.edges, graph.weights].flatMap((array) => (array ? [array.buffer as ArrayBuffer] : []));
+    this.send({ type: 'communities', run: ++this.communityRun, graph }, transfer);
+  }
+
   /** Stops the current layout; no more events come from it. */
   stop(): void {
     this.run++;
@@ -100,6 +111,7 @@ export class GraphLayout {
 
   destroy(): void {
     this.run++;
+    this.communityRun++;
     this.worker?.terminate();
     this.worker = null;
     this.front = null;
@@ -129,6 +141,12 @@ export class GraphLayout {
   }
 
   private receive(message: FromWorker): void {
+    if (message.type === 'communities') {
+      if (message.run !== this.communityRun) return;
+      const levels = message.levels.map((buffer) => new Uint32Array(buffer));
+      for (const listener of this.listeners.communities) listener(levels);
+      return;
+    }
     // Late messages of a replaced or stopped layout.
     if (message.run !== this.run) return;
     if (message.type === 'error') {
