@@ -370,3 +370,41 @@ describe('communities', () => {
     vi.useRealTimers();
   });
 });
+
+describe('adaptive quality in the graph', () => {
+  /** Runs frames `gap` ms apart until none is asked for, and counts them. */
+  const runFrames = (gap: number) => {
+    let time = 0;
+    let count = 0;
+    while (frames.length > 0 && count < 500) {
+      const tasks = frames.splice(0) as ((at: number) => void)[];
+      time += gap;
+      for (const task of tasks) task?.(time);
+      count++;
+    }
+    return count;
+  };
+  const settle = (sent: ToWorker[], worker: LayoutWorker) => {
+    const start = sent.findLast((message) => message.type === 'start')!;
+    const buffer = Float32Array.of(0, 0, 100, 0).buffer;
+    worker.onmessage!({
+      data: { type: 'positions', run: start.run, buffer, iteration: 1, done: true, converged: true },
+    });
+  };
+
+  test.each([
+    [16, 0.5],
+    [30, 0.25],
+  ])('after the first layout, frames %i ms apart leave the glow at %d, and drawing stops', (gap, glow) => {
+    const { graph, sent, worker, backend } = setup();
+    resize(400, 300);
+    graph.setGraph(data());
+    settle(sent, worker);
+    const drawn = runFrames(gap);
+    expect(drawn).toBeGreaterThan(30);
+    expect(drawn).toBeLessThan(60);
+    expect(graph.glow).toBe(glow);
+    expect(backend().rendered.at(-1)!.glow).toBeGreaterThan(0);
+    graph.destroy();
+  });
+});

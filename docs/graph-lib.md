@@ -56,8 +56,10 @@ Drawing (`src/backend/`, `src/shaders/`):
 - `node scripts/bench.ts --graph`: GPU and CPU per frame and the weak-GPU estimate (a model, error up to ~2x; `scripts/gpu-profiles.json`).
 - For now the GPU budget applies to the whole-graph view only. Zoomed in (2x and more) it is over (GPU 1.7-3.2 ms at 100k): edge fill, #73.
 
-Adaptive quality, defaults chosen with that estimate (not implemented yet, #40; the bloom measured by the bench is a stand-in):
-- Bloom at 1/2 resolution; below 50 FPS go to 1/4, then off. Never drop nodes.
+Bloom and adaptive quality (done):
+- What is brighter than the background is blurred at a lower resolution and added back (`backend/bloom.ts`).
+- `glow: 'auto' | 0..1` (option) and `graph.glow` (the resolution in use). `'auto'`: 1/2; below about 50 FPS 1/4, then off; it does not go back up. Never drops nodes.
+- Speed is read only between frames drawn back to back: camera glides, and 40 frames once the first layout of a load ends (`quality.ts`).
 - Weak GPUs at 100k are bound by nodes and edges: turning the glow off does not bring them to 50 FPS.
 
 Data (done: incremental calls; `communities` comes with #42):

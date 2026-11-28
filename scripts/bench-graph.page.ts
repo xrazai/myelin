@@ -7,9 +7,6 @@ import { buildScene, createStyle } from '../packages/graph/src/scene.ts';
 import type { PageJob, Percentiles, Sample } from './bench-graph.types.ts';
 
 const WARMUP_FRAMES = 30;
-/** Blur radius of the stand-in bloom, in CSS pixels, at every bloom resolution. */
-const BLOOM_SIGMA = 6;
-const BLOOM_INTENSITY = 0.8;
 const STYLE = createStyle({
   background: '#0b0f0e',
   node: '#8a9992',
@@ -25,83 +22,6 @@ const timer = gl.getExtension('EXT_disjoint_timer_query_webgl2') as {
   TIME_ELAPSED_EXT: number;
   GPU_DISJOINT_EXT: number;
 } | null;
-
-// A STAND-IN for the bloom of the library, which does not exist yet: it is here so that the
-// cost of a glow at each resolution is measured and not guessed. Bright pass into a smaller
-// texture, separable Gaussian blur in two passes, additive composite over the frame.
-
-const FULLSCREEN = `#version 300 es
-out vec2 uv;
-void main() {
-  uv = vec2((gl_VertexID << 1) & 2, gl_VertexID & 2);
-  gl_Position = vec4(uv * 2.0 - 1.0, 0.0, 1.0);
-}`;
-
-const BRIGHT = `#version 300 es
-precision highp float;
-uniform sampler2D uImage;
-uniform vec2 uTexel; // of the source
-uniform float uTaps; // 1 or 2 per axis
-in vec2 uv;
-out vec4 color;
-void main() {
-  // Four bilinear taps cover the 4x4 source pixels behind a quarter resolution pixel.
-  vec3 sum = uTaps > 1.5
-    ? (texture(uImage, uv + uTexel * vec2(-1, -1)).rgb + texture(uImage, uv + uTexel * vec2(1, -1)).rgb +
-       texture(uImage, uv + uTexel * vec2(-1, 1)).rgb + texture(uImage, uv + uTexel * vec2(1, 1)).rgb) * 0.25
-    : texture(uImage, uv).rgb;
-  color = vec4(max(sum - 0.12, 0.0), 1.0);
-}`;
-
-/** Gaussian blur along one axis, two texels per fetch through bilinear filtering. */
-function blurShader(sigma: number): string {
-  const radius = Math.max(2, Math.ceil(sigma * 2));
-  const weights = Array.from({ length: radius + 2 }, (_, i) => (i > radius ? 0 : Math.exp(-(i * i) / (2 * sigma * sigma))));
-  const total = weights.reduce((sum, weight, i) => sum + (i === 0 ? weight : 2 * weight), 0);
-  const lines: string[] = [];
-  for (let i = 1; i <= radius; i += 2) {
-    const weight = weights[i]! + weights[i + 1]!;
-    const offset = (i * weights[i]! + (i + 1) * weights[i + 1]!) / weight;
-    lines.push(
-      `sum += (texture(uImage, uv + uStep * ${offset.toFixed(5)}).rgb + ` +
-        `texture(uImage, uv - uStep * ${offset.toFixed(5)}).rgb) * ${(weight / total).toFixed(7)};`,
-    );
-  }
-  return `#version 300 es
-precision highp float;
-uniform sampler2D uImage;
-uniform vec2 uStep;
-in vec2 uv;
-out vec4 color;
-void main() {
-  vec3 sum = texture(uImage, uv).rgb * ${(weights[0]! / total).toFixed(7)};
-  ${lines.join('\n  ')}
-  color = vec4(sum, 1.0);
-}`;
-}
-
-const COMPOSITE = `#version 300 es
-precision highp float;
-uniform sampler2D uImage;
-uniform sampler2D uBloom;
-in vec2 uv;
-out vec4 color;
-void main() {
-  color = vec4(texture(uImage, uv).rgb + texture(uBloom, uv).rgb * ${BLOOM_INTENSITY.toFixed(2)}, 1.0);
-}`;
-
-function program(fragment: string): WebGLProgram {
-  const result = gl.createProgram();
-  for (const [type, source] of [[gl.VERTEX_SHADER, FULLSCREEN], [gl.FRAGMENT_SHADER, fragment]] as const) {
-    const shader = gl.createShader(type)!;
-    gl.shaderSource(shader, source);
-    gl.compileShader(shader);
-    gl.attachShader(result, shader);
-  }
-  gl.linkProgram(result);
-  if (!gl.getProgramParameter(result, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(result) ?? 'link');
-  return result;
-}
 
 interface Target {
   width: number;
@@ -125,89 +45,18 @@ function target(width: number, height: number): Target {
   return { width, height, texture, framebuffer };
 }
 
-/** The targets and programs of one resolution and glow; `output` holds the finished frame. */
+/** The target of one resolution; `draw` leaves the finished frame, glow included, in it. */
 function pipeline(width: number, height: number, glow: number, pixelRatio: number) {
   const output = target(width, height);
-  const targets = [output];
-  const programs: WebGLProgram[] = [];
-  let bloom: ((scene: () => void) => void) | null = null;
-  if (glow > 0) {
-    const small = () => target(Math.round(width * glow), Math.round(height * glow));
-    const sceneTarget = target(width, height);
-    const first = small();
-    const second = small();
-    targets.push(sceneTarget, first, second);
-    const bright = program(BRIGHT);
-    const blur = program(blurShader(BLOOM_SIGMA * pixelRatio * glow));
-    const composite = program(COMPOSITE);
-    programs.push(bright, blur, composite);
-    const location = (of: WebGLProgram, name: string) => gl.getUniformLocation(of, name);
-    const brightTexel = location(bright, 'uTexel');
-    const brightTaps = location(bright, 'uTaps');
-    const brightImage = location(bright, 'uImage');
-    const blurStep = location(blur, 'uStep');
-    const blurImage = location(blur, 'uImage');
-    const compositeImage = location(composite, 'uImage');
-    const compositeBloom = location(composite, 'uBloom');
-    const pass = (into: Target, using: WebGLProgram, set: () => void) => {
-      gl.bindFramebuffer(gl.FRAMEBUFFER, into.framebuffer);
-      gl.viewport(0, 0, into.width, into.height);
-      gl.useProgram(using);
-      set();
-      gl.drawArrays(gl.TRIANGLES, 0, 3);
-    };
-    // Units 1 and 2: unit 0 is the backend's.
-    const bind = (unit: number, texture: WebGLTexture | null) => {
-      gl.activeTexture(gl.TEXTURE0 + unit);
-      gl.bindTexture(gl.TEXTURE_2D, texture);
-    };
-    bloom = (scene) => {
-      gl.bindFramebuffer(gl.FRAMEBUFFER, sceneTarget.framebuffer);
-      scene();
-      gl.disable(gl.BLEND);
-      pass(first, bright, () => {
-        bind(1, sceneTarget.texture);
-        gl.uniform1i(brightImage, 1);
-        gl.uniform2f(brightTexel, 1 / width, 1 / height);
-        gl.uniform1f(brightTaps, glow < 0.5 ? 2 : 1);
-      });
-      pass(second, blur, () => {
-        bind(1, first.texture);
-        gl.uniform1i(blurImage, 1);
-        gl.uniform2f(blurStep, 1 / first.width, 0);
-      });
-      pass(first, blur, () => {
-        bind(1, second.texture);
-        gl.uniform1i(blurImage, 1);
-        gl.uniform2f(blurStep, 0, 1 / first.height);
-      });
-      pass(output, composite, () => {
-        bind(1, sceneTarget.texture);
-        bind(2, first.texture);
-        gl.uniform1i(compositeImage, 1);
-        gl.uniform1i(compositeBloom, 2);
-      });
-      // No texture stays bound while it is drawn into.
-      for (const unit of [1, 2]) bind(unit, null);
-    };
-  }
   return {
     output,
     draw(camera: Camera) {
-      const scene = () => backend.render({ width, height, pixelRatio, camera });
-      if (bloom) {
-        bloom(scene);
-      } else {
-        gl.bindFramebuffer(gl.FRAMEBUFFER, output.framebuffer);
-        scene();
-      }
+      gl.bindFramebuffer(gl.FRAMEBUFFER, output.framebuffer);
+      backend.render({ width, height, pixelRatio, camera, glow });
     },
     destroy() {
-      for (const { texture, framebuffer } of targets) {
-        gl.deleteTexture(texture);
-        gl.deleteFramebuffer(framebuffer);
-      }
-      for (const each of programs) gl.deleteProgram(each);
+      gl.deleteTexture(output.texture);
+      gl.deleteFramebuffer(output.framebuffer);
     },
   };
 }
