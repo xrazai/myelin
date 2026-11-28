@@ -7,6 +7,7 @@ import { boundsOf, fit, pan, screenToWorld, zoomAt, type Camera } from './camera
 import { describeCommunity, keepIds, NO_COMMUNITY, type Assignment, type Community } from './communities.ts';
 import { HitGrid, type HitStyle } from './hit-grid.ts';
 import { drawLabels, placeLabels, type LabelStyle } from './labels.ts';
+import { AdaptiveQuality } from './quality.ts';
 import { attachControls } from './controls.ts';
 import { GraphLayout, type GraphLayoutOptions, type LayoutEvents } from './layout/graph-layout.ts';
 import { checkGraph, type LayoutOptions } from './layout/forceatlas2.ts';
@@ -28,6 +29,8 @@ const CLICK_SLOP = 4;
 const FOCUS_MS = 600;
 /** Focusing a node zooms in at least this much. */
 const FOCUS_ZOOM = 1;
+/** Frames drawn back to back after a load's layout, to learn how fast this GPU draws it. */
+const PROBE_FRAMES = 40;
 /** Communities are computed again once the graph has been quiet this long. */
 const COMMUNITIES_IDLE_MS = 1000;
 
@@ -48,6 +51,11 @@ export interface MyelinGraphOptions {
   /** `#rgb` or `#rrggbb`. */
   colors?: Partial<GraphColors>;
   layout?: LayoutOptions;
+  /**
+   * Bloom resolution as a share of the frame's, 0 for no glow. `'auto'` (the default)
+   * starts at 1/2 and, below about 50 FPS, goes to 1/4 and then off.
+   */
+  glow?: 'auto' | number;
   /** For bundlers that cannot follow the default worker URL, and for tests. */
   createWorker?: GraphLayoutOptions['createWorker'];
   /** For tests. */
@@ -116,6 +124,14 @@ export class MyelinGraph {
   /** The camera follows the graph until the user moves it. */
   private following = true;
   private frame = 0;
+  /** `null` with a fixed glow. */
+  private readonly quality: AdaptiveQuality | null;
+  private readonly fixedGlow: number;
+  /** When the last frame ran, if it asked for the next one itself; else `null`. */
+  private chained: number | null = null;
+  /** Frames still to draw back to back to measure the speed. */
+  private probe = 0;
+  private probed = false;
   private lost = false;
   private destroyed = false;
 
@@ -127,6 +143,10 @@ export class MyelinGraph {
     this.createBackend = () => factory(canvas, style);
     this.backend = this.createBackend();
     this.hitStyle = style;
+    const glow = options.glow ?? 'auto';
+    if (glow !== 'auto' && !(glow >= 0 && glow <= 1)) throw new RangeError('glow must be "auto" or between 0 and 1');
+    this.quality = glow === 'auto' ? new AdaptiveQuality() : null;
+    this.fixedGlow = glow === 'auto' ? 0 : glow;
     this.hits = new HitGrid(style);
     const { getLabel, labelCanvas } = options;
     if (getLabel && labelCanvas) {
@@ -324,6 +344,8 @@ export class MyelinGraph {
     this.communities = data.communities ? { levels: data.communities.levels.map((level) => level.slice()) } : null;
     this.nextCommunity = 0;
     this.layout.setGraph(data);
+    this.probe = 0;
+    this.probed = false;
     if (this.communities) this.layout.detectCommunities({ nodeCount: 0, edges: new Uint32Array(0) });
     else this.scheduleCommunities();
     this.full = { ids: null, running: true };
@@ -419,6 +441,11 @@ export class MyelinGraph {
     for (const listener of this.pointerListeners.communitiesChange) {
       listener({ levels: assignment.levels.map((level) => level.slice()) });
     }
+  }
+
+  /** The bloom resolution frames are drawn with now. */
+  get glow(): number {
+    return this.quality ? this.quality.glow : this.fixedGlow;
   }
 
   /** Where the camera is. Setting it stops it from following the layout. */
@@ -562,6 +589,11 @@ export class MyelinGraph {
     if (done) {
       this.full.running = false;
       this.fresh.clear();
+      // Once per load, with the whole graph in place.
+      if (this.quality && !this.probed) {
+        this.probed = true;
+        this.probe = PROBE_FRAMES;
+      }
     }
     this.showPositions();
   }
@@ -612,20 +644,35 @@ export class MyelinGraph {
   /** Draws at the next frame, once however often it is asked. */
   private invalidate(): void {
     if (this.frame || this.destroyed) return;
-    this.frame = requestAnimationFrame(() => this.draw());
+    this.frame = requestAnimationFrame((time) => this.draw(time));
   }
 
-  private draw(): void {
+  /** `time` is the frame's, absent when drawing outside an animation frame. */
+  private draw(time?: number): void {
+    // Only the interval after a frame that asked for this one tells how fast frames are.
+    if (this.quality && time !== undefined && this.chained !== null) this.quality.sample(time - this.chained);
+    this.chained = null;
     cancelAnimationFrame(this.frame);
     this.frame = 0;
     const { pixelWidth, pixelHeight, width } = this.size;
     if (this.lost || this.destroyed || pixelWidth === 0 || pixelHeight === 0) return;
     this.advanceGlide();
-    const frame = { width: pixelWidth, height: pixelHeight, pixelRatio: pixelWidth / width, camera: this.view };
+    const frame = {
+      width: pixelWidth,
+      height: pixelHeight,
+      pixelRatio: pixelWidth / width,
+      camera: this.view,
+      glow: this.glow,
+    };
     this.backend.render(frame);
     // The same camera, in the same frame: labels never float behind their nodes.
     this.drawLabelLayer(frame);
-    if (this.glide) this.invalidate();
+    const measuring = this.probe > 0;
+    if (measuring) this.probe--;
+    if (this.glide || measuring) {
+      this.invalidate();
+      this.chained = time ?? null;
+    }
   }
 
   /** A restored context is empty: everything is created and uploaded again. */

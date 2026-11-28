@@ -5,11 +5,8 @@ import { EDGE_FRAGMENT, EDGE_VERTEX } from '../shaders/edge.ts';
 import { NODE_FRAGMENT, NODE_VERTEX } from '../shaders/node.ts';
 import { POSITION_TEXTURE_WIDTH } from '../shaders/positions.ts';
 import type { Backend, Frame, Scene, Style } from './backend.ts';
-
-interface Program {
-  program: WebGLProgram;
-  uniform: (name: string) => WebGLUniformLocation | null;
-}
+import { Bloom } from './bloom.ts';
+import { linkProgram, type Program } from './program.ts';
 
 const CORNERS = Float32Array.of(-1, -1, 1, -1, -1, 1, 1, 1);
 
@@ -31,6 +28,8 @@ export class WebGL2Backend implements Backend {
   /** Nodes the position texture holds. */
   private capacity = 0;
   private placed = false;
+  /** Made when a frame first asks for glow. */
+  private bloom: Bloom | null = null;
 
   constructor(canvas: HTMLCanvasElement | OffscreenCanvas, style: Style) {
     const gl = canvas.getContext('webgl2', {
@@ -44,8 +43,8 @@ export class WebGL2Backend implements Backend {
     if (!gl) throw new Error('WebGL2 is not available');
     this.gl = gl;
     this.style = style;
-    this.nodes = this.link(NODE_VERTEX, NODE_FRAGMENT);
-    this.edges = this.link(EDGE_VERTEX, EDGE_FRAGMENT);
+    this.nodes = linkProgram(gl, NODE_VERTEX, NODE_FRAGMENT);
+    this.edges = linkProgram(gl, EDGE_VERTEX, EDGE_FRAGMENT);
     this.corners = gl.createBuffer();
     this.radii = gl.createBuffer();
     this.states = gl.createBuffer();
@@ -131,7 +130,24 @@ export class WebGL2Backend implements Backend {
     this.placed = true;
   }
 
-  render({ width, height, pixelRatio, camera }: Frame): void {
+  render(frame: Frame): void {
+    const { gl, style } = this;
+    const { glow = 0 } = frame;
+    if (glow <= 0 || !this.placed || this.nodeCount === 0) {
+      this.bloom?.release();
+      this.draw(frame);
+      return;
+    }
+    // Whatever the caller bound gets the finished frame.
+    const destination = gl.getParameter(gl.FRAMEBUFFER_BINDING) as WebGLFramebuffer | null;
+    this.bloom ??= new Bloom(gl);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.bloom.begin(frame.width, frame.height, glow));
+    this.draw(frame);
+    this.bloom.end(destination, glow, frame.pixelRatio, style.background);
+  }
+
+  /** Edges, then nodes, into the bound framebuffer. */
+  private draw({ width, height, pixelRatio, camera }: Frame): void {
     const { gl, style } = this;
     gl.viewport(0, 0, width, height);
     gl.clearColor(...style.background, 1);
@@ -180,6 +196,8 @@ export class WebGL2Backend implements Backend {
     gl.deleteVertexArray(this.nodeArray);
     gl.deleteVertexArray(this.edgeArray);
     gl.deleteTexture(this.texture);
+    this.bloom?.destroy();
+    this.bloom = null;
     this.texture = null;
     this.placed = false;
   }
@@ -201,36 +219,5 @@ export class WebGL2Backend implements Backend {
     gl.enableVertexAttribArray(location);
     gl.vertexAttribPointer(location, size, gl.FLOAT, false, 0, 0);
     gl.vertexAttribDivisor(location, divisor);
-  }
-
-  private link(vertexSource: string, fragmentSource: string): Program {
-    const { gl } = this;
-    const compile = (type: number, source: string) => {
-      const shader = gl.createShader(type)!;
-      gl.shaderSource(shader, source);
-      gl.compileShader(shader);
-      return shader;
-    };
-    const vertex = compile(gl.VERTEX_SHADER, vertexSource);
-    const fragment = compile(gl.FRAGMENT_SHADER, fragmentSource);
-    const program = gl.createProgram();
-    gl.attachShader(program, vertex);
-    gl.attachShader(program, fragment);
-    gl.linkProgram(program);
-    // A lost context fails everything; it is handled by its own event.
-    if (!gl.getProgramParameter(program, gl.LINK_STATUS) && !gl.isContextLost()) {
-      const log = [gl.getProgramInfoLog(program), gl.getShaderInfoLog(vertex), gl.getShaderInfoLog(fragment)];
-      throw new Error(`the shaders did not compile: ${log.filter(Boolean).join('\n')}`);
-    }
-    gl.deleteShader(vertex);
-    gl.deleteShader(fragment);
-    const locations = new Map<string, WebGLUniformLocation | null>();
-    return {
-      program,
-      uniform: (name) => {
-        if (!locations.has(name)) locations.set(name, gl.getUniformLocation(program, name));
-        return locations.get(name)!;
-      },
-    };
   }
 }

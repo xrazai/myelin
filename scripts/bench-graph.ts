@@ -11,7 +11,7 @@
 // in a hidden window of the repo's Electron. Needs a GPU. The whole graph is in view, which
 // draws every node and edge; zoomed views (ZOOMS) are measured over the same grid.
 //
-// Glow: the library has no bloom yet. A stand-in in the page measures its cost.
+// Glow: the library's bloom, at each of its resolutions.
 //
 // Budget (100k nodes, 2880x1800, glow at BUDGET_GLOW, p95): GPU <= 1.5 ms, CPU <= 4 ms.
 // Checked with the whole graph in view, only on the GPU it is stated for; exits with 1 when
@@ -371,7 +371,7 @@ export async function benchGraph(args: string[]): Promise<void> {
       ? 'gpu = EXT_disjoint_timer_query_webgl2; cpu = main thread submission; ms, median / p95'
       : 'NO TIMER QUERY: gpu is the wall time of a synced batch (submission included), not GPU time',
     'cpu and gpu: the worse of a still frame and one that uploads new positions first.',
-    'Glow is the bench stand-in bloom (the library has none yet).',
+    'Glow is the bloom of the library, at that resolution.',
   ];
   for (const graph of graphs) {
     lines.push(

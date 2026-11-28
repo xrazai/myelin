@@ -46,6 +46,8 @@ export interface Frame {
   /** Device pixels per CSS pixel. */
   pixelRatio: number;
   camera: Camera;
+  /** Bloom resolution as a share of the frame's; 0 or absent: no glow. */
+  glow?: number;
 }
 
 export interface Backend {
