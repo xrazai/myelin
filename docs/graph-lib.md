@@ -55,7 +55,7 @@ Drawing (`src/backend/`, `src/shaders/`):
 - Positions in one RG32F texture, read by node id: a layout update uploads only it; edge instances hold two ids and a strength.
 - Edge strength `w / (w + 1)` (weight 1 when absent) sets width (0.5-2 CSS px), opacity and color. Node radius grows with the square root of the degree, with a floor and a ceiling in pixels.
 - `node scripts/bench.ts --graph`: GPU and CPU per frame and the weak-GPU estimate (a model, error up to ~2x; `scripts/gpu-profiles.json`).
-- For now the GPU budget applies to the whole-graph view only. Zoomed in (2x and more) it is over (GPU 1.7-3.2 ms at 100k): edge fill, #73.
+- The GPU budget applies to the whole-graph view. Zoomed in (2x and more) it is over (1.8-2.9 ms p95 at 100k, 2880x1800), and stays so (#73): the cost is filling the pixels of the edges, which cross the whole view (x4: 86% of the pixels lit). Measured at x4, glow off, p95: as drawn 2.87 ms; edges not rasterized 0.45; no blending 2.44; 1 device px wide with no soft side 2.02; hardware `GL_LINES` 1.78. Nodes hardly count (2.80 without them). Even the cheapest lines are over, so the look is kept. Not tried: edges drawn at a lower resolution, which would blur them.
 
 Bloom and adaptive quality (done):
 - What is brighter than the background is blurred at a lower resolution and added back (`backend/bloom.ts`).
