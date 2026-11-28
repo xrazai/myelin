@@ -81,7 +81,7 @@ Effects and events:
 - `graph.on('nodeHover', (id) => ...)`: hover hit-test in `< 0.1ms` (spatial hash).
 - `graph.on('layoutChange', (positions, { iteration, done, converged }) => ...)`: lets the host persist positions (by its own keys). `positions` is only valid until the next event (its buffer returns to the worker): copy what you keep. `done` marks the last one.
 - `graph.on('communityHover' | 'communityClick' | 'communityDoubleClick', (communityId) => ...)` (done): where no node is, while a level glows; `getCommunity(id)` gives its level. `communityHover` gets `null` on leaving.
-- Communities (done, #42): Leiden (`layout/leiden.ts`) in the layout worker, 1 s after the graph goes quiet; `communitiesChange` gives `{ levels: Uint32Array[] }` by node id, finest first (`NO_COMMUNITY` for a removed slot). Ids are unique across levels and kept by largest overlap. `setGraph({ communities })` uses a saved assignment with nothing computed on load.
+- Communities (done, #42): Leiden (`layout/leiden.ts`) in the layout worker, 1 s after the graph goes quiet, where they also get the ids they had and their colors (`layout/communities-job.ts`); `communitiesChange` gives `{ levels: Uint32Array[] }` by node id, finest first (`NO_COMMUNITY` for a removed slot). Ids are unique across levels and kept by largest overlap. `setGraph({ communities })` uses a saved assignment with nothing computed on load.
 - `graph.getCommunity(id) => { level, size, members, topNodes, parent, children, neighbors: [{ id, weight }] }`: what the host needs for names, cards and "related subjects".
 - `graph.focusCommunity(id, { duration })`: camera fits the community (done).
 - `graph.on('communitiesChange', (assignment) => ...)`: lets the host persist the assignment.

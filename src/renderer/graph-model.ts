@@ -11,6 +11,42 @@ export interface GraphChanges {
   addNodes: { paths: string[]; positions: Float32Array };
 }
 
+/** Marks a node whose communities are not saved. */
+const UNSAVED = 0xfffffffe;
+
+/**
+ * Which nodes have communities that differ from the saved ones, so that a computation
+ * saves what it changed and not the whole vault.
+ */
+export class SavedCommunities {
+  private levels: Uint32Array[] | null = null;
+
+  /** What is saved, by node id: from a load, or `null` for nothing. */
+  reset(levels: Uint32Array[] | null): void {
+    this.levels = levels?.map((level) => level.slice()) ?? null;
+  }
+
+  /** A node that is new, or took the slot of another, has nothing saved. */
+  forget(ids: ArrayLike<number>): void {
+    for (const level of this.levels ?? []) {
+      for (let i = 0; i < ids.length; i++) if (ids[i]! < level.length) level[ids[i]!] = UNSAVED;
+    }
+  }
+
+  /** The nodes to save for `next`, which counts as saved from now on. */
+  changed(next: Uint32Array[]): number[] {
+    const before = this.levels;
+    const nodes: number[] = [];
+    // Another number of levels: every row has to say so.
+    const all = !before || before.length !== next.length;
+    for (let id = 0; id < next[0]!.length; id++) {
+      if (all || next.some((level, depth) => before![depth]![id] !== level[id])) nodes.push(id);
+    }
+    this.reset(next);
+    return nodes;
+  }
+}
+
 /** One edge per pair of notes, whatever the direction. */
 const pairKey = (a: number, b: number) => (a < b ? `${a},${b}` : `${b},${a}`);
 
@@ -119,12 +155,12 @@ export class GraphModel {
     return Uint32Array.from(pairs);
   }
 
-  /** Every note with its communities, from levels by node id. */
-  grouped(byId: Uint32Array[]): { paths: string[]; levels: Uint32Array[] } {
-    const entries = [...this.ids].filter(([, id]) => byId.every((level) => id < level.length));
+  /** The notes of these nodes with their communities, from levels by node id. */
+  grouped(byId: Uint32Array[], nodes: number[]): { paths: string[]; levels: Uint32Array[] } {
+    const known = nodes.filter((id) => this.paths[id] !== undefined);
     return {
-      paths: entries.map(([path]) => path),
-      levels: byId.map((level) => Uint32Array.from(entries, ([, id]) => level[id]!)),
+      paths: known.map((id) => this.paths[id]!),
+      levels: byId.map((level) => Uint32Array.from(known, (id) => level[id]!)),
     };
   }
 
