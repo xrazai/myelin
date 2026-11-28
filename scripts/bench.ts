@@ -12,6 +12,8 @@
 //           cold disk: the OS may still hold what was just written.
 //   warm    another new index over the same vault, whose notes this process has now read.
 //   reopen  the warm index again, nothing changed.
+//   open    the app's own open of that index (`watchVault` until `indexed`: watcher, scan and
+//           sync), in a process of its own, whose peak memory is saved as `openRssMB`.
 // `cold`, `warm` and `reopen` are `openIndex` + `syncIndex`, which scans the vault itself:
 // they include a scan and must not be added to `scan`.
 //
@@ -33,6 +35,7 @@ import { indexPath, openIndex, SCHEMA_VERSION, syncIndex, type SyncReport } from
 import { readNotePreview } from '../src/main/note-preview.ts';
 import { scanVault } from '../src/main/vault-scan.ts';
 import { search } from '../src/main/brain-adapter.ts';
+import { watchVault } from '../src/main/vault-watcher.ts';
 import { createNoteCache } from '../src/renderer/note-cache.ts';
 import { createNoteSearch } from '../src/renderer/note-search.ts';
 import { generateVault } from './gen-vault.ts';
@@ -43,7 +46,7 @@ export const FORMAT = 1;
 const SCRIPT = fileURLToPath(import.meta.url);
 const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
 const PHASES = ['cold', 'warm', 'reopen'] as const;
-export const METRICS = ['scanMs', 'coldMs', 'warmMs', 'reopenMs', 'hoverColdMs', 'hoverWarmMs', 'paletteMs', 'searchMs'] as const;
+export const METRICS = ['scanMs', 'coldMs', 'warmMs', 'reopenMs', 'hoverColdMs', 'hoverWarmMs', 'paletteMs', 'searchMs', 'openMs'] as const;
 
 /** What each metric measured, saved with the numbers. */
 const CONDITIONS: Record<Metric, string> = {
@@ -53,6 +56,7 @@ const CONDITIONS: Record<Metric, string> = {
     '(system Node) and not read since by the benchmark; not a cold disk: the OS may cache them.',
   warmMs: 'Another new index (scan included) over notes the measuring process has already read.',
   reopenMs: 'The warm index again with nothing changed (scan and mtime + size check).',
+  openMs: '`watchVault` on the warm index until `indexed`, nothing changed, in a new process.',
   hoverColdMs: 'Cold hover preview fetch from disk into NoteCache.',
   hoverWarmMs: 'Warm hover preview lookup from NoteCache.',
   searchMs: 'One vault search on the warm index: the slowest of a few queries (median of 5 each).',
@@ -72,6 +76,9 @@ interface Measurement {
   hoverWarmMs: number;
   paletteMs: number;
   searchMs: number;
+  openMs: number;
+  /** Peak resident memory of the process that only opened the vault. */
+  openRssMB: number;
   /** What `syncIndex` reported in each phase. */
   sync: Record<Phase, SyncReport>;
   /** Size of the closed index. */
@@ -183,8 +190,24 @@ function searchLatency(file: string): number {
   }
 }
 
+type Open = Pick<Measurement, 'openMs' | 'openRssMB'>;
+
+/** Runs in its own process, over an index that is up to date. */
+async function measureOpen(vault: string, file: string, notes: number): Promise<Open> {
+  const start = performance.now();
+  const watch = watchVault(vault, { openDb: async () => openIndex(file), emit: () => {} });
+  try {
+    check('reopen', await watch.indexed, notes);
+    const openMs = round(performance.now() - start);
+    // `maxRSS` is in KiB.
+    return { openMs, openRssMB: round(process.resourceUsage().maxRSS / 1024) };
+  } finally {
+    await watch.close();
+  }
+}
+
 /** Runs in its own process. `vault` must be freshly generated; `userData` must be empty. */
-async function measure(vault: string, userData: string, notes: number): Promise<Measurement> {
+async function measure(vault: string, userData: string, notes: number): Promise<Omit<Measurement, keyof Open>> {
   const [scanMs, tree] = await timed(() => scanVault(vault));
   const firstNote = (function findFirst(entries: typeof tree): string | null {
     for (const entry of entries) {
@@ -266,11 +289,12 @@ async function measureInChild(runtime: Runtime, vault: string, userData: string,
     binary = createRequire(import.meta.url)('electron') as unknown as string;
     env.ELECTRON_RUN_AS_NODE = '1';
   }
-  const { stdout } = await exec(binary, [SCRIPT, '--measure', vault, userData, String(notes)], {
-    env,
-    maxBuffer: 1024 * 1024,
-  });
-  return JSON.parse(stdout) as Measurement;
+  const run = async <T>(flag: string, target: string) => {
+    const { stdout } = await exec(binary, [SCRIPT, flag, vault, target, String(notes)], { env, maxBuffer: 1024 * 1024 });
+    return JSON.parse(stdout) as T;
+  };
+  const measured = await run<Omit<Measurement, keyof Open>>('--measure', userData);
+  return { ...measured, ...(await run<Open>('--measure-open', indexPath(userData, 'warm'))) };
 }
 
 function cpuTimes(): { idle: number; total: number } {
@@ -388,6 +412,7 @@ export function formatReport(report: BenchReport): string {
       '',
       `${notes} notes (vault ${vault.hash.slice(0, 8)}), ${runs.length} run(s), ` +
         `index ${round(runs.at(-1)!.dbBytes / 1e6)} MB, CPU busy before a run ${busy.min}-${busy.max}%`,
+      `open: peak memory ${stats(runs.map((run) => run.openRssMB)).median} MB`,
       `${'ms'.padEnd(10)}${['median', 'min', 'max', 'spread'].map((head) => head.padStart(10)).join('')}`,
     );
     for (const metric of METRICS) {
@@ -424,12 +449,19 @@ async function main(): Promise<void> {
       out: { type: 'string' },
       // Internal: the measuring process, with <vault> <userData> <notes>.
       measure: { type: 'boolean', default: false },
+      // Internal: the opening process, with <vault> <index file> <notes>.
+      'measure-open': { type: 'boolean', default: false },
     },
   });
 
   if (values.measure) {
     const [vault, userData, notes] = positionals;
     process.stdout.write(JSON.stringify(await measure(vault!, userData!, Number(notes))));
+    return;
+  }
+  if (values['measure-open']) {
+    const [vault, file, notes] = positionals;
+    process.stdout.write(JSON.stringify(await measureOpen(vault!, file!, Number(notes))));
     return;
   }
   if (positionals.length > 0) throw new Error(`unexpected argument: ${positionals[0]}`);
