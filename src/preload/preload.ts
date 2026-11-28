@@ -35,6 +35,7 @@ const api: MyelinApi = {
   deleteItem: call('deleteItem'),
   search: call('search'),
   getGraph: call('getGraph'),
+  getGraphChanges: call('getGraphChanges'),
   saveGraphPositions: call('saveGraphPositions'),
   saveGraphCommunities: call('saveGraphCommunities'),
   resumeUnload: call('resumeUnload'),

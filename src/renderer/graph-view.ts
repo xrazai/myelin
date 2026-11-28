@@ -2,7 +2,7 @@
 // links of the index, keeps it current, saves its positions by note path and wires its
 // events. Plain TS, outside Svelte's reactivity.
 import { MyelinGraph, type MyelinGraphOptions } from '@myelin/graph';
-import type { GraphSnapshot, MyelinApi } from '../shared/ipc';
+import type { GraphDelta, GraphSnapshot, MyelinApi } from '../shared/ipc';
 import { describeConstellation, type ConstellationInfo } from './constellation';
 import type { LinkPulse } from './editor/link-pulse';
 import { GraphModel } from './graph-model';
@@ -19,7 +19,7 @@ const ACTIVE_MS = 6000;
 
 export type GraphApi = Pick<
   MyelinApi,
-  'getGraph' | 'saveGraphPositions' | 'saveGraphCommunities' | 'onGraphChange' | 'onIndexing'
+  'getGraph' | 'getGraphChanges' | 'saveGraphPositions' | 'saveGraphCommunities' | 'onGraphChange' | 'onIndexing'
 >;
 
 /** What the view uses of `MyelinGraph`. */
@@ -177,27 +177,52 @@ export function createGraphView(options: GraphViewOptions): GraphView {
     });
   }
 
-  function apply(snapshot: GraphSnapshot): void {
+  function load(snapshot: GraphSnapshot): void {
     edited = new Map(snapshot.paths.map((path, i) => [path, snapshot.edited[i]!]));
-    if (!loaded) {
-      model.load(snapshot);
-      graph.setGraph({
-        nodeCount: snapshot.paths.length,
-        edges: snapshot.edges,
-        positions: snapshot.positions,
-        // Saved: the constellations are there at once.
-        communities: snapshot.communities ? { levels: snapshot.communities } : undefined,
-      });
-      loaded = true;
-      return;
-    }
-    const changes = model.diff(snapshot);
+    model.load(snapshot);
+    graph.setGraph({
+      nodeCount: snapshot.paths.length,
+      edges: snapshot.edges,
+      positions: snapshot.positions,
+      // Saved: the constellations are there at once.
+      communities: snapshot.communities ? { levels: snapshot.communities } : undefined,
+    });
+    loaded = true;
+  }
+
+  /** `true` if anything changed: a save that touches no link leaves the graph alone. */
+  function follow(delta: GraphDelta): boolean {
+    for (const path of delta.removed) edited.delete(path);
+    for (const [path, time] of delta.edited) edited.set(path, time);
+    const changes = model.apply(delta);
     if (changes.removeEdges.length > 0) graph.removeEdges(changes.removeEdges);
     if (changes.removeNodes.length > 0) graph.removeNodes(changes.removeNodes);
     const { paths, positions } = changes.addNodes;
     const ids = paths.length > 0 ? graph.addNodes(paths.length, { positions }) : new Uint32Array(0);
-    const pairs = model.assign(snapshot, paths, ids);
+    const pairs = model.assign(delta, paths, ids);
     if (pairs.length > 0) graph.addEdges(pairs);
+    return delta.edited.length > 0 || delta.removed.length > 0 || delta.removedEdges.length > 0 || pairs.length > 0;
+  }
+
+  /** The whole graph the first time, then what changed. `false`: nothing to show for it. */
+  async function read(): Promise<boolean> {
+    if (loaded) {
+      const delta = await api.getGraphChanges();
+      if (destroyed) return false;
+      if (delta) {
+        try {
+          return follow(delta);
+        } catch (error) {
+          // Out of step with the index: loaded again from scratch.
+          console.error('[graph] following the changes:', error);
+        }
+      }
+    }
+    // `null` while the vault is first indexed: the end of that asks again.
+    const snapshot = await api.getGraph();
+    if (destroyed || !snapshot) return false;
+    load(snapshot);
+    return true;
   }
 
   async function refresh(): Promise<void> {
@@ -209,14 +234,10 @@ export function createGraphView(options: GraphViewOptions): GraphView {
     try {
       do {
         again = false;
-        // `null` while the vault is first indexed: the end of that asks again.
-        const snapshot = await api.getGraph();
+        const changed = await read();
         if (destroyed) return;
-        if (snapshot) {
-          apply(snapshot);
-          firePulses();
-          options.onchange?.();
-        }
+        if (loaded) firePulses();
+        if (changed) options.onchange?.();
       } while (again);
     } catch (error) {
       console.error('[graph] reading the graph:', error);
