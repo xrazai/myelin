@@ -27,8 +27,8 @@ export const DEFAULT_COLORS: GraphColors = {
   constellations: ['#6f8fb0', '#b08f6f', '#7fa87f', '#a07fa8', '#b0a86f', '#6fa8a4'],
 };
 
-/** World radius of a node with no edges, in layout units. */
-export const NODE_RADIUS = 14;
+/** World radius of a node with no edges, in layout units. Linked notes settle about 20 apart. */
+export const NODE_RADIUS = 4;
 /** How much the square root of the degree adds to it. */
 const DEGREE_GROWTH = 0.35;
 
